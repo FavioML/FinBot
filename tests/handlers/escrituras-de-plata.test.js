@@ -225,6 +225,8 @@ function ordenDeEdicion(intencion, datos = {}) {
     case 'marcar_como_ingreso': return 'marcalo como ' + (datos.tipo_nuevo || 'ingreso');
     case 'dividir_gasto': return 'dividelo entre ' + (datos.partes != null ? datos.partes : 2);
     case 'duplicar_gasto': return 'duplicalo' + (datos.fecha ? ' para el ' + fechaHumana(datos.fecha) : '');
+    // Desde el 08-oct un mensaje vacío es una respuesta pelada y no mueve nada (lib/pedido-de-categoria.js).
+    case 'corregir_categoria': return 'pasalo a ' + (datos.categoria_nueva || 'otra categoria');
     default: return '';
   }
 }

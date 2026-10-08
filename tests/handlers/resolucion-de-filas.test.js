@@ -60,6 +60,8 @@ function postgrestFalso(filasIniciales) {
   };
 
   const filtro = (col, op, valor) => {
+    // `not.in.(…)`: lo usa `corregirTransaccionEspecifica` para no corregir dos veces la misma fila.
+    if (op === 'not') { const i = valor.indexOf('.'); const p = filtro(col, valor.slice(0, i), valor.slice(i + 1)); return (f) => !p(f); }
     if (op === 'ilike' || op === 'like') {
       const re = new RegExp('^' + valor.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/[%*]/g, '.*').replace(/_/g, '.') + '$', op === 'ilike' ? 'i' : '');
       return (f) => leer(f, col) != null && re.test(String(leer(f, col)));
@@ -207,6 +209,8 @@ require('../../services/spaces-split').shareCents = vi.fn(() => 10000);
 
 let pg;
 let dispatchIntent;
+// `corregir_multiple` parsea el mensaje con un LLM: acá devuelve lo que cada caso fije.
+let correccionesMultiples = vi.fn(async () => []);
 let servicios;
 function montar(filas) {
   pg = postgrestFalso(filas);
@@ -239,6 +243,7 @@ function ctx() {
     guardarReglaComercio: vi.fn(async () => ({ ok: true, destino: { categoria: 'Transporte', subcategoria: null } })),
     retroaplicarRegla: vi.fn(async () => 0),
     asegurarCategoriaUsuario: vi.fn(async () => null), crearSubcategoriaLibreUsuario: vi.fn(async () => null),
+    parsearCorreccionesMultiples: correccionesMultiples,
   };
 }
 const decir = async (intencion, msg, datos = {}) => {
@@ -1223,5 +1228,266 @@ describe('préstamos · la dirección la dice el verbo y el abono va a la deuda 
     await decir('abonar_deuda', 'Juan me pagó la mitad', { contraparte: 'Juan' });
     expect(pg.fila('deudas', 'd-juan').monto_pendiente).toBe(50);
     expect(pg.fila('deudas', 'd-juan-debo').monto_pendiente).toBe(40);
+  });
+});
+
+// ─── corregir_categoria · el monto elige la fila y una pregunta no escribe (08-oct-2026) ─────────
+//
+// Producción, usuario 90ba3e37 (25 y 27-sep): "si pero 11.40 a Salud" movió BOTICAS Y SALUD (S/ 15),
+// y dos PREGUNTAS movieron un gasto, guardaron la regla y la retroaplicaron a los nueve de IKF.
+// `datos` es lo que el clasificador manda con el historial encima (medido en el harness de prod
+// `qa-e2e/qa-corregir-categoria-fila.mjs`): el comercio del turno anterior y "Salud".
+
+describe('corregir_categoria · el monto dicho elige la fila; una pregunta no escribe', () => {
+  const IKF = 'IKF 38 SANTA ANITA 1';
+  const sembrar = () => montar({ transacciones: [
+    tx('t-ikf', IKF, '2026-10-02T12:00:00', { monto: 11.4, monto_pen: 11.4, categoria: 'Alimentación', subcategoria: 'Snacks' }),
+    tx('t-bot', 'BOTICAS Y SALUD', '2026-09-20T12:00:00', { monto: 15, monto_pen: 15, categoria: 'Alimentación', subcategoria: 'Snacks' }),
+    tx('t-centinela', IKF, '2026-09-15T12:00:00', { monto: 23, monto_pen: 23, categoria: 'Alimentación', subcategoria: 'Snacks' }),
+  ] });
+  const sinRegla = () => {
+    expect(ctxUsado.guardarReglaComercio, 'guardó una regla').not.toHaveBeenCalled();
+    expect(ctxUsado.retroaplicarRegla, 'retroaplicó').not.toHaveBeenCalled();
+  };
+  let ctxUsado;
+  const decirCon = async (msg, datos) => {
+    ctxUsado = ctx();
+    const d = await dispatchIntent({ intencion: 'corregir_categoria', msg, datos, usuario: USUARIO, from: '51999', ctx: ctxUsado });
+    return String(d.respuesta);
+  };
+
+  it('"si pero 11.40 a Salud" mueve SOLO el de 11.40, aunque el modelo traiga BOTICAS', async () => {
+    sembrar();
+    const resp = await decirCon('si pero 11.40 a Salud', { comercio: 'BOTICAS Y SALUD', categoria_nueva: 'Salud' });
+    expect(pg.fila('transacciones', 't-ikf').categoria).toBe('Salud');
+    expect(pg.fila('transacciones', 't-bot').categoria, 'movió BOTICAS').toBe('Alimentación');
+    expect(pg.fila('transacciones', 't-centinela').categoria, 'movió otro de IKF').toBe('Alimentación');
+    sinRegla();
+    expect(resp).toMatch(/IKF 38 SANTA ANITA 1/);
+    expect(resp).not.toMatch(/BOTICAS/);
+  });
+
+  it('con el monto en `datos` y no en un formato fuerte ("el de 23"), igual elige por monto', async () => {
+    sembrar();
+    await decirCon('el ikf de 23 era salud', { comercio: 'ikf', monto: 23, categoria_nueva: 'Salud' });
+    expect(pg.fila('transacciones', 't-centinela').categoria).toBe('Salud');
+    expect(pg.fila('transacciones', 't-ikf').categoria).toBe('Alimentación');
+    sinRegla();
+  });
+
+  it('dos gastos del mismo monto preguntan cuál, sin escribir', async () => {
+    montar({ transacciones: [
+      tx('t-a', 'Tambo', '2026-10-02T12:00:00', { monto: 11.4, monto_pen: 11.4 }),
+      tx('t-b', 'Oxxo', '2026-10-01T12:00:00', { monto: 11.4, monto_pen: 11.4 }),
+    ] });
+    const resp = await decirCon('el de 11.40 era salud', { categoria_nueva: 'Salud' });
+    expect(pg.escrituras('transacciones')).toEqual([]);
+    expect(resp).toMatch(/2 gastos de S\/ 11\.40/);
+    expect(resp).toMatch(/Tambo/);
+    expect(resp).toMatch(/Oxxo/);
+    sinRegla();
+  });
+
+  it('un monto que no tiene ningún gasto no escribe sobre el último', async () => {
+    sembrar();
+    const resp = await decirCon('el de 99.99 era salud', { categoria_nueva: 'Salud' });
+    expect(pg.escrituras('transacciones')).toEqual([]);
+    expect(resp).toMatch(/No encontré ningún gasto de S\/ 99\.99/);
+  });
+
+  it('"y lo de IKF 38 SANTA ANITA 1 ?" no escribe nada y dice dónde están', async () => {
+    sembrar();
+    const resp = await decirCon('y lo de IKF 38 SANTA ANITA 1 ?', { comercio: IKF, categoria_nueva: 'Salud' });
+    expect(pg.escrituras('transacciones')).toEqual([]);
+    sinRegla();
+    expect(resp).toMatch(/No moví nada/);
+    expect(resp).toMatch(/11\.40/);
+    expect(resp).toMatch(/Alimentación > Snacks/);
+  });
+
+  it('"a que te refieres con los 15 soles en boticas y salud?" no mueve el último (IKF)', async () => {
+    sembrar();
+    const resp = await decirCon('a que te refieres con los 15 soles en boticas y salud?', { categoria_nueva: 'Salud' });
+    expect(pg.escrituras('transacciones')).toEqual([]);
+    sinRegla();
+    expect(resp).toMatch(/BOTICAS Y SALUD/);
+    expect(resp).not.toMatch(/IKF/);
+  });
+
+  it('un "No" no re-mueve nada ni guarda la regla (13-ago)', async () => {
+    montar({ transacciones: [tx('t-taxi', 'taxi', '2026-10-02T12:00:00', { categoria: 'Salud' })] });
+    const resp = await decirCon('No', { comercio: 'taxi', categoria_nueva: 'Salud' });
+    expect(pg.escrituras('transacciones')).toEqual([]);
+    sinRegla();
+    expect(resp).toMatch(/No moví nada/);
+  });
+
+  it('dos montos van a corregir_multiple: cada uno mueve su fila', async () => {
+    montar({ transacciones: [
+      tx('t-c1', 'Cabify', '2026-10-02T12:00:00', { monto: 8.37, monto_pen: 8.37 }),
+      tx('t-c2', 'Cabify', '2026-10-01T12:00:00', { monto: 99.91, monto_pen: 99.91 }),
+    ] });
+    correccionesMultiples = vi.fn(async () => [
+      { comercio: 'cabify', monto: 8.37, categoria_nueva: 'Salud' },
+      { comercio: 'cabify', monto: 99.91, categoria_nueva: 'Educación' },
+    ]);
+    try {
+      await decirCon('el cabify de 8.37 era salud y el cabify de 99.91 era educación', { comercio: 'cabify', monto: 8.37, categoria_nueva: 'Salud' });
+    } finally { correccionesMultiples = vi.fn(async () => []); }
+    expect(pg.fila('transacciones', 't-c1').categoria).toBe('Salud');
+    expect(pg.fila('transacciones', 't-c2').categoria).toBe('Educación');
+    sinRegla();
+  });
+
+  // ── La revisión adversarial del 08-oct sobre la primera versión ──
+  it('la subcategoría con el nombre del comercio no hace caer al último ("el taxi era transporte", sub Taxi)', async () => {
+    montar({ transacciones: [
+      tx('t-ultimo', 'IKF', '2026-10-02T12:00:00'),
+      tx('t-taxi', 'taxi', '2026-09-30T12:00:00'),
+    ] });
+    await decirCon('el taxi era transporte', { comercio: 'taxi', categoria_nueva: 'Transporte', subcategoria_nueva: 'taxi' });
+    expect(pg.fila('transacciones', 't-taxi').categoria).toBe('Transporte');
+    expect(pg.fila('transacciones', 't-ultimo').categoria, 'movió el último').toBe('Otros');
+  });
+
+  it('mismo comercio NOMBRADO y mismo monto: el más reciente, sin bucle de preguntas', async () => {
+    montar({ transacciones: [
+      tx('t-u2', 'Uber', '2026-10-02T12:00:00'),
+      tx('t-u1', 'Uber', '2026-09-30T12:00:00'),
+    ] });
+    await decirCon('el uber de 20 era transporte', { comercio: 'uber', monto: 20, categoria_nueva: 'Transporte' });
+    expect(pg.fila('transacciones', 't-u2').categoria).toBe('Transporte');
+    expect(pg.fila('transacciones', 't-u1').categoria).toBe('Otros');
+    sinRegla();
+  });
+
+  it('un gasto en dólares se encuentra por los soles que muestra la app', async () => {
+    montar({ transacciones: [tx('t-nf', 'Netflix', '2026-10-02T12:00:00', { monto: 11.99, monto_pen: 44.9, moneda: 'USD' })] });
+    await decirCon('el netflix de 44.90 era suscripciones', { comercio: 'netflix', categoria_nueva: 'Suscripciones' });
+    expect(pg.fila('transacciones', 't-nf').categoria).toBe('Suscripciones');
+  });
+
+  it('el monto no elige un ingreso ("el de 1500 era salud" no mueve el sueldo)', async () => {
+    montar({ transacciones: [tx('t-sueldo', 'Sueldo', '2026-10-02T12:00:00', { monto: 1500, monto_pen: 1500, tipo: 'ingreso' })] });
+    await decirCon('el de 1500 soles era salud', { categoria_nueva: 'Salud' });
+    expect(pg.escrituras('transacciones')).toEqual([]);
+  });
+
+  it('en el muro, la pregunta no lista los gastos (leer lo cobra el muro)', async () => {
+    sembrar();
+    ctxUsado = ctx();
+    const enMuro = { ...USUARIO, plan: 'free', trial_estado: 'vencido' };
+    const d = await dispatchIntent({ intencion: 'corregir_categoria', msg: 'y lo de IKF 38 SANTA ANITA 1 ?', datos: { comercio: IKF, categoria_nueva: 'Salud' }, usuario: enMuro, from: '51999', ctx: ctxUsado });
+    expect(pg.escrituras('transacciones')).toEqual([]);
+    expect(String(d.respuesta)).toMatch(/No moví nada/);
+    expect(String(d.respuesta)).not.toMatch(/11\.40/);
+  });
+
+  it.each(['ya pe', 'nooo', '👍', 'y el ikf', 'xq lo moviste a salud', 'y lo de pollos a la brasa'])('%j no escribe', async (msg) => {
+    montar({ transacciones: [
+      tx('t-ultimo', IKF, '2026-10-02T12:00:00'),
+      tx('t-pollo', 'Pollos a la Brasa', '2026-09-30T12:00:00'),
+    ] });
+    await decirCon(msg, { comercio: /pollo/.test(msg) ? 'pollos a la brasa' : (/ikf/.test(msg) ? 'ikf' : 'IKF'), categoria_nueva: 'Salud' });
+    expect(pg.escrituras('transacciones')).toEqual([]);
+    sinRegla();
+  });
+
+  // ── La segunda revisión del 08-oct ──
+  it('"eso va en farmacia" con Farmacia Universal del historial no lo nombra (cae al último)', async () => {
+    montar({ transacciones: [
+      tx('t-ultimo', 'IKF', '2026-10-02T12:00:00'),
+      tx('t-fu', 'Farmacia Universal', '2026-09-30T12:00:00'),
+    ] });
+    await decirCon('eso va en farmacia', { comercio: 'Farmacia Universal', categoria_nueva: 'Salud', subcategoria_nueva: 'Farmacia' });
+    expect(pg.fila('transacciones', 't-fu').categoria, 'movió Farmacia Universal').toBe('Otros');
+    expect(pg.fila('transacciones', 't-ultimo').categoria).toBe('Salud');
+  });
+
+  it('"el uber de 20" con Uber 20.00 y 20.40 pregunta (centavos distintos); "20.00" elige el exacto', async () => {
+    montar({ transacciones: [
+      tx('t-2040', 'Uber', '2026-09-30T12:00:00', { monto: 20.4, monto_pen: 20.4 }),
+      tx('t-2000', 'Uber', '2026-09-20T12:00:00'),
+    ] });
+    const resp = await decirCon('el uber de 20 era transporte', { comercio: 'uber', monto: 20, categoria_nueva: 'Transporte' });
+    expect(pg.escrituras('transacciones')).toEqual([]);
+    expect(resp).toMatch(/20\.40/);
+    await decirCon('el uber de 20.00 era transporte', { comercio: 'uber', categoria_nueva: 'Transporte' });
+    expect(pg.fila('transacciones', 't-2000').categoria).toBe('Transporte');
+    expect(pg.fila('transacciones', 't-2040').categoria).toBe('Otros');
+  });
+
+  it('una fecha numérica ("del 15.09") no mueve el más reciente con regla: contesta dónde están', async () => {
+    sembrar();
+    const resp = await decirCon('el ikf del 15.09 era salud', { comercio: 'ikf', categoria_nueva: 'Salud' });
+    expect(pg.escrituras('transacciones')).toEqual([]);
+    sinRegla();
+    expect(resp).toMatch(/No moví nada/);
+    expect(resp).toMatch(/23\.00/);
+  });
+
+  // ── La tercera revisión del 08-oct ──
+  it('"de hoy en adelante lo de rappi va en delivery" no se pierde por la palabra "hoy"', async () => {
+    montar({ transacciones: [tx('t-r', 'Rappi', '2026-10-02T12:00:00')] });
+    await decirCon('de hoy en adelante lo de rappi va en delivery', { comercio: 'rappi', categoria_nueva: 'Delivery' });
+    expect(pg.fila('transacciones', 't-r').categoria).toBe('Delivery');
+    expect(ctxUsado.guardarReglaComercio).toHaveBeenCalled();
+  });
+
+  it('"no el de 11.40 no, el de 15 a salud" no elige el monto rechazado', async () => {
+    sembrar();
+    const resp = await decirCon('no el de 11.40 no, el de 15 a salud', { comercio: 'BOTICAS Y SALUD', monto: 15, categoria_nueva: 'Salud' });
+    expect(pg.escrituras('transacciones')).toEqual([]);
+    expect(resp).toMatch(/no moví nada/);
+  });
+
+  it('"salud" como respuesta suelta con BOTICAS Y SALUD del historial mueve el último, no BOTICAS', async () => {
+    sembrar();
+    await decirCon('salud', { comercio: 'BOTICAS Y SALUD', categoria_nueva: 'Salud' });
+    expect(pg.fila('transacciones', 't-bot').categoria, 'movió BOTICAS').toBe('Alimentación');
+    expect(pg.fila('transacciones', 't-ikf').categoria).toBe('Salud');
+  });
+
+  it('"lo pasaste a salud" (lo que hizo Neto) no escribe', async () => {
+    sembrar();
+    await decirCon('lo pasaste a salud', { categoria_nueva: 'Salud' });
+    expect(pg.escrituras('transacciones')).toEqual([]);
+    sinRegla();
+  });
+
+  it('en el muro, el empate por monto tampoco lista los gastos', async () => {
+    montar({ transacciones: [
+      tx('t-a', 'Tambo', '2026-10-02T12:00:00', { monto: 11.4, monto_pen: 11.4 }),
+      tx('t-b', 'Oxxo', '2026-10-01T12:00:00', { monto: 11.4, monto_pen: 11.4 }),
+    ] });
+    ctxUsado = ctx();
+    const d = await dispatchIntent({ intencion: 'corregir_categoria', msg: 'el de 11.40 era salud', datos: { categoria_nueva: 'Salud' },
+      usuario: { ...USUARIO, plan: 'free', trial_estado: 'vencido' }, from: '51999', ctx: ctxUsado });
+    expect(pg.escrituras('transacciones')).toEqual([]);
+    expect(String(d.respuesta)).not.toMatch(/Tambo|Oxxo/);
+  });
+
+  it('un gasto en soles cercano no tapa al gasto en dólares del comercio dicho', async () => {
+    montar({ transacciones: [
+      tx('t-tottus', 'Tottus', '2026-10-02T12:00:00', { monto: 45, monto_pen: 45 }),
+      tx('t-nf', 'Netflix', '2026-10-01T12:00:00', { monto: 11.99, monto_pen: 44.9, moneda: 'USD' }),
+    ] });
+    await decirCon('el netflix de 44.90 era suscripciones', { comercio: 'netflix', categoria_nueva: 'Suscripciones' });
+    expect(pg.fila('transacciones', 't-nf').categoria).toBe('Suscripciones');
+    expect(pg.fila('transacciones', 't-tottus').categoria).toBe('Otros');
+  });
+
+  it('control: "pasalo a salud?" es un pedido y mueve el último', async () => {
+    sembrar();
+    await decirCon('pasalo a salud?', { categoria_nueva: 'Salud' });
+    expect(pg.fila('transacciones', 't-ikf').categoria).toBe('Salud');
+  });
+
+  it('control: sin monto ni pregunta, "eso va en medicamentos" sigue moviendo el último', async () => {
+    sembrar();
+    await decirCon('eso no va alimentacion snacks, eso va en medicamentos', { comercio: 'BOTICAS Y SALUD', categoria_nueva: 'Salud' });
+    // BOTICAS salía "dicho" por la palabra Salud del destino; ahora no, y cae al último: IKF 11.40.
+    expect(pg.fila('transacciones', 't-bot').categoria).toBe('Alimentación');
+    expect(pg.fila('transacciones', 't-ikf').categoria).toBe('Salud');
   });
 });

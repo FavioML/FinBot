@@ -286,7 +286,43 @@ function avisoRestauracion(snapshotOk) {
     : '\n\n_Ojo: no pude guardar la copia de respaldo, así que este no lo voy a poder restaurar._';
 }
 
-const { resolverNombre, filasQueNombra, patronAmplio, listaNombres } = require('../../lib/resolver-nombre');
+const { resolverNombre, filasQueNombra, patronAmplio, listaNombres, mostrable } = require('../../lib/resolver-nombre');
+
+// ── `corregir_categoria` sin orden: se contesta, no se mueve (08-oct-2026) ─────────────────────
+const mostrableComercio = (t) => (t && t.comercio && !esComercioCentinela(t.comercio) ? mostrable(t.comercio) : 'gasto');
+const montoDeFila = (t) => (t.moneda === 'USD' ? '$' + parseFloat(t.monto || 0).toFixed(2) : 'S/ ' + parseFloat(t.monto_pen || t.monto || 0).toFixed(2));
+const categoriaDeFila = (t) => (t.categoria || 'Sin categoría') + (t.subcategoria ? ' > ' + t.subcategoria : '');
+const TOPE_LISTA = 5;
+function lineasDeGastos(filas, formatFecha) {
+  const lineas = filas.slice(0, TOPE_LISTA).map((t) => '• *' + mostrableComercio(t) + '* ' + montoDeFila(t)
+    + (t.fecha ? ' · ' + (formatFecha ? formatFecha(t.fecha) : t.fecha) : '') + ' · ' + categoriaDeFila(t));
+  if (filas.length > TOPE_LISTA) lineas.push('• y ' + (filas.length - TOPE_LISTA) + ' más');
+  return lineas.join('\n');
+}
+/**
+ * Responde una pregunta sobre un gasto ("a que te refieres con los 15 soles en boticas?") diciendo
+ * dónde está, sin tocarlo. Solo lee: con el monto y/o el comercio DICHOS, nunca el último.
+ */
+async function contestarSinMover(usuario, { comercio, monto, categoria, formatFecha }) {
+  const usuarioId = usuario.id;
+  const ejemploCat = categoria ? String(categoria).trim().charAt(0).toUpperCase() + String(categoria).trim().slice(1) : 'Comida';
+  const generico = 'No moví nada. Si quieres cambiar la categoría de un gasto, dime cuál y a dónde: _"el taxi de 8.50 va en ' + ejemploCat + '"_.';
+  // Listar los gastos es LEER, y leer lo cobra el muro: ahí solo se dice que no se movió nada.
+  if ((monto === null && !comercio) || estaEnMuro(usuario)) return generico;
+  const svc = require('../../services/transactions');
+  const leidas = monto !== null ? await svc.gastosConMonto(usuarioId, monto) : await svc.gastosDeComercio(usuarioId, comercio);
+  if (leidas.error) return generico;
+  const filas = monto !== null && comercio ? filasQueNombra(comercio, leidas.filas, { nombreDe: (t) => t.comercio || '' }) : leidas.filas;
+  if (filas.length === 0) return generico;
+  const como = (t) => '_"el ' + mostrableComercio(t) + ' de ' + parseFloat(t.monto || 0).toFixed(2) + ' va en ' + ejemploCat + '"_';
+  if (filas.length === 1) {
+    const t = filas[0];
+    return 'No moví nada. *' + mostrableComercio(t) + '* (' + montoDeFila(t) + (t.fecha ? ' · ' + (formatFecha ? formatFecha(t.fecha) : t.fecha) : '')
+      + ') está en *' + categoriaDeFila(t) + '*.\n\nSi quieres cambiarlo, escríbeme ' + como(t) + '.';
+  }
+  return 'No moví nada. Esto es lo que tengo:\n' + lineasDeGastos(filas, formatFecha)
+    + '\n\nSi quieres cambiar uno, dímelo con el monto: ' + como(filas[0]) + '.';
+}
 
 module.exports = {
   intents: ['registrar_manual', 'corregir_categoria', 'corregir_multiple', 'corregir_monto_moneda', 'eliminar_transaccion', 'editar_monto', 'editar_fecha', 'editar_comercio', 'editar_categoria_comercio', 'deshacer_ultimo', 'restaurar_eliminado', 'marcar_como_ingreso', 'dividir_gasto', 'duplicar_gasto'],
@@ -772,7 +808,46 @@ module.exports = {
           const catRaw = datos.categoria_nueva || datos.categoria || null;
           const _subRawTmp = datos.subcategoria_nueva || datos.subcategoria || null;
           const subRaw = (_subRawTmp && /^null$/i.test(String(_subRawTmp).trim())) ? null : _subRawTmp;
-          const comercioRaw = datos.comercio || null;
+          // Qué pide el mensaje, leído ANTES de escribir (08-oct-2026, `lib/pedido-de-categoria.js`).
+          // El comercio cuenta como dicho solo FUERA del destino: "si pero 11.40 a Salud" nombraba a
+          // "BOTICAS Y SALUD" por la palabra "Salud" y lo movía.
+          const pedido = require('../../lib/pedido-de-categoria');
+          const comercioRaw = pedido.comercioDichoFueraDelDestino(datos.comercio, msg, [catRaw, subRaw]) ? datos.comercio : null;
+          const montosDichos = pedido.montosEnMensaje(msg);
+          const montoModelo = pedido.montoDelModelo(datos.monto, msg, datos.comercio);
+          const montoPedido = montosDichos.length === 1 ? montosDichos[0] : montoModelo;
+          // "no el de 11.40 no, el de 15 a salud": el monto escrito con céntimos es el RECHAZADO, y el
+          // modelo trae el otro. Elegir cualquiera de los dos es adivinar (tercera revisión).
+          const montoDudoso = montoPedido !== null && (pedido.montoNegado(msg)
+            || (montosDichos.length === 1 && montoModelo !== null && Math.round(montoModelo * 100) !== Math.round(montosDichos[0] * 100)));
+          // Una pregunta ("a que te refieres con los 15 soles?") o una respuesta pelada ("No") nunca
+          // escribe: en prod las dos movieron un gasto, guardaron la regla y la retroaplicaron.
+          if (pedido.esPreguntaSinOrden(msg, datos.comercio) || pedido.esRespuestaPelada(msg)) {
+            log.info({ tag: 'CORREGIR_SIN_ORDEN', msg: String(msg || '').slice(0, 80) }, 'Pregunta o respuesta pelada: se contesta, no se mueve nada');
+            return await contestarSinMover(usuario, { comercio: comercioRaw, monto: montosDichos.length > 1 ? null : montoPedido, categoria: catRaw, formatFecha });
+          }
+          // Dos montos son dos correcciones ("el cabify de 8.37 era salud y el de 99.91 educación"):
+          // acá se perdía la segunda y la primera movía el más reciente con regla (ítem 45).
+          if (montosDichos.length > 1 && !pedido.montoNegado(msg)) {
+            log.info({ tag: 'CORREGIR_A_MULTIPLE', montos: montosDichos }, 'Varios montos: van a corregir_multiple');
+            // Por el registry y no llamando al handler: es el único camino de dispatch (muro y guardas).
+            const { dispatchIntent } = require('../intent-registry');
+            const otra = await dispatchIntent({ intencion: 'corregir_multiple', msg, datos, usuario, from, ctx });
+            return otra.respuesta;
+          }
+          // Una fecha numérica ("el ikf del 15.09") elige un gasto que esta rama no sabe buscar: caía al
+          // más reciente del comercio con regla. Se contesta dónde están, sin mover.
+          if (pedido.diceFecha(msg)) {
+            log.info({ tag: 'CORREGIR_CON_FECHA' }, 'Fecha numérica: se contesta, no se mueve nada');
+            return await contestarSinMover(usuario, { comercio: comercioRaw, monto: null, categoria: catRaw, formatFecha });
+          }
+          if (montoDudoso || montosDichos.length > 1) {
+            log.info({ tag: 'CORREGIR_MONTO_DUDOSO' }, 'Monto negado o en conflicto: se pregunta');
+            // El ejemplo nombra un comercio: con solo un monto ("el de 15.00"), copiarlo movía un gasto
+            // de 15 que la persona nunca nombró (cuarta revisión).
+            return 'No me quedó claro de cuál gasto hablas, así que no moví nada. Escríbeme solo el que va, con su comercio y su monto, por ejemplo _"el taxi de 8.50 va en '
+              + (catRaw ? String(catRaw).trim() : 'Salud') + '"_.';
+          }
           if (catRaw) {
             // B30: se resuelve UNA vez, acá arriba, y de acá sale todo lo demás — la fila que
             // se recategoriza, el árbol, la regla, la retroaplicación y el texto que lee el
@@ -791,7 +866,54 @@ module.exports = {
             const catLibre = resolverCategoriaPersistida(_catRawT.charAt(0).toUpperCase() + _catRawT.slice(1));
             const subLibre = subRaw ? subRaw.trim().charAt(0).toUpperCase() + subRaw.trim().slice(1) : null;
             let txActualizada = null;
-            if (comercioRaw) {
+            // Con un monto dicho, el monto ELIGE la fila (08-oct-2026). Es UN gasto: no guarda regla
+            // ni retroaplica, como `corregir_multiple`. "el IKF de 11.40 era salud" no dice nada de los
+            // otros gastos de IKF, y en prod la regla mandó los nueve a Salud.
+            let porMonto = false;
+            if (montoPedido !== null) {
+              const { gastosConMonto } = require('../../services/transactions');
+              // "20.00" escrito con céntimos pide ESE centavo; "20" admite el redondeo (medio sol).
+              const exacto = montosDichos.length === 1 && /\d[.,]\d{2}(?!\d)/.test(String(msg || ''));
+              const leidas = await gastosConMonto(usuario.id, montoPedido, { exacto });
+              if (leidas.error) return 'No pude buscar ese gasto ahora mismo. Vuelve a intentarlo en un momento.';
+              let filas = comercioRaw ? filasQueNombra(comercioRaw, leidas.filas, { nombreDe: (t) => t.comercio || '' }) : leidas.filas;
+              // Mismo comercio NOMBRADO y el MISMO centavo: por WhatsApp no hay cómo separarlos, y repetir
+              // la pregunta era un bucle (la frase sugerida volvía a preguntar). Va el más reciente, como
+              // `corregir_multiple` y como "el taxi era transporte" con varios taxis. Con centavos
+              // distintos (Uber 20.00 y 20.40 para "el uber de 20") se pregunta, y el monto exacto de la
+              // lista los separa. Comercios distintos también: el nombre los separa.
+              const mismaFila = (t) => normalizarOrden(t.comercio || '') + '|' + Math.round(parseFloat(t.monto || 0) * 100) + '|' + (t.moneda || 'PEN');
+              // De esas, la más reciente que NO esté ya en el destino: si no, "Listo" no cambiaba nada.
+              if (comercioRaw && filas.length > 1 && new Set(filas.map(mismaFila)).size === 1) {
+                filas = [filas.find((t) => t.categoria !== catLibre) || filas[0]];
+              }
+              const etiqueta = 'S/ ' + montoPedido.toFixed(2) + (comercioRaw ? ' de *' + comercioRaw + '*' : '');
+              if (filas.length === 0) {
+                return 'No encontré ningún gasto de ' + etiqueta + ', así que no moví nada.\n\n'
+                  + 'Escríbeme el monto como lo ves en la app, por ejemplo _"el ' + (comercioRaw || 'taxi') + ' de 8.50 va en ' + catLibre + '"_.';
+              }
+              if (filas.length > 1) {
+                if (filas.every((t) => !t.comercio || esComercioCentinela(t.comercio))) {
+                  return 'Tengo ' + filas.length + ' gastos de ' + etiqueta + ' sin nombre, así que no moví ninguno. Cámbialo desde la app, en Transacciones.';
+                }
+                // Listar los gastos es LEER, y leer lo cobra el muro (tercera revisión).
+                if (estaEnMuro(usuario)) {
+                  return 'Tengo ' + filas.length + ' gastos de ' + etiqueta + ', así que no moví ninguno. Dímelo con el comercio y el monto exacto, por ejemplo _"el taxi de 8.50 va en ' + catLibre + '"_.';
+                }
+                return 'Tengo ' + filas.length + ' gastos de ' + etiqueta + ':\n' + lineasDeGastos(filas, formatFecha)
+                  + '\n\n¿Cuál muevo a *' + catLibre + '*? Dímelo con el comercio y el monto exacto, por ejemplo _"el ' + mostrableComercio(filas[0]) + ' de ' + parseFloat(filas[0].monto || 0).toFixed(2) + ' va en ' + catLibre + '"_.';
+              }
+              txActualizada = filas[0];
+              const upd = { categoria: catLibre };
+              if (subLibre) upd.subcategoria = subLibre;
+              const { data: movidas, error: errMover } = await supabase.from('transacciones').update(upd).eq('id', txActualizada.id).select('id');
+              if (errMover) {
+                log.error({ tag: 'CORREGIR', err: errMover.message, txId: txActualizada.id }, 'No se pudo mover el gasto de categoría');
+                return 'No pude mover ese gasto ahora mismo. Vuelve a intentarlo en un momento.';
+              }
+              if (!movidas || movidas.length === 0) return 'Ese gasto ya no está. Puede que lo hayas eliminado hace un momento.';
+              porMonto = true;
+            } else if (comercioRaw) {
               const res = await recategorizarTransaccion(usuario.id, comercioRaw, catLibre, subLibre);
               if (res.ok) txActualizada = res.tx || { comercio: comercioRaw, monto: null, moneda: 'PEN' };
               if (!res.ok) return res.msg;
@@ -841,7 +963,7 @@ module.exports = {
             // comercio": la regla agarraría todos sus gastos sin nombre, y la respuesta afirmaba
             // haberlo aplicado (revisión adversarial del 01-oct). Se mueve sólo este gasto.
             const comercioReal = txActualizada?.comercio || comercioRaw;
-            const conRegla = !!comercioReal && !esComercioCentinela(comercioReal);
+            const conRegla = !porMonto && !!comercioReal && !esComercioCentinela(comercioReal);
             // La regla hacia ADELANTE se guarda siempre: es como Neto aprende, y la corrige la próxima
             // corrección. Reescribir el PASADO solo si el mensaje lo pide (02-oct-2026, decisión de
             // Favio): "Cambiar Plin de ricardo como taxi" movió ese pago y además todos los anteriores
@@ -858,8 +980,10 @@ module.exports = {
               ? '$' + parseFloat(txActualizada.monto || 0).toFixed(2) + (txActualizada.monto_pen ? ' (~S/' + parseFloat(txActualizada.monto_pen).toFixed(2) + ')' : '')
               : 'S/ ' + parseFloat(txActualizada.monto_pen || txActualizada.monto || 0).toFixed(2);
             const nombreMovido = txActualizada.comercio && !esComercioCentinela(txActualizada.comercio) ? txActualizada.comercio : 'el gasto';
-            return 'Listo! Movi *' + nombreMovido + '* (' + montoMostrar + ') a *' + catLibre + (subLibre ? ' > ' + subLibre : '') + '*.'
-              + (retroPedida ? '\n\n_Aplique el cambio a todos los pagos anteriores de ' + comercioReal + '._'
+            const fechaMovida = porMonto && txActualizada.fecha ? ' · ' + (formatFecha ? formatFecha(txActualizada.fecha) : txActualizada.fecha) : '';
+            return 'Listo! Movi *' + nombreMovido + '* (' + montoMostrar + fechaMovida + ') a *' + catLibre + (subLibre ? ' > ' + subLibre : '') + '*.'
+              + (porMonto && comercioReal && !esComercioCentinela(comercioReal) ? '\n\n_Solo ese gasto: los demás de ' + comercioReal + ' siguen donde estaban._'
+                : retroPedida ? '\n\n_Aplique el cambio a todos los pagos anteriores de ' + comercioReal + '._'
                 : conRegla ? '\n\n_Los próximos de ' + comercioReal + ' van a ' + catLibre + '. Si quieres mover también los anteriores, escríbeme "siempre pon ' + comercioReal + ' en ' + catLibre + '"._'
                 : '');
           }

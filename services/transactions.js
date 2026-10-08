@@ -629,6 +629,74 @@ async function corregirTransaccionEspecifica(usuarioId, comercio, monto, fecha, 
   return { ok: true, id: tx.id, fecha: tx.fecha || null, comercio: tx.comercio || comercio, monto: moneda === 'USD' ? tx.monto : (tx.monto_pen || tx.monto), moneda };
 }
 
+/**
+ * Los movimientos de UN monto, para que el monto dicho elija la fila en `corregir_categoria`
+ * (08-oct-2026). "si pero 11.40 a Salud" movía BOTICAS Y SALUD (S/ 15.00): el handler ignoraba el
+ * monto. No elige: devuelve TODAS las que calzan y el handler pregunta si son varias.
+ *
+ * Mismo criterio de monto que `corregirTransaccionEspecifica`: con céntimos escritos (o `exacto`), primero el mismo
+ * centavo y solo sin ninguno la tolerancia de medio sol; con un entero, directo la tolerancia.
+ *
+ * @returns {Promise<{ filas: object[] } | { error: 'ilegible'|'lectura' }>}
+ */
+async function gastosConMonto(usuarioId, monto, { exacto = false } = {}) {
+  const { monto: montoPedido, legible } = leerPedidoCorreccion(monto, null);
+  if (!legible || montoPedido === null) return { error: 'ilegible' };
+  const centavos = Math.round(montoPedido * 100);
+  // Por la columna que la persona ve: `monto` en soles y, si no hay ninguno, `monto_pen` de los
+  // gastos en dólares (la app muestra "S/ 44.90" para un Netflix de $11.99). Los ingresos no: la
+  // respuesta dice "ese gasto", y "el de 1500 era salud" movía el sueldo.
+  const buscar = async (columna, desde, hasta) => {
+    const { data, error } = await todasLasFilas((ini, fin, primera) => supabase.from('transacciones').select('*', primera ? { count: 'exact' } : undefined)
+      .eq('usuario_id', usuarioId).neq('tipo', 'ingreso').gt(columna, desde).lt(columna, hasta)
+      .order('fecha', { ascending: false }).order('created_at', { ascending: false }).order('id', { ascending: false }).range(ini, fin), (t) => t.id);
+    return { data: columna === 'monto_pen' && data ? data.filter((t) => t.moneda === 'USD') : data, error };
+  };
+  // `exacto`: la persona escribió los céntimos ("20.00"), así que primero ese centavo.
+  const conCentimos = exacto || centavos % 100 !== 0;
+  const leer = async (columna) => {
+    const tolerancia = () => buscar(columna, (centavos - TOLERANCIA_CENTAVOS) / 100, (centavos + TOLERANCIA_CENTAVOS) / 100);
+    let r = conCentimos ? await buscar(columna, (centavos - 1) / 100, (centavos + 1) / 100) : await tolerancia();
+    if (!r.error && conCentimos && (!r.data || r.data.length === 0)) r = await tolerancia();
+    return r;
+  };
+  // Las DOS columnas, siempre: con `monto_pen` solo de respaldo, un gasto en soles cercano (Tottus
+  // S/ 45) tapaba al Netflix de S/ 44.90 antes de que el handler filtrara por comercio.
+  const enSoles = await leer('monto');
+  const enDolares = enSoles.error ? { data: null, error: null } : await leer('monto_pen');
+  const error = enSoles.error || enDolares.error;
+  const vistos = new Set();
+  // Juntas, vuelven al orden de las dos lecturas (el handler toma la primera como la más reciente).
+  const clave = (t) => (t.fecha || '') + '|' + (t.created_at || '');
+  const data = error ? null : [...(enSoles.data || []), ...(enDolares.data || [])]
+    .filter((t) => !vistos.has(t.id) && vistos.add(t.id))
+    .sort((a, b) => (clave(a) < clave(b) ? 1 : clave(a) > clave(b) ? -1 : 0));
+  if (error) {
+    log.error({ tag: 'CORREGIR_POR_MONTO', usuarioId, monto, err: error.message }, 'No se pudo leer los movimientos de ese monto');
+    return { error: 'lectura' };
+  }
+  return { filas: data || [] };
+}
+
+/**
+ * Los movimientos de un comercio DICHO, para contestar una pregunta sin mover nada ("y lo de IKF ?").
+ * Misma resolución que `recategorizarTransaccion` (palabra entera, nunca subcadena), pero sin elegir.
+ *
+ * @returns {Promise<{ filas: object[] } | { error: 'lectura' }>}
+ */
+async function gastosDeComercio(usuarioId, comercio) {
+  const patron = patronAmplio(comercio);
+  if (!patron) return { filas: [] };
+  const { data, error } = await todasLasFilas((ini, fin, primera) => supabase.from('transacciones').select('*', primera ? { count: 'exact' } : undefined)
+    .eq('usuario_id', usuarioId).filter('comercio', 'imatch', patron)
+    .order('fecha', { ascending: false }).order('created_at', { ascending: false }).order('id', { ascending: false }).range(ini, fin), (t) => t.id);
+  if (error) {
+    log.error({ tag: 'CORREGIR_POR_COMERCIO', usuarioId, comercio, err: error.message }, 'No se pudo leer los movimientos del comercio');
+    return { error: 'lectura' };
+  }
+  return { filas: filasQueNombra(comercio, data || [], { nombreDe: (t) => t.comercio || '' }) };
+}
+
 // --- Reglas de comercio ---
 
 // Una regla PISA la categoria que dedujo la NLP (ver guardarTransaccion), asi que
@@ -799,7 +867,7 @@ async function retroaplicarRegla(usuarioId, comercio, categoria, subcategoria) {
 module.exports = {
   obtenerTipoCambio, TC_FALLBACK, tcEsInventado, convertirUsdAPen, tipoCambioDeLaFila, guardarTransaccion,
   obtenerGastosMes, obtenerGastosSemana, obtenerUltimaTransaccion,
-  recategorizarTransaccion, recategorizarPorId, corregirTransaccionEspecifica, leerPedidoCorreccion,
+  recategorizarTransaccion, recategorizarPorId, corregirTransaccionEspecifica, leerPedidoCorreccion, gastosConMonto, gastosDeComercio,
   guardarReglaComercio, buscarReglaComercio, retroaplicarRegla,
   DEDUP_WINDOW_MS,
   // Se exporta para poder probar la DECISIÓN sin montar el insert entero, igual que

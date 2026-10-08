@@ -1420,7 +1420,8 @@ describe('corregir_categoria', () => {
     const sb = makeSupabaseMock({ transacciones: [TX_BASE] });
     const ctx = buildCtx(sb);
     const res = await handler.handle({
-      intencion: 'corregir_categoria', msg: 'mueve eso a Gastos Hormiga',
+      // El comercio va en el mensaje: desde el 08-oct uno que el mensaje no nombra no elige la fila.
+      intencion: 'corregir_categoria', msg: 'mueve lo de Starbucks a Gastos Hormiga',
       datos: { categoria_nueva: 'Gastos Hormiga', comercio: 'Starbucks' }, usuario: USUARIO, from: '+51999', ctx,
     });
     expect(ctx.recategorizarTransaccion).toHaveBeenCalledWith('user-001', 'Starbucks', 'Gastos Hormiga', null);

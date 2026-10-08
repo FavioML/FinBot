@@ -110,7 +110,7 @@ describe('el muro tiene un solo camino de dispatch', () => {
   it('los cuatro dispatches conocidos siguen pasando por dispatchIntent', () => {
     const esperado = {
       [path.join('handlers', 'message-processor.js')]: 2,      // primario + continuación
-      [path.join('handlers', 'intents', 'transacciones.js')]: 2, // los dos redirects
+      [path.join('handlers', 'intents', 'transacciones.js')]: 3, // los dos redirects + varios montos → corregir_multiple
       [path.join('handlers', 'intents', 'presupuestos.js')]: 1,  // ver_balance → ver_presupuesto
       [path.join('handlers', 'intents', 'gastos.js')]: 1,        // categoría sin categoría → desglose del mes
     };
