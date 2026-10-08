@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
-const { direccionPrestamo, ladoDelPago, abonoDeDeudaExistente, enrutarPorVerbo } = require('../../lib/prestamos.js');
+const { direccionPrestamo, ladoDelPago, abonoDeDeudaExistente, enrutarPorVerbo, tipoPorDeber } = require('../../lib/prestamos.js');
 const pool = require('../nlp/pool.js');
 
 // La dirección de un préstamo la decide el verbo (07-oct-2026). Ver lib/prestamos.js.
@@ -146,6 +146,11 @@ describe('el abono a una deuda que ya existe', () => {
     ['Juan me pagó 1 de las 2 cuotas que me debía', null],
     // El plural impersonal es un ingreso (un empleador, un banco), no el abono de una persona.
     ['me pagaron 1500 que me debían del sueldo', null],
+    // "q" por "que" (08-oct): abona igual, y la duda con "q" también frena (tercera revisión: abonaba).
+    ['Juan me pagó 150 q me debía', 'me_deben'],
+    ['Juan jura q me pago los 200 q me debia', null],
+    ['Juan asegura q ya me pago lo q me debia', null],
+    ['mi hermana cree q le pagué lo q le debía', null],
   ];
   for (const [msg, esperado] of TABLA) {
     it(`${JSON.stringify(msg)} → ${esperado}`, () => {
@@ -242,6 +247,150 @@ describe('enrutarPorVerbo', () => {
       expect(r.datos.monto).toBe(150);
     }
   });
+  // Ítem 47 (08-oct-2026): medidos con el modelo real yendo a registrar_deuda (3 de 3), y escribían.
+  // El tipo del clasificador viene puesto: con null, "confía en el clasificador" los anotaba igual.
+  for (const msg of ['Le pedí a Juan que me preste 300', 'Juan quiere que le preste 500', 'Mi jefe me pidió que le preste 500',
+    'Mi papá le prestó 500 a mi tío', 'Rosa me va a prestar 800 el lunes', 'Juan nunca me prestó los 500 que me prometió',
+    'Tengo prestado 500 a Juan', 'Mañana le presto 200 a Juan', 'Juan me prestaba 100 cada mes',
+    // Segunda revisión del 08-oct: "dejo" sin tilde es "dejó" (otro) o presente; la primera versión lo
+    // leía como "yo le presté" y pisaba al clasificador.
+    'juan le dejo prestado 500 a mi primo', 'mi hermana le dejo prestado 200 a juan', 'le dejo prestado 200 a juan el lunes',
+    'no se si le dejo prestado 200 a juan', 'Yo le dejo prestado 300 a Juan',
+    // Tercera revisión: "q" es "que" también para el subjuntivo.
+    'Juan quiere q le preste 500', 'Mi jefe me pidió q le preste 500']) {
+    it(`registrar_deuda: un préstamo sin dirección pregunta: ${JSON.stringify(msg)}`, () => {
+      const r = enrutarPorVerbo({ intencion: 'registrar_deuda', datos: { contraparte: 'Juan', monto: 300, tipo: 'debo' }, msg });
+      expect(r.pregunta, JSON.stringify(r)).toMatch(/No anoté nada/);
+    });
+  }
+  // Un pago que YA ocurrió junto al préstamo pregunta aunque haya una sola cifra.
+  for (const msg of ['Juan me devolvió 150, le presté para su cumple', 'Me pagó Ana 80, se los presté el viernes',
+    'Le presté 300 a mi prima y me pagó la mitad', 'Le presté 300 y me la pagó', 'Le presté 300 a Juan y acaba de devolverme 100',
+    'Le presté 300 a Juan, ya me lo ha devuelto', 'Mi hermano me prestó 500 y le devolví todo', 'Le presté 200 a Juan y me yapeó 50',
+    'Le presté 300 a Juan y me pago 100',
+    // Primera revisión adversarial del 08-oct: la primera versión los dejaba pasar (anotaba el préstamo entero).
+    'Le presté 500 a Juan y el pagó la mitad', 'Le presté 300 a mi prima que ya me devolvio la mitad',
+    'Le presté 300 a Juan, que me devolvio cien', 'Juan me prestó 300 y ya le pase la mitad',
+    'Le presté 300 a mi prima y ya me regreso la mitad', 'Le presté 300 a mi prima y me envio la mitad',
+    'Le presté 300 a mi prima y me repuso la mitad', 'Le presté 300 a mi prima y ya me saldo la mitad',
+    'Le hice un prestamo de 500 a mi primo y ya me pagó la mitad', 'Juan me devolvio 150 del prestamo',
+    'Le presté 300 y me la pago', 'Juan me prestó 100 el viernes y ya le pague 50',
+    // Segunda revisión del 08-oct: la -i y la -e sin tilde de la primera persona son pretérito, y las
+    // marcas de tiempo también narran pasado.
+    'juan me presto 300 y la semana pasada le devolvi la mitad', 'juan me presto 300 y luego le devolvi la mitad',
+    'juan me presto 300, el mes pasado le abone la mitad', 'juan me presto 300 y el viernes le pague la mitad',
+    'juan me presto 300, cuando cobre le pague la mitad', 'le preste 300 a juan y la semana pasada pago la mitad',
+    'le preste 300 a juan y luego abono la mitad',
+    // El pago como sustantivo con artículo ("me hizo el pago") y "del prestamo" pegado al pago.
+    'le preste 300 a juan y me hizo el pago de la mitad', 'le preste 300 a juan y ya me hizo un abono',
+    'le preste 300 a juan y me hizo una transferencia por la mitad', 'juan me presto 300 y ya le hice el deposito de la mitad',
+    'juan me presto 300 y ya le hice un yape x la mitad', 'le preste 300 a juan y ya me dio la mitad del prestamo',
+    'juan me presto 300 y ya le di la mitad del prestamo', 'Le presté 300 a Juan y me está pagando de a pocos',
+    // Lo que se pregunta de más, aceptado: "cuando cobre" puede ser "cuando cobré".
+    'Le presté 300 a Juan, cuando cobre me devuelve',
+    // Tercera revisión del 08-oct: el sustantivo no dice la dirección, "para julio" no es un fin, y un
+    // infinitivo detrás de un auxiliar en pasado es un pago hecho.
+    'Le presté 300 a Juan y ya me cayó el yape de la mitad', 'le preste 300 a juan y ya me hizo el yape',
+    'le preste 300 a juan y ya me hizo yape', 'le preste 300 a juan y me hizo el pase de la mitad',
+    'le preste 300 a juan y ya me cayo el plin de la mitad', 'Le presté 300 a Juan en mayo y para julio me pagó la mitad',
+    'Juan me prestó 300 en mayo y para julio le pagué la mitad', 'Le presté 300 a Juan y ayer vino a devolverme la mitad',
+    'Le presté 300 a Juan y ya pudo pagarme la mitad', 'Juan me prestó 300 y ayer fui a pagarle la mitad',
+    'Le presté 300 a Juan y su mamá ya vino a pagarme la mitad',
+    // Cuarta revisión: con dueño, lo pagado puede ser la devolución; y "regresó" sin preposición es un pago.
+    'Le presté 300 a Juan y ya pagó mi alquiler', 'Le presté 300 a Juan, con eso pagó mi alquiler',
+    'Mi hermano me prestó 500 y ya pagué su tarjeta', 'Juan me prestó 500 y ya pagué la tarjeta de Juan',
+    'Le presté 300 a Juan y ya regresó la mitad', 'Juan me prestó 300 y ya regresé la mitad']) {
+    it(`registrar_deuda: préstamo + pago hecho pregunta: ${JSON.stringify(msg)}`, () => {
+      const r = enrutarPorVerbo({ intencion: 'registrar_deuda', datos: { contraparte: 'Juan', monto: 300, tipo: 'me_deben' }, msg });
+      expect(r.pregunta, JSON.stringify(r)).toMatch(/No cambié nada/);
+    });
+  }
+  // Lo que NO es un pago hecho no pregunta. Las dos primeras son mensajes reales de prod (`conversaciones`,
+  // 21-ago-2026), bien leídas antes del cambio: "preguntar siempre que haya un verbo de pago" las rompía.
+  for (const [msg, tipo] of [
+    ['preste 302 soles a mi madre y me lo devolvera el lunes de la siguiente semana', 'me_deben'],
+    ['no le debo ella me debe por wso te puse que yo le preste a ella 302 soles que ella me devolvera el lunes', 'me_deben'],
+    ['Le presté 200 a Juan para que pague su luz', 'me_deben'],
+    ['Mi mamá me prestó 200 para pagar la luz', 'debo'],
+    ['Le presté 300 a Juan por yape', 'me_deben'],
+    ['Le presté 300 a Juan y no me ha devuelto nada', 'me_deben'],
+    ['Le presté 300 a Juan y todavía no me paga', 'me_deben'],
+    ['Juan me prestó 100 para el pago del recibo', 'debo'],
+    ['Juan me prestó 500, le voy a devolver en marzo', 'debo'],
+    ['Le presté 300 a Ana, me devolverá el viernes', 'me_deben'],
+    ['Le di prestado 500 a mi primo', 'me_deben'],
+    ['Le dejé prestado 300 a Ana', 'me_deben'],
+    ['Juan me dio prestado 200', 'debo'],
+    ['Mi tía me dejó prestado 300', 'debo'],
+    // Primera revisión adversarial del 08-oct: HEAD los anotaba bien y la primera versión preguntaba.
+    // Un presente con una marca de tiempo por venir no es un pago hecho:
+    ['Le presté 300 a Juan, me paga el viernes', 'me_deben'],
+    ['Le presté 300 a Juan, me lo devuelve la otra semana', 'me_deben'],
+    ['preste 302 soles a mi madre y me lo devuelve el lunes', 'me_deben'],
+    ['Juan me prestó 100, le pago mañana', 'debo'],
+    ['Juan me prestó 500 y le pago en cuotas', 'debo'],
+    ['Mi primo me presto 100 lucas para mi pasaje, le devuelvo el sabado', 'debo'],
+    ['Le presté 300 a Juan, cobra el viernes', 'me_deben'],
+    ['Le presté 300 a Juan porque le pagan a fin de mes', 'me_deben'],
+    // La ENTREGA del préstamo (misma dirección que el préstamo) no es un pago:
+    ['Juan me presto 200 x yape', 'debo'],
+    ['Juan me prestó 200, me los yapeo ayer', 'debo'],
+    ['Le presté 300 a Juan, se los transferí', 'me_deben'],
+    ['Le presté 500 a mi primo, se lo deposite', 'me_deben'],
+    ['Rosa me presto 500, me los dio en efectivo', 'debo'],
+    // "dar/dejar prestado" con el monto en medio, y en presente:
+    ['Le di 200 prestado a Juan', 'me_deben'],
+    ['Juan me dio 200 prestado', 'debo'],
+    ['le dí prestado 200 a juan', 'me_deben'],
+    ['le e prestado 200 a juan', 'me_deben'],
+    ['le preste 300 a juan pa q pague su luz', 'me_deben'],
+    ['juan me presto 300 y le pago apenas me paguen', 'debo'],
+    // Lo que se pagó CON la plata prestada no es la devolución (tercera revisión: preguntaba).
+    ['Juan me prestó 500 y pagué la luz', 'debo'],
+    ['Juan me prestó 500, con eso cancelé mi tarjeta', 'debo'],
+    ['Me prestó mi primo 500 y pagué el alquiler', 'debo'],
+    ['Le presté 300 a Juan porque me da pena', 'me_deben'],
+    ['Le presté 300 a Juan que regresó de viaje', 'me_deben'],
+  ]) {
+    it(`registrar_deuda: ${JSON.stringify(msg)} → ${tipo}`, () => {
+      const r = enrutarPorVerbo({ intencion: 'registrar_deuda', datos: { contraparte: 'Juan', monto: 300 }, msg });
+      expect(r.pregunta, r.pregunta).toBeUndefined();
+      expect(r.datos.tipo).toBe(tipo);
+    });
+  }
+  it('el sustantivo "préstamo" sin verbo no pregunta en el router (lo resuelve el tipo del clasificador o el handler)', () => {
+    const datos = { contraparte: 'primo', monto: 500, tipo: 'me_deben' };
+    expect(enrutarPorVerbo({ intencion: 'registrar_deuda', datos, msg: 'Le hice un préstamo de 500 a mi primo' })).toEqual({ intencion: 'registrar_deuda', datos });
+  });
+  // Un préstamo como sustantivo o un verbo habitual con una deuda dicha en primera persona: decide el
+  // clasificador, como antes (primera revisión del 08-oct: la primera versión los preguntaba).
+  for (const msg of ['Le debo 500 a Juan por prestamos', 'Debo 2000 en prestamos a mi tio', 'Juan me debe 200 del prestamito',
+    'Juan me debe 300, siempre le presto', 'Mi hermana siempre me presta, ahora le debo 200']) {
+    it(`registrar_deuda: no pregunta ${JSON.stringify(msg)}`, () => {
+      const datos = { contraparte: 'Juan', monto: 200, tipo: 'debo' };
+      expect(enrutarPorVerbo({ intencion: 'registrar_deuda', datos, msg })).toEqual({ intencion: 'registrar_deuda', datos });
+    });
+  }
+  it('tipoPorDeber: lo negado no cuenta, las dos direcciones no deciden', () => {
+    expect(tipoPorDeber('ya no me deben nada pero yo le debo 200 a Juan')).toBe('debo');
+    expect(tipoPorDeber('A mi me deben un monton pero yo le debo 300 a Rosa')).toBe(null);
+    expect(tipoPorDeber('Le quedo debiendo 100 a Juan')).toBe('debo');
+    // Solo el presente: "me debía… pero ya me pagó" es una deuda que ya no existe (segunda revisión).
+    expect(tipoPorDeber('Pedro me debía 150 de la cena')).toBe(null);
+    expect(tipoPorDeber('Juan me debia 300 pero ya me pago')).toBe(null);
+    // "debo + infinitivo" es una obligación, no una deuda.
+    expect(tipoPorDeber('Pedro, 150 de la cena, se lo debo cobrar el viernes')).toBe(null);
+    expect(tipoPorDeber('Juan me debe 300, debo cobrarle el lunes')).toBe('me_deben');
+    expect(tipoPorDeber('nadie me debe nada pero yo le debo 300 a juan')).toBe('debo');
+    expect(tipoPorDeber('Juan me debe 50')).toBe('me_deben');
+    expect(tipoPorDeber('deuda con Juan 200')).toBe(null);
+  });
+  it('"no le di prestado" y "que le deje prestado" no dicen dirección', () => {
+    expect(direccionPrestamo('no le di prestado 500 a mi primo')).toBe(null);
+    expect(direccionPrestamo('Juan quiere que le deje prestado 500')).toBe(null);
+    expect(direccionPrestamo('Juan le dio prestado 500 a Pedro')).toBe(null);
+  });
+
   it('fuera de los intents que registran no toca nada', () => {
     for (const intencion of ['ver_deudas', 'marcar_deuda_pagada', 'saldar_todo_contraparte', 'consolidar_deudas', 'eliminar_transaccion']) {
       const datos = { contraparte: 'Juan' };

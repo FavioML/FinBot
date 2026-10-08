@@ -10,7 +10,33 @@ const { normalizar } = require('../../lib/orden-edicion');
 // Pura (no toca la base): con quién es la deuda nombrada. Ver services/debts.js.
 const { resolverContraparte } = require('../../services/debts');
 // La dirección de un préstamo y el lado de un pago los dice el verbo (07-oct-2026). Ver lib/prestamos.js.
-const { direccionPrestamo, preguntaDireccionPrestamo, preguntaSinContraparte, preguntaSinDeuda } = require('../../lib/prestamos');
+const {
+  direccionPrestamo, prestamoSinDireccion, tipoPorDeber, nombraPrestamoAlgo, refiereDeudaExistente,
+  preguntaDireccionPrestamo, preguntaDireccionDeuda, preguntaPrestamoSinDireccion, preguntaSinContraparte, preguntaSinDeuda,
+} = require('../../lib/prestamos');
+
+// "1,500" y "1.500" son mil quinientos (separador de miles); "12,50" y "12.50", doce con cincuenta.
+// Con `replace(',', '.')` a secas "Le presté 1,500 dólares" leía 1.5 (revisión del 08-oct).
+// Y los separadores mezclados (cuarta revisión): "1,500.50" y "12.345,67".
+function leerCifra(crudo) {
+  const c = String(crudo);
+  if (/^\d{1,3}(?:,\d{3})+(?:\.\d+)?$/.test(c)) return c.replace(/,/g, '');
+  if (/^\d{1,3}(?:\.\d{3})+(?:,\d+)?$/.test(c)) return c.replace(/\./g, '').replace(',', '.');
+  return c.replace(',', '.');
+}
+
+// ¿Es la misma persona? Nombre entero, o todas las palabras del más corto dentro del más largo
+// ("Juan" y "Juan Pérez"). Solo decide NO escribir una deuda repetida, así que ser más ancho que la
+// comparación exacta de la corrección de la opuesta (que BORRA) cae del lado seguro.
+function mismaPersona(a, b) {
+  const x = normalizar(a);
+  const y = normalizar(b);
+  if (!x || !y) return false;
+  if (x === y) return true;
+  const [corto, largo] = x.length <= y.length ? [x, y] : [y, x];
+  const palabras = new Set(largo.split(' '));
+  return corto.split(' ').every((w) => palabras.has(w));
+}
 
 /**
  * Las cuatro formas de pedir una PARTE de lo que se debe ("la mitad", "un tercio", "40%").
@@ -47,7 +73,15 @@ module.exports = {
           // revés. Lo ambiguo ("me presté", "preste" sin tilde y sin pronombre) se pregunta.
           const dirVerbo = direccionPrestamo(msg);
           if (dirVerbo === 'ambiguo') return preguntaDireccionPrestamo(msg);
-          const tipo = dirVerbo || datos.tipo || (/\bme debe\b/i.test(msg) ? 'me_deben' : 'debo');
+          // Un verbo de prestar sin dirección es lo negado, lo que no pasó todavía o lo de terceros: no se
+          // anota (ítem 47, 08-oct-2026). Misma regla que `enrutarPorVerbo`, repetida porque este case escribe.
+          if (prestamoSinDireccion(msg)) return preguntaPrestamoSinDireccion(msg);
+          // Sin verbo, sin tipo del clasificador y sin "me debe" / "debo" afirmados, la dirección no la
+          // dice nadie. Hasta el 08-oct caía en 'debo', y "Le hice un préstamo de 500 a mi primo"
+          // quedaba al revés. Con las dos ("ya no me deben nada pero le debo 200" sí es `debo`: lo negado
+          // no cuenta) o ninguna, se pregunta.
+          const tipo = dirVerbo || datos.tipo || tipoPorDeber(msg);
+          if (!tipo) return nombraPrestamoAlgo(msg) ? preguntaDireccionPrestamo(msg) : preguntaDireccionDeuda(msg);
           if (dirVerbo && datos.tipo && datos.tipo !== dirVerbo) {
             log.info({ tag: 'DEUDA_TIPO_LEXICO', clasificador: datos.tipo, verbo: dirVerbo, msg: (msg || '').substring(0, 80) }, 'el verbo pisa el tipo del clasificador');
           }
@@ -84,21 +118,23 @@ module.exports = {
           // segundo monto de 0 PEN. Con el rechazo explícito de abajo eso perdía el
           // mensaje ENTERO (la deuda válida de S/100 incluida); antes registraba dos
           // deudas. Mismo caso con "debo 50 soles por 2 pensiones".
-          const reMontos = /(\d+(?:[.,]\d+)?)\s*(?:soles?|pen|s\/)(?![a-záéíóúñ])/gi;
-          const reMontosUsd = /(\d+(?:[.,]\d+)?)\s*(?:d[oó]lares?|usd|\$)(?![a-záéíóúñ])|(?:\$)\s*(\d+(?:[.,]\d+)?)/gi;
+          // `*` y no `?` en los separadores: con `?` "1,500,000 soles" capturaba "500,000" (tercera revisión
+          // del 08-oct). Entera, `leerCifra` la lee como 1500000 y `validarMonto` la rechaza.
+          const reMontos = /(\d+(?:[.,]\d+)*)\s*(?:soles?|pen|s\/)(?![a-záéíóúñ])/gi;
+          const reMontosUsd = /(\d+(?:[.,]\d+)*)\s*(?:d[oó]lares?|usd|\$)(?![a-záéíóúñ])|(?:\$)\s*(\d+(?:[.,]\d+)*)/gi;
           let mPen;
           while ((mPen = reMontos.exec(msg)) !== null) {
             // Un monto inválido en la lista NO se descarta en silencio: se marca. Con
             // el `if (v !== null) push` a secas, "te debo 100 soles y 1500000 soles"
             // registraba solo la primera y respondía "Anotado" sin mencionar la otra —
             // pérdida parcial silenciosa, peor que las dos alternativas.
-            const vPen = validarMonto(mPen[1].replace(',', '.'));
+            const vPen = validarMonto(leerCifra(mPen[1]));
             if (vPen === null) hayMontoInvalido = true;
             else montos.push({ monto: vPen, moneda: 'PEN' });
           }
           let mUsd;
           while ((mUsd = reMontosUsd.exec(msg)) !== null) {
-            const vUsd = validarMonto((mUsd[1] || mUsd[2]).replace(',', '.'));
+            const vUsd = validarMonto(leerCifra(mUsd[1] || mUsd[2]));
             if (vUsd === null) hayMontoInvalido = true;
             else montos.push({ monto: vUsd, moneda: 'USD' });
           }
@@ -115,6 +151,11 @@ module.exports = {
 
           // Si encontramos múltiples montos, registrar cada uno
           if (montos.length >= 2 && contraparte) {
+            // Con varios montos y la referencia a una deuda que ya existe ("los 100 soles y 50 dólares que
+            // me prestó") no se revisa uno por uno: se pide de a una para no duplicar (ítem 47).
+            if (refiereDeudaExistente(msg)) {
+              return 'No anoté nada: parece que hablas de deudas que ya podrías tener anotadas. Escríbeme _"mis deudas"_ para verlas, y si falta alguna, dímela de a una: _"' + (tipo === 'debo' ? contraparte + ' me prestó 100 soles' : 'le presté 100 soles a ' + contraparte) + '"_.';
+            }
             const registros = [];
             for (const m of montos) {
               await registrarDeuda(usuario.id, tipo, contraparte, m.monto, m.moneda, descripcion, fechaVenc);
@@ -133,6 +174,12 @@ module.exports = {
           if (montoClasif === null && montos.length === 1) {
             montoClasif = montos[0].monto;
             monedaClasif = montos[0].moneda;
+          } else if (!datos.moneda && montos.length === 1 && montos[0].monto === montoClasif
+            && (String(msg || '').match(/\d+(?:[.,]\d+)*/g) || []).length === 1) {
+            // `manage_debts` no trae moneda: "Le presté 100 dólares a mi primo" se guardaba en soles
+            // (ítem 47, 08-oct-2026). La moneda escrita junto a ESE monto es la de la deuda, y solo si es
+            // la ÚNICA cifra: "le preste 100 a juan pa completar sus 100 dolares de la visa" son soles.
+            monedaClasif = montos[0].moneda;
           }
 
           // `validarMonto` ya devolvió null para NaN, Infinity, <= 0 y > 999999.99: acá
@@ -144,6 +191,34 @@ module.exports = {
             return 'Mmm, no pillé bien los datos. Dime algo como:\n_"debo S/200 a Juan"_\n_"Pedro me debe S/150 por la cena"_';
           }
           if (contraparte.length > 100) contraparte = contraparte.substring(0, 100);
+          // "Juan me está pidiendo los 200 que me prestó" nombra una deuda que ya existe: si está
+          // anotada, crear otra la duplica (ítem 47, 08-oct-2026). Si no está, es la primera vez que
+          // la cuenta y se anota ("Los 200 que me prestó Juan, anótalos").
+          if (refiereDeudaExistente(msg)) {
+            const { data: activas, error: errActivas } = await supabase
+              .from('deudas')
+              .select('contraparte, monto_original, monto_pendiente, moneda')
+              .eq('usuario_id', usuario.id)
+              .eq('estado', 'activa')
+              .eq('tipo', tipo);
+            if (errActivas) {
+              // Sin poder mirar no se escribe: lo más probable, si la nombra así, es que ya esté.
+              log.warn({ tag: 'LECTURA_CAIDA', intencion, usuarioId: usuario.id, err: errActivas.message }, 'registrar_deuda: no se pudo revisar si la deuda ya existia');
+              return 'No pude revisar si esa deuda ya la tenías anotada, así que no la anoté. Escríbemelo de nuevo en un rato.';
+            }
+            // Sin comparar la moneda a propósito: hasta el 08-oct "100 dólares" se guardaba en soles, y
+            // con la moneda en la comparación esa fila vieja no se encontraba y se duplicaba (revisión).
+            const yaEsta = (activas || []).find((d) => mismaPersona(d.contraparte, contraparte)
+              && (Number(d.monto_original) === montoClasif || Number(d.monto_pendiente) === montoClasif));
+            if (yaEsta) {
+              const symYa = (yaEsta.moneda || 'PEN') === 'USD' ? '$' : 'S/';
+              const dicho = tipo === 'debo'
+                ? 'que le debes *' + symYa + ' ' + montoClasif.toFixed(2) + '* a *' + yaEsta.contraparte + '*'
+                : 'que *' + yaEsta.contraparte + '* te debe *' + symYa + ' ' + montoClasif.toFixed(2) + '*';
+              return 'Ya tenía anotado ' + dicho + ', así que no la anoté de nuevo.\n\n'
+                + 'Si es un préstamo nuevo, dímelo así: _"' + (tipo === 'debo' ? yaEsta.contraparte + ' me prestó otros ' + montoClasif : 'le presté otros ' + montoClasif + ' a ' + yaEsta.contraparte) + '"_.';
+            }
+          }
           // Corrección automática: si existe deuda reciente con mismo monto/contraparte pero tipo opuesto, eliminarla
           const tipoOpuesto = tipo === 'debo' ? 'me_deben' : 'debo';
           // La MISMA persona, no cualquiera cuyo nombre la contenga: con `ilike '%Luis%'`, "Luis me

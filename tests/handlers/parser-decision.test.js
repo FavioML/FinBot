@@ -564,10 +564,11 @@ describe('registrar_deuda: "presté" es plata que me deben', () => {
   // Los ataques de la revisión adversarial: con el clasificador diciendo `debo` (bien), la
   // primera versión de la regla los invertía a me_deben porque buscaba "presté" en cualquier lado.
   // "Juan preste 200 para mi pasaje" salió de esta lista el 07-oct: "preste" sin tilde, sin
-  // pronombre y sin destinatario se pregunta (abajo).
+  // pronombre y sin destinatario se pregunta (abajo). "le pedí a Carla que me lo preste y me dio 300"
+  // salió el 08-oct (ítem 47): el subjuntivo sin dirección se pregunta, porque "Le pedí a Juan que me
+  // preste 300" es la misma forma y ahí el préstamo no ocurrió. Está en la lista de abajo.
   for (const msg of [
     'yo no le presté, Juan me prestó 200',
-    'le pedí a Carla que me lo preste y me dio 300',
     'Mi mamá me dijo "te presté 200", le debo eso',
   ]) {
     it(`no invierte lo que el clasificador leyó bien: ${JSON.stringify(msg)}`, async () => {
@@ -619,5 +620,153 @@ describe('registrar_deuda: "presté" es plata que me deben', () => {
     const res = await deudas.handle({ intencion: 'registrar_deuda', msg: 'le presté 118 soles', datos: { monto: 118 }, usuario: USUARIO, from: '51999', ctx });
     expect(ctx.registrarDeuda).not.toHaveBeenCalled();
     expect(res).toContain('¿A quién se lo prestaste?');
+  });
+
+  // Ítem 47 (08-oct-2026): lo que el clasificador ya manda a registrar_deuda en prod y se escribía mal.
+  // El tipo del clasificador viene puesto a propósito: con el tipo bien o mal, no se puede escribir.
+  for (const msg of ['Le pedí a Juan que me preste 300', 'Juan quiere que le preste 500', 'Mi jefe me pidió que le preste 500',
+    'Mi papá le prestó 500 a mi tío', 'Rosa me va a prestar 800 el lunes', 'Juan nunca me prestó los 500 que me prometió',
+    'Tengo prestado 500 a Juan', 'le pedí a Carla que me lo preste y me dio 300']) {
+    it(`un préstamo sin dirección no se anota: ${JSON.stringify(msg)}`, async () => {
+      const ctx = ctxDeuda();
+      const res = await deudas.handle({ intencion: 'registrar_deuda', msg, datos: { tipo: 'debo', contraparte: 'Juan', monto: 300 }, usuario: USUARIO, from: '51999', ctx });
+      expect(ctx.registrarDeuda).not.toHaveBeenCalled();
+      expect(res).toMatch(/No anoté nada/);
+    });
+  }
+
+  it('sin verbo, sin tipo y sin "debo/me debe" pregunta en vez de asumir debo: "Le hice un préstamo de 500 a mi primo"', async () => {
+    const ctx = ctxDeuda();
+    const res = await deudas.handle({ intencion: 'registrar_deuda', msg: 'Le hice un préstamo de 500 a mi primo', datos: { contraparte: 'primo', monto: 500 }, usuario: USUARIO, from: '51999', ctx });
+    expect(ctx.registrarDeuda).not.toHaveBeenCalled();
+    expect(res).toMatch(/prestaste tú o te/);
+  });
+
+  it('el tipo del clasificador sigue valiendo sin verbo de prestar', async () => {
+    const ctx = await deuda('Le hice un préstamo de 500 a mi primo', { tipo: 'me_deben', contraparte: 'primo', monto: 500 });
+    expect(ctx.registrarDeuda.mock.calls[0][1]).toBe('me_deben');
+  });
+
+  for (const [msg, tipo] of [['Le di prestado 500 a mi primo', 'me_deben'], ['Le dejé prestado 300 a Ana', 'me_deben'],
+    ['se lo di prestado a mi hermano, 200', 'me_deben'], ['Juan me dio prestado 200', 'debo'], ['Mi tía me dejó prestado 300', 'debo']]) {
+    it(`"dar/dejar prestado" lo lee el verbo, sin tipo del clasificador: ${JSON.stringify(msg)} → ${tipo}`, async () => {
+      const ctx = await deuda(msg, { contraparte: 'Ana', monto: 300 });
+      expect(ctx.registrarDeuda.mock.calls[0][1]).toBe(tipo);
+    });
+  }
+
+  it('"Le presté 100 dólares a mi primo" se guarda en USD aunque el clasificador no traiga moneda', async () => {
+    const ctx = await deuda('Le presté 100 dólares a mi primo', { tipo: 'me_deben', contraparte: 'primo', monto: 100 });
+    expect(ctx.registrarDeuda.mock.calls[0][4]).toBe('USD');
+  });
+  it('"1,500 dólares" es mil quinientos en USD, no 1.5 (revisión del 08-oct)', async () => {
+    const ctx = await deuda('Le presté 1,500 dolares a Juan', { tipo: 'me_deben', contraparte: 'Juan', monto: 1500 });
+    expect(ctx.registrarDeuda.mock.calls[0][3]).toBe(1500);
+    expect(ctx.registrarDeuda.mock.calls[0][4]).toBe('USD');
+  });
+  // La primera versión leía "me deben" antes que "debo" y lo invertía (revisión del 08-oct).
+  for (const [msg, tipo] of [['ya no me deben nada pero yo le debo 200 a Juan', 'debo'], ['Le quedo debiendo 100 a Juan', 'debo'],
+    ['nadie me debe nada pero yo le debo 300 a juan', 'debo']]) {
+    it(`sin tipo del clasificador, la deuda dicha decide: ${JSON.stringify(msg)} → ${tipo}`, async () => {
+      const ctx = await deuda(msg, { contraparte: 'Juan', monto: 100 });
+      expect(ctx.registrarDeuda.mock.calls[0][1]).toBe(tipo);
+    });
+  }
+  it('con las dos direcciones y sin tipo, pregunta quién le debe a quién', async () => {
+    const ctx = ctxDeuda();
+    const res = await deudas.handle({ intencion: 'registrar_deuda', msg: 'A mi me deben un monton pero yo le debo 300 a Rosa', datos: { contraparte: 'Rosa', monto: 300 }, usuario: USUARIO, from: '51999', ctx });
+    expect(ctx.registrarDeuda).not.toHaveBeenCalled();
+    expect(res).toMatch(/Quién le debe a quién/);
+  });
+  it('"1,500,000 soles" no se lee como 500000: se rechaza el monto (tercera revisión)', async () => {
+    const ctx = ctxDeuda();
+    const res = await deudas.handle({ intencion: 'registrar_deuda', msg: 'le debo 1,500,000 soles a juan', datos: { tipo: 'debo', contraparte: 'juan', monto: 1500000 }, usuario: USUARIO, from: '51999', ctx });
+    expect(ctx.registrarDeuda).not.toHaveBeenCalled();
+    expect(res).toMatch(/no me cuadra/);
+  });
+  // Separadores mezclados, el formato normal en Perú (cuarta revisión): sin monto del clasificador el
+  // handler lee la cifra del texto.
+  for (const [msg, monto] of [['le debo 1,500.50 soles a Juan', 1500.5], ['le debo 12.345,67 soles a Juan', 12345.67],
+    ['le debo 1,500 soles a Juan', 1500], ['le debo 12,50 soles a Juan', 12.5], ['le debo 1.5 soles a Juan', 1.5]]) {
+    it(`lee ${JSON.stringify(msg)} como ${monto}`, async () => {
+      const ctx = await deuda(msg, { tipo: 'debo', contraparte: 'Juan' });
+      expect(ctx.registrarDeuda.mock.calls[0][3]).toBe(monto);
+    });
+  }
+  it('la moneda de OTRA cifra no se toma: "pa completar sus 100 dolares de la visa" son soles (segunda revisión)', async () => {
+    const ctx = await deuda('le preste 100 a juan pa completar sus 100 dolares de la visa', { tipo: 'me_deben', contraparte: 'juan', monto: 100 });
+    expect(ctx.registrarDeuda.mock.calls[0][4]).toBe('PEN');
+  });
+  it('"me debía… pero ya me pagó" sin tipo no escribe una deuda pagada', async () => {
+    const ctx = ctxDeuda();
+    const res = await deudas.handle({ intencion: 'registrar_deuda', msg: 'Juan me debia 300 pero ya me pago', datos: { contraparte: 'Juan', monto: 300 }, usuario: USUARIO, from: '51999', ctx });
+    expect(ctx.registrarDeuda).not.toHaveBeenCalled();
+    expect(res).toMatch(/Quién le debe a quién/);
+  });
+  it('y sigue en PEN si dice soles', async () => {
+    const ctx = await deuda('Le presté 100 soles a mi primo', { tipo: 'me_deben', contraparte: 'primo', monto: 100 });
+    expect(ctx.registrarDeuda.mock.calls[0][4]).toBe('PEN');
+  });
+
+  describe('la referencia a una deuda que ya existe no la duplica', () => {
+    const MSG = 'Juan me está pidiendo los 200 que me prestó';
+    const conDeudas = (data, error = null) => {
+      const ctx = ctxDeuda();
+      const chain = makeChain(data);
+      chain.then = (f, r) => Promise.resolve({ data: error ? null : data, error }).then(f, r);
+      ctx.supabase = { from: vi.fn(() => chain) };
+      return ctx;
+    };
+    const correr = (ctx, msg = MSG) => deudas.handle({ intencion: 'registrar_deuda', msg, datos: { tipo: 'debo', contraparte: 'Juan', monto: 200 }, usuario: USUARIO, from: '51999', ctx });
+
+    it('si ya está anotada, no escribe y lo dice', async () => {
+      const ctx = conDeudas([{ contraparte: 'Juan Pérez', monto_original: 200, monto_pendiente: 200, moneda: 'PEN' }]);
+      const res = await correr(ctx);
+      expect(ctx.registrarDeuda).not.toHaveBeenCalled();
+      expect(res).toMatch(/Ya tenía anotado/);
+    });
+    it('también si ya tenía un abono (coincide el pendiente)', async () => {
+      const ctx = conDeudas([{ contraparte: 'juan', monto_original: 300, monto_pendiente: 200, moneda: 'PEN' }]);
+      await correr(ctx);
+      expect(ctx.registrarDeuda).not.toHaveBeenCalled();
+    });
+    it('con otra persona u otro monto anotado, la escribe', async () => {
+      const ctx = conDeudas([{ contraparte: 'Juana', monto_original: 200, monto_pendiente: 200, moneda: 'PEN' },
+        { contraparte: 'Juan', monto_original: 500, monto_pendiente: 500, moneda: 'PEN' }]);
+      await correr(ctx);
+      expect(ctx.registrarDeuda).toHaveBeenCalledTimes(1);
+    });
+    it('una fila vieja guardada en PEN (antes del arreglo de moneda) también cuenta', async () => {
+      const ctx = conDeudas([{ contraparte: 'Juan', monto_original: 100, monto_pendiente: 100, moneda: 'PEN' }]);
+      const res = await deudas.handle({ intencion: 'registrar_deuda', msg: 'Juan me está pidiendo los 100 dolares que me prestó',
+        datos: { tipo: 'debo', contraparte: 'Juan', monto: 100 }, usuario: USUARIO, from: '51999', ctx });
+      expect(ctx.registrarDeuda).not.toHaveBeenCalled();
+      expect(res).toMatch(/Ya tenía anotado/);
+    });
+    it('"del préstamo", "todavía le debo" y "q" por "que" también se refieren a una deuda que ya existe', async () => {
+      for (const msg of ['Juan me pide los 200 del préstamo', 'Juan me prestó 200 el mes pasado, todavia le debo',
+        'Juan me esta pidiendo los 200 q me presto', 'acuerdate q le debo 200 a juan']) {
+        const ctx = conDeudas([{ contraparte: 'Juan', monto_original: 200, monto_pendiente: 200, moneda: 'PEN' }]);
+        await correr(ctx, msg);
+        expect(ctx.registrarDeuda, msg).not.toHaveBeenCalled();
+      }
+    });
+    it('si la lectura falla, no escribe', async () => {
+      const ctx = conDeudas(null, { message: 'timeout' });
+      const res = await correr(ctx);
+      expect(ctx.registrarDeuda).not.toHaveBeenCalled();
+      expect(res).toMatch(/No pude revisar/);
+    });
+    it('sin la referencia no mira (un préstamo nuevo del mismo monto se anota)', async () => {
+      const ctx = conDeudas([{ contraparte: 'Juan', monto_original: 200, monto_pendiente: 200, moneda: 'PEN' }]);
+      await correr(ctx, 'Juan me prestó 200');
+      expect(ctx.registrarDeuda).toHaveBeenCalledTimes(1);
+    });
+    it('con varios montos y la referencia no escribe ninguno', async () => {
+      const ctx = conDeudas([]);
+      const res = await correr(ctx, 'Juan me pide los 100 soles y 50 dólares que me prestó');
+      expect(ctx.registrarDeuda).not.toHaveBeenCalled();
+      expect(res).toMatch(/No anoté nada/);
+    });
   });
 });

@@ -22,6 +22,12 @@
  *                      me_deben (la que paga "me pagó") y la debo no se toca
  *   sin-deuda          la misma frase sin deuda sembrada: no escribe nada y pregunta
  *
+ *   47-*               ítem 47 (08-oct-2026): lo negado, subjuntivo, futuro y de terceros, el préstamo
+ *                      con un pago que ya ocurrió y la devolución no crean deuda; "le di prestado" es
+ *                      me_deben; "100 dólares" queda en USD; "los 200 que me prestó" con la deuda ya
+ *                      sembrada no la duplica; y el mensaje real "preste 302 … me lo devolvera el lunes"
+ *                      sigue anotando 302 (un pago futuro no frena)
+ *
  * Y en todos: ninguna transacción. Un préstamo nunca entra como gasto ni como ingreso.
  *
  * Cada caso corre `--n` veces (default 3), cada vez con un usuario NUEVO: el historial no puede
@@ -182,7 +188,7 @@ async function decir(u, texto) {
   return esperarRespuesta(sb, u.id, texto);
 }
 
-const deudasDe = (u) => sb.select('deudas', `usuario_id=eq.${u.id}&select=id,tipo,contraparte,monto_original,monto_pendiente,estado&order=created_at.asc`);
+const deudasDe = (u) => sb.select('deudas', `usuario_id=eq.${u.id}&select=id,tipo,contraparte,monto_original,monto_pendiente,moneda,estado&order=created_at.asc`);
 const txDe = (u) => sb.select('transacciones', `usuario_id=eq.${u.id}&select=id,tipo,monto,categoria`);
 const abonosDe = async (deudaIds) => (deudaIds.length
   ? sb.select('deuda_abonos', `deuda_id=in.(${deudaIds.join(',')})&select=deuda_id,monto`) : []);
@@ -274,6 +280,77 @@ const CASOS = {
         [d.length === 0, 'no crea ninguna deuda', JSON.stringify(d.map((x) => `${x.tipo} ${x.monto_original} ${x.contraparte}`))],
         [pregunta(r) && /No tengo anotado que/.test(r || ''), 'dice que no hay esa deuda y pregunta qué era'],
       ];
+    },
+  },
+  // ── Ítem 47 (08-oct-2026): el clasificador los manda a registrar_deuda y el código los escribía ──
+  ...Object.fromEntries([
+    ['47-subjuntivo', 'Le pedí a Juan que me preste 300'],
+    ['47-subjuntivo-otro', 'Juan quiere que le preste 500'],
+    ['47-terceros', 'Mi papá le prestó 500 a mi tío'],
+    ['47-futuro', 'Rosa me va a prestar 800 el lunes'],
+    ['47-negado', 'Juan nunca me prestó los 500 que me prometió'],
+    ['47-pago-hecho', 'Le presté 300 a mi prima y me pagó la mitad'],
+    ['47-devolucion', 'Juan me devolvió 150, le presté para su cumple'],
+  ].map(([nombre, msg]) => [nombre, {
+    msg,
+    async afirmar(u, r) {
+      const d = await deudasDe(u);
+      return [
+        [d.length === 0, 'no crea ninguna deuda', JSON.stringify(d.map((x) => `${x.tipo} ${x.monto_original} ${x.contraparte}`))],
+        [!/Anotado|Listo, anoté|✅/.test(r || ''), 'no dice que anotó'],
+      ];
+    },
+  }])),
+  '47-di-prestado': {
+    msg: 'Le di prestado 500 a mi primo',
+    async afirmar(u) {
+      const d = await deudasDe(u);
+      return [[d.length === 1 && d[0].tipo === 'me_deben' && Number(d[0].monto_original) === 500,
+        'UNA deuda me_deben de 500', JSON.stringify(d.map((x) => `${x.tipo} ${x.monto_original} ${x.contraparte}`))]];
+    },
+  },
+  '47-dolares': {
+    msg: 'Le presté 100 dólares a mi primo',
+    async afirmar(u) {
+      const d = await deudasDe(u);
+      return [[d.length === 1 && d[0].tipo === 'me_deben' && Number(d[0].monto_original) === 100 && d[0].moneda === 'USD',
+        'UNA deuda me_deben de 100 en USD', JSON.stringify(d.map((x) => `${x.tipo} ${x.monto_original} ${x.moneda} ${x.contraparte}`))]];
+    },
+  },
+  '47-duplicado': {
+    msg: 'Juan me está pidiendo los 200 que me prestó',
+    async sembrar(u) { return { debo: await sembrarDeuda(u, 'debo', 'Juan', 200) }; },
+    async afirmar(u) {
+      const d = await deudasDe(u);
+      return [[d.length === 1, 'no duplica la deuda sembrada', JSON.stringify(d.map((x) => `${x.tipo} ${x.monto_original} ${x.contraparte}`))]];
+    },
+  },
+  // Historial adverso: producción le pasa al clasificador los últimos 4 turnos (`historialConv.slice(-4)`).
+  // Con cuatro turnos de anotar deudas encima, el préstamo entre terceros sigue sin escribirse.
+  '47-historial': {
+    msg: 'Mi papá le prestó 500 a mi tío',
+    async sembrar(u) {
+      for (const [rol, mensaje] of [['usuario', 'le presté 200 a mi primo'], ['neto', 'Anotado. *primo* te debe *S/ 200.00*.'],
+        ['usuario', 'y mi hermana me prestó 100'], ['neto', 'Anotado. Le debes *S/ 100.00* a *hermana*.']]) {
+        await sb.insert('conversaciones', { usuario_id: u.id, rol, mensaje });
+      }
+      return {};
+    },
+    async afirmar(u, r) {
+      const d = await deudasDe(u);
+      return [
+        [d.length === 0, 'no crea ninguna deuda con el historial de deudas encima', JSON.stringify(d.map((x) => `${x.tipo} ${x.monto_original} ${x.contraparte}`))],
+        [!/Anotado|Listo, anoté|✅/.test(r || ''), 'no dice que anotó'],
+      ];
+    },
+  },
+  // Mensaje real de prod (21-ago): un pago que todavía no ocurrió no frena la deuda bien leída.
+  '47-devolvera': {
+    msg: 'preste 302 soles a mi madre y me lo devolvera el lunes de la siguiente semana',
+    async afirmar(u) {
+      const d = await deudasDe(u);
+      return [[d.length === 1 && d[0].tipo === 'me_deben' && Number(d[0].monto_original) === 302,
+        'UNA deuda me_deben de 302', JSON.stringify(d.map((x) => `${x.tipo} ${x.monto_original} ${x.contraparte}`))]];
     },
   },
 };
