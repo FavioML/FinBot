@@ -207,7 +207,8 @@ const fila = (txs, id) => txs.find((t) => t.id === id);
 const igual = (antes, despues) => despues && antes.categoria === despues.categoria && (antes.subcategoria || null) === (despues.subcategoria || null);
 const desc = (t) => (t ? `${t.comercio} ${t.monto} ${t.categoria}${t.subcategoria ? ' > ' + t.subcategoria : ''}` : '(no está)');
 // Afirma que movió algo. Una pregunta (`¿`) sin afirmación es la salida legítima de "no sé cuál".
-const afirmaMover = (r) => /Listo|Movi|Moví|✅|Apliqu/i.test(r || '');
+// La confirmación real es "Listo! Movi …"; con /Movi/i suelto, "No moví nada" contaba como mover.
+const afirmaMover = (r) => /Listo!|✅|Apliqu/.test(r || '');
 const pregunta = (r) => /¿/.test(r || '') && !afirmaMover(r);
 
 // Lo que Neto había dicho justo antes de cada mensaje, tal como pasó.
