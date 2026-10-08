@@ -88,6 +88,8 @@ describe('direccionPrestamo', () => {
     ['presté 5000 a pagar en 12 cuotas', 'ambiguo'],
     ['presté 2000 a plazo fijo', 'ambiguo'],
     ['presté 3000 a Falabella', 'ambiguo'],
+    ['Presté 3000 a Crediscotia', 'ambiguo'],
+    ['Presté 2000 a sola firma en la caja', 'ambiguo'],
     // Una cita con una sola comilla en el borde no es la plantilla: la decide el clasificador, como
     // antes (segunda revisión del 07-oct: salían me_deben, al revés).
     ['"Te presté 200" me reclama Juan', null],
@@ -170,7 +172,13 @@ describe('enrutarPorVerbo', () => {
     'Juan me prestó la camioneta y le puse 100 de gasolina', 'le presté a Juan el carro y le puse 50 de gasolina',
     'me prestó el banco 5000', 'compré la refri de 1500 con lo que me prestó mi tío',
     'pagué la luz 120 con la tarjeta que me prestó mi hermana', 'pagué 350 de la cuota de lo que me prestaron en el BCP']) {
-    it(`desde un gasto, ${JSON.stringify(msg)} pregunta préstamo o gasto`, () => {
+    it(`desde un gasto, ${JSON.stringify(msg)} pregunta préstamo o gasto, o si es un pago`, () => {
+      expect(enrutarPorVerbo({ intencion: 'registrar_manual', datos: { monto: 50 }, msg }).pregunta).toMatch(/préstamo o un gasto|No cambié nada/);
+    });
+  }
+  // Plata con posesivo no es una cosa (cuarta revisión: la lista negra la dejaba como gasto).
+  for (const msg of ['Mi mamá me prestó sus ahorros, 2000 soles', 'Me prestó su quincena mi hermano, 800', 'Me prestó sus luquitas mi causa, 50']) {
+    it(`desde un gasto, plata con posesivo pregunta: ${JSON.stringify(msg)}`, () => {
       expect(enrutarPorVerbo({ intencion: 'registrar_manual', datos: { monto: 50 }, msg }).pregunta).toMatch(/préstamo o un gasto/);
     });
   }
@@ -189,7 +197,22 @@ describe('enrutarPorVerbo', () => {
     const r = enrutarPorVerbo({ intencion: 'registrar_deuda', datos: { tipo: 'debo', contraparte: 'madre', monto: 118 }, msg: 'No no, yo le preste 118 soles a mi madre' });
     expect(r).toEqual({ intencion: 'registrar_deuda', datos: { tipo: 'me_deben', contraparte: 'madre', monto: 118 } });
   });
-  // Lo que tiene FORMA de abono y no es limpio nunca crea una deuda nueva desde registrar_deuda.
+  // Lo que tiene FORMA de abono y no es limpio nunca crea una deuda nueva ni se abona (cuarta revisión
+  // del 07-oct: subjuntivo, plurales, verbos fuera de la lista, cantidades en palabras).
+  for (const msg of ['Mi hermana quiere que le pague los 300 que le debo', 'Juan me pidió que le abone 100 de lo que le debo',
+    'Cuando le pague los 200 que le debo a Juan te aviso', 'Tengo que esperar que le deposite los 500 que le debo a mi tío',
+    'Mis papás me devolvieron 200 de lo que les presté', 'Juan y Pedro me devolvieron los 300 que les presté',
+    'Mis tíos me pagaron los 500 que les presté', 'Me pagó Juan la mitad de los 300 que me debía',
+    'Me pagó Juan cien de los 300 que me debía', 'Le pasé 200 a Juan de lo que le debo', 'Le mandé 200 a Juan de lo que le debo',
+    'Juan me cobró los 200 que le debía', 'todavía no me paga lo que me debe', 'Juan aún no me devuelve los 200 que le presté',
+    'le pague a Ana 30 de lo que le debo', 'Le presté 500 a Juan y ya me devolvió 200', 'Mi hermano me prestó 500 y ya le devolví 200']) {
+    for (const intencion of ['registrar_deuda', 'registrar_manual']) {
+      it(`${intencion}: no escribe ${JSON.stringify(msg)}`, () => {
+        const r = enrutarPorVerbo({ intencion, datos: { contraparte: 'Juan', monto: 50, tipo: 'me_deben' }, msg });
+        expect(r.pregunta, JSON.stringify(r)).toBeTruthy();
+      });
+    }
+  }
   for (const msg of ['Juan me pagó 50 de los 200 que me debía', 'Juan me pagó 1,500 de los 2,000 que me debía',
     'no me pagó lo que me debía', 'Juan dice que me pagó los 100 que me debe pero es mentira',
     'Juan me pagó lo que me debía y le volví a prestar 100', 'mi inquilino me pagó 2 de los 3 meses que me debe']) {
