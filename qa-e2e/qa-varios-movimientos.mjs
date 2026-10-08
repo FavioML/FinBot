@@ -47,11 +47,13 @@ const HISTORIAL = process.env.NETO_QA_HISTORIAL === '1';
 const G = (monto, moneda = 'PEN') => ({ monto, tipo: 'gasto', moneda });
 const I = (monto, moneda = 'PEN') => ({ monto, tipo: 'ingreso', moneda });
 
-// `esperado`: las filas exactas. `oNinguno`: si se acepta 0 filas, las cifras que el texto tiene
+// `esperado`: las filas exactas. `oNinguno`: si se acepta 0 filas, alternativas de lo que el texto tiene
 // que nombrar. Sin `oNinguno`, 0 filas es un FAIL: esas frases no tienen nada dudoso.
 const CASOS = [
   { id: 'd21c11e0', texto: 'Gaste 2 soles más en pasajes, gaste 1.30 en cigarros y preste 118 soles',
-    esperado: [G(2), G(1.3), G(118)], oNinguno: [/\b2\b/, /1[.,]30/, /118/] },
+    // Con "preste" el enrutador de préstamos (`lib/prestamos.js`, 07-oct) pregunta ANTES del camino
+    // de varios movimientos y contesta "No anoté nada todavía": también es "ninguno, y se dice".
+    esperado: [G(2), G(1.3), G(118)], oNinguno: [[/\b2\b/, /1[.,]30/, /118/], [/No anoté nada/]] },
   { id: '02d9398d', texto: '70 que realice antes de ayer en comprar juguetes y 34.5 en el almuerzo de hoy',
     esperado: [G(70), G(34.5)] },
   { id: '1baf9d04', texto: 'Gaste 15.92 en la comida de Willy (mi perrito)\nGasté 5 soles en el estacionamiento',
@@ -166,7 +168,8 @@ export function juzgar(caso, filas, respuesta) {
   const want = caso.esperado.map(clave).sort();
   if (got.length === want.length && got.every((g, i) => g === want[i])) return { ok: true, detalle: `${got.length} fila(s) exactas` };
   if (filas.length === 0 && caso.oNinguno) {
-    const nombra = caso.oNinguno.every((re) => re.test(respuesta || ''));
+    // `oNinguno` es una lista de alternativas; cada una, regex que la respuesta tiene que cumplir todas.
+    const nombra = caso.oNinguno.some((alt) => alt.every((re) => re.test(respuesta || '')));
     return { ok: nombra, detalle: nombra ? '0 filas y la respuesta nombra los montos' : '0 filas y la respuesta NO nombra todos los montos' };
   }
   return { ok: false, detalle: `filas [${got.join(', ') || 'ninguna'}] contra [${want.join(', ')}]` };
