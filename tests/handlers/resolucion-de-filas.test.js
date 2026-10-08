@@ -1122,7 +1122,7 @@ describe('préstamos · la dirección la dice el verbo y el abono va a la deuda 
     montar({ deudas: [], deuda_abonos: [], transacciones: [] });
     const resp = await decir('registrar_manual', 'Me preste 50 soles', { monto: 50, comercio: 'Prestamo', categoria: 'Finanzas' });
     expect(pg.escrituras()).toEqual([]);
-    expect(resp).toMatch(/prestaste tú o te/);
+    expect(resp).toMatch(/préstamo o un gasto/);
   });
 
   it('"No no, yo le preste 118 soles a mi madre" con `debo` del clasificador anota me_deben', async () => {
@@ -1133,12 +1133,18 @@ describe('préstamos · la dirección la dice el verbo y el abono va a la deuda 
     expect(nuevas[0]).toMatchObject({ tipo: 'me_deben', monto_original: 118, contraparte: 'madre' });
   });
 
-  it('un préstamo que llegó como gasto se anota como deuda, en la dirección del verbo', async () => {
+  it('un préstamo que llegó como gasto no se anota ni como gasto ni como deuda: pregunta', async () => {
     montar({ deudas: [], deuda_abonos: [], transacciones: [] });
-    await decir('registrar_manual', 'Presté 200 a Juan', { monto: 200, comercio: 'Juan' });
-    expect(pg.escrituras('transacciones')).toEqual([]);
-    expect(pg.tablas.deudas).toHaveLength(1);
-    expect(pg.tablas.deudas[0]).toMatchObject({ tipo: 'me_deben', monto_original: 200, contraparte: 'Juan' });
+    const resp = await decir('registrar_manual', 'Presté 200 a Juan', { monto: 200, comercio: 'Juan' });
+    expect(pg.escrituras()).toEqual([]);
+    expect(resp).toMatch(/préstamo o un gasto/);
+  });
+
+  it('"Juan me pagó 50 de los 200 que me debía" (registrar_deuda) no abona otro monto ni crea deuda', async () => {
+    montar({ deudas: [deuda('d-juan', 'Juan', 200, '2026-09-10')], deuda_abonos: [] });
+    const resp = await decir('registrar_deuda', 'Juan me pagó 50 de los 200 que me debía', { tipo: 'me_deben', contraparte: 'Juan', monto: 200 });
+    expect(pg.escrituras()).toEqual([]);
+    expect(resp).toMatch(/No cambié nada/);
   });
 
   it('con dos cifras desde un gasto no adivina cuál es la del préstamo', async () => {
@@ -1204,10 +1210,10 @@ describe('préstamos · la dirección la dice el verbo y el abono va a la deuda 
 
   // Mutación M-J de la revisión: el muro juzga el intent ENRUTADO. Un préstamo que el clasificador
   // mandó como gasto (libre) es una deuda (la cobra el muro).
-  it('en el muro, un préstamo que llegó como gasto lo frena el muro y no se escribe', async () => {
-    montar({ deudas: [], deuda_abonos: [], transacciones: [] });
+  it('en el muro, un abono que llegó como gasto lo frena el muro y no se escribe', async () => {
+    montar({ deudas: [TIO_ME_DEBE()], deuda_abonos: [], transacciones: [] });
     const enMuro = { id: 'u-1', nombre: 'Rayza', plan: 'free', trial_estado: 'vencido', trial_vence: '2026-01-01' };
-    const d = await dispatchIntent({ intencion: 'registrar_manual', msg: 'Presté 200 a Juan', datos: { monto: 200, comercio: 'Juan' }, usuario: enMuro, from: '51999', ctx: ctx() });
+    const d = await dispatchIntent({ intencion: 'registrar_manual', msg: 'Me pagó mi tío 150 que me debía', datos: { monto: 150 }, usuario: enMuro, from: '51999', ctx: ctx() });
     expect(d.muro).toBe(true);
     expect(pg.escrituras()).toEqual([]);
   });

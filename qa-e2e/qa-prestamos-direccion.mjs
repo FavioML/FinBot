@@ -193,7 +193,7 @@ const abonosDe = async (deudaIds) => (deudaIds.length
 const pregunta = (r) => /¿/.test(r || '') && !/Anotado|Abono anotado|Listo,|✅/.test(r || '');
 // El texto exacto de `preguntaDireccionPrestamo`: con /prest/ a secas pasaba también "¿A quién se lo
 // prestaste?", que es una dirección DECIDIDA sin contraparte (revisión del 07-oct).
-const preguntaDireccion = (r) => pregunta(r) && /prestaste tú o te los? prestaron/.test(r || '');
+const preguntaDireccion = (r) => pregunta(r) && /prestaste tú o te los? prestaron|préstamo o un gasto/.test(r || '');
 
 const CASOS = {
   'ambiguo-sin-tilde': {
