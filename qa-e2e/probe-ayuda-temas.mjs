@@ -10,11 +10,16 @@
 //   y una fecha fijos; las tools salen de `handlers/neto-tools.js` del mismo commit.
 //
 // Configuraciones, todas sobre los mismos mensajes:
-//   ref-auto   la versión de `--contra <ref>` (default HEAD) con tool_choice 'auto' = producción
+//   ref-auto   la versión de `--contra <ref>` (default HEAD) con tool_choice 'auto'
+//   ref-req    la misma con 'required' = producción desde el 30-sep-2026, si `--contra` es lo
+//              desplegado (desde una rama, pasar `--contra main`: el default HEAD es la rama)
 //   act-auto   el árbol de trabajo con 'auto'
 //   act-req    el árbol de trabajo con 'required'
-// `act-auto` contra `act-req` aísla el efecto de tool_choice; `ref-auto` contra el que se
-// despliegue mide el cambio entero.
+// `act-auto` contra `act-req` aísla el efecto de tool_choice. La base del pool es `--base`
+// (default ref-auto, la de siempre); para medir SOLO un cambio de prompt va `--base ref-req`,
+// porque ref-auto contra act-req mezcla el prompt con el cambio de tool_choice. `--configs`
+// restringe las que se corren (cada una es una llamada por caso):
+//   node qa-e2e/probe-ayuda-temas.mjs --solo pool --base ref-req --configs ref-req,act-req
 //
 // Baterías:
 //   reales     las preguntas de producción (60 días al 30-sep). Esperado fijo: N de N.
@@ -50,6 +55,7 @@ const N = Number(arg('--n', 2));
 const CONTRA = arg('--contra', 'HEAD');
 const SOLO = arg('--solo', null);
 const ELEGIDA = arg('--elegida', 'act-req');
+const BASE = arg('--base', 'ref-auto');
 const CONCURRENCIA = 6;
 
 const { openai } = require(path.join(appRoot, 'lib/ai.js'));
@@ -92,11 +98,18 @@ const act = {
   system: systemPromptDe(fs.readFileSync(path.join(appRoot, 'handlers/message-processor.js'), 'utf8')),
   ...require(path.join(appRoot, 'handlers/neto-tools.js')),
 };
-const CONFIGS = {
+const TODAS = {
   'ref-auto': { v: ref, toolChoice: 'auto' },
+  'ref-req': { v: ref, toolChoice: 'required' },
   'act-auto': { v: act, toolChoice: 'auto' },
   'act-req': { v: act, toolChoice: 'required' },
 };
+const USAR = arg('--configs', 'ref-auto,act-auto,act-req').split(',');
+for (const k of [...USAR, BASE, ELEGIDA]) if (!TODAS[k]) throw new Error(`Configuración desconocida: ${k}`);
+if (!USAR.includes(BASE) || !USAR.includes(ELEGIDA)) throw new Error('--configs tiene que incluir --base y --elegida');
+// Con la misma config de los dos lados el pool no puede empeorar nunca: el gate pasaría vacío.
+if (BASE === ELEGIDA) throw new Error('--base y --elegida no pueden ser la misma configuración');
+const CONFIGS = Object.fromEntries(USAR.map((k) => [k, TODAS[k]]));
 
 // ─── Clasificar ───────────────────────────────────────────────────────────────
 async function clasificar(cfg, msg) {
@@ -211,7 +224,7 @@ async function bateriaFija(nombre, casos) {
   const msgs = casos.map((c) => c.msg);
   const res = {};
   for (const cfg of Object.keys(CONFIGS)) res[cfg] = await correr(cfg, msgs, N);
-  const fallos = { 'ref-auto': 0, 'act-auto': 0, 'act-req': 0 };
+  const fallos = Object.fromEntries(Object.keys(CONFIGS).map((cfg) => [cfg, 0]));
   const duros = [];
   casos.forEach((c, k) => {
     const marcas = Object.keys(CONFIGS).map((cfg) => {
@@ -239,7 +252,7 @@ async function bateriaPool() {
   console.log(`  TEXTO (sin tool call): ${JSON.stringify(Object.fromEntries(Object.keys(CONFIGS).map((cfg) => [cfg, res[cfg].filter((r) => r === 'TEXTO').length])))}`);
 
   const cambios = (a, b) => pool.map((c, k) => ({ c, a: res[a][k], b: res[b][k] })).filter((x) => norm(x.a) !== norm(x.b));
-  for (const [a, b] of [['act-auto', 'act-req'], ['ref-auto', ELEGIDA]]) {
+  for (const [a, b] of [['act-auto', 'act-req'], [BASE, ELEGIDA]].filter(([a, b]) => CONFIGS[a] && CONFIGS[b])) {
     const cs = cambios(a, b);
     const reg = cs.filter((x) => norm(x.a) === x.c.intent && norm(x.b) !== x.c.intent);
     const mej = cs.filter((x) => norm(x.a) !== x.c.intent && norm(x.b) === x.c.intent);
@@ -249,7 +262,7 @@ async function bateriaPool() {
       console.log(`    ${m} ${JSON.stringify(x.c.msg).padEnd(58)} pool=${x.c.intent.padEnd(24)} ${x.a} → ${x.b}`);
     }
   }
-  const cs = cambios('ref-auto', ELEGIDA);
+  const cs = cambios(BASE, ELEGIDA);
   return {
     empeoran: cs.filter((x) => norm(x.a) === x.c.intent && norm(x.b) !== x.c.intent).length,
     mejoran: cs.filter((x) => norm(x.a) !== x.c.intent && norm(x.b) === x.c.intent).length,
@@ -263,5 +276,5 @@ if (!SOLO || SOLO === 'controles') duros.push(...await bateriaFija('controles', 
 let pool = { empeoran: 0, mejoran: 0 };
 if (!SOLO || SOLO === 'pool') pool = await bateriaPool();
 
-console.log(`\n${ELEGIDA}: ${duros.length} preguntas/controles fuera de su esperado; pool contra ${CONTRA}: ${pool.mejoran} mejoran, ${pool.empeoran} empeoran`);
+console.log(`\n${ELEGIDA}: ${duros.length} preguntas/controles fuera de su esperado; pool contra ${CONTRA} (${BASE}): ${pool.mejoran} mejoran, ${pool.empeoran} empeoran`);
 process.exit(duros.length || pool.empeoran > pool.mejoran ? 1 : 0);

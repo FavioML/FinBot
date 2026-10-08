@@ -70,7 +70,10 @@ module.exports = [
   { msg: 'Me bajaron 250 en la botica asu', intent: 'registrar_manual', cat: 'registro_jerga' },
   { msg: '70 solcitos en Vivanda', intent: 'registrar_manual', cat: 'registro_jerga' },
   { msg: 'Gasté 45 luquitas en Mass', intent: 'registrar_manual', cat: 'registro_jerga' },
-  { msg: 'Pata me presté 30 mangos taxi', intent: 'registrar_manual', cat: 'registro_jerga', prestamo: 'pregunta' },
+  // `registrar_deuda` desde el 08-oct-2026: hasta ese día la etiqueta seguía la regla del prompt que decía
+  // que "me presté" es jerga de gasto, y esa regla se borró por contradecir a lib/prestamos.js. El
+  // desenlace es el mismo por las dos rutas: el código pregunta (docs/DEFECTOS.md, 08-oct).
+  { msg: 'Pata me presté 30 mangos taxi', intent: 'registrar_deuda', cat: 'registro_jerga', prestamo: 'pregunta' },
   { msg: 'Full gastito hoy 120 en Wong pe', intent: 'registrar_manual', cat: 'registro_jerga' },
   { msg: 'Me clavaron 85 en el chifa de la esquina', intent: 'registrar_manual', cat: 'registro_jerga' },
   { msg: 'Gste 22 en cafecito', intent: 'registrar_manual', cat: 'registro_jerga' },
@@ -321,7 +324,7 @@ module.exports = [
   // tests/lib/prestamos.test.js sobre el pool entero: 'pregunta' no anota y pregunta la dirección.
   { msg: 'Y preste 118 soles', intent: 'registrar_deuda', cat: 'deudas', prestamo: 'pregunta' },
   { msg: 'No no, yo le preste 118 soles a mi madre', intent: 'registrar_deuda', cat: 'deudas', prestamo: 'me_deben' },
-  { msg: 'Me preste 50 soles', intent: 'registrar_manual', cat: 'deudas', prestamo: 'pregunta' },
+  { msg: 'Me preste 50 soles', intent: 'registrar_deuda', cat: 'deudas', prestamo: 'pregunta' },
   { msg: 'Mi mamá me prestó 200', intent: 'registrar_deuda', cat: 'deudas', prestamo: 'debo' },
 
   // ══════════════════════════════════════════════════════════════

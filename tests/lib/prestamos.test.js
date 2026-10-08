@@ -166,7 +166,7 @@ describe('el abono a una deuda que ya existe', () => {
 describe('enrutarPorVerbo', () => {
   // Desde un gasto el código no convierte nada en deuda: pregunta. La única salida sin pregunta es una
   // cosa prestada con posesivo, que sigue siendo el gasto que el clasificador leyó.
-  for (const msg of ['Presté 200 a Juan', 'Me preste 50 soles', 'Mi mamá me prestó 200',
+  for (const msg of ['Presté 200 a Juan', 'Me preste 50 soles', 'Pata me presté 30 mangos taxi', 'Mi mamá me prestó 200',
     'gasolina 50 para la moto que me prestó Juan', 'puse 100 de gasolina al carro que me prestó mi tío',
     'me prestó mi tío su camioneta y le puse 100 de gasolina', 'me prestó mi hermano la moto, gasolina 20',
     'Juan me prestó la camioneta y le puse 100 de gasolina', 'le presté a Juan el carro y le puse 50 de gasolina',
@@ -280,4 +280,37 @@ describe('enrutarPorVerbo sobre el pool', () => {
       .filter((x) => x.r !== null);
     expect(tocados).toEqual([]);
   });
+});
+
+// Los prompts no pueden enseñar lo que el código desmiente (08-oct-2026). Hasta ese día el clasificador
+// (message-processor.js) y el parser (parsers.js) decían que "me presté" es jerga de gasto, mientras este
+// archivo lo trata como ambiguo y nunca como gasto. El desenlace salía igual porque el código decide
+// después, pero la contradicción quedó viva un día entero sin que nada la viera. Las dos reglas se
+// BORRARON y no se reemplazaron: medido con el modelo real, cualquier texto nuevo movía otros intents
+// sin mejorar ningún desenlace de préstamo (docs/DEFECTOS.md, 08-oct).
+describe('ningún prompt enseña "me presté" como gasto', () => {
+  const fs = require('fs');
+  const path = require('path');
+  // PROHÍBE A PROPÓSITO toda mención de "presté" junto a una palabra de gasto, incluida la regla correcta
+  // escrita en negativo ("me presté NO es un gasto"): la decisión del 08-oct fue borrar la regla y no
+  // reemplazarla, porque medida con el modelo real cualquier texto nuevo movía otros intents sin mejorar
+  // ningún desenlace. Quien quiera escribir una regla nueva tiene que medirla con el probe y cambiar este
+  // test a la vista, no redactarla para esquivarlo.
+  //
+  // Es un cable trampa, no una prueba de que el prompt sea correcto. Mira en las dos direcciones ("jerga
+  // de gasto: me presté" y "me presté = gasto") y en los cinco archivos que leen el clasificador y el
+  // parser. Lo evaden, y está dicho: una oración cortada entre los dos (un punto, un ";" o un salto de
+  // línea real, como el de dos strings concatenados), más de 60/80 caracteres entre los dos, un sinónimo
+  // fuera de la lista ("consumo") y un escape unicode. La segunda revisión del 08-oct lo atacó con nueve
+  // redacciones y la primera versión (solo hacia adelante, tres archivos) dejaba pasar todas.
+  const P = '(?:prest[eéoó]|prestar(?:se|me)?|prestaba)(?![a-záéíóúñ])';
+  const G = '(?:jerga|gast|pag[oóué]|compr|egreso|register_transaction|registrar(?:_manual)?)';
+  const RE_PRESTE_GASTO = new RegExp(P + '[^.;\n]{0,60}?' + G + '|' + G + '[^.;\n]{0,80}?' + P, 'gi');
+  for (const f of ['handlers/message-processor.js', 'services/parsers.js', 'tests/nlp/agent.js',
+    'handlers/neto-tools.js', 'prompts/NETO_system_prompt.txt']) {
+    it(f, () => {
+      const src = fs.readFileSync(path.join(__dirname, '../..', f), 'utf8');
+      expect([...src.matchAll(RE_PRESTE_GASTO)].map((m) => m[0])).toEqual([]);
+    });
+  }
 });

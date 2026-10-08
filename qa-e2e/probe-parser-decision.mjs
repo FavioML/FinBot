@@ -282,8 +282,10 @@ const REALES = [
   { msg: 'Me depositaron el sueldo 2300', esp: 'ingreso 2300' },
   { msg: 'Cobré 150 por una asesoría', esp: 'ingreso 150' },
   { msg: '50 lucas en el mercado', esp: 'gasto 50' },
-  { msg: 'Pata me presté 30 mangos taxi', esp: 'gasto 30' },
-  // "Me preste" sin tilde roza el caso (3) de tipo_dudoso ("preste 118"): preguntar es aceptable.
+  // "Me presté" dejó de ser jerga de gasto el 08-oct-2026 (se borró la regla del prompt; lib/prestamos.js
+  // lo trata como ambiguo). En producción estos dos nunca llegan al parser: `enrutarPorVerbo` pregunta
+  // antes. Acá solo se exige que el parser no invente otra cosa: gasto o duda, con su monto.
+  { msg: 'Pata me presté 30 mangos taxi', esp: 'gasto 30|tipo_dudoso' },
   { msg: 'Me preste 50 soles', esp: 'gasto 50|tipo_dudoso' },
 ];
 

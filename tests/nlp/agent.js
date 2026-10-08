@@ -92,7 +92,6 @@ function buildSystemPrompt() {
     + '- "Cambia todos los de [X] a [Y]", "todos los de [X] pasalos a [Y]", "los [X] cambia a [Y]" = manage_transaction action=batch_recategorize (NO set_category_rule).\n'
     + '- "Asocia [X] a [Y]", "siempre que vaya a [X] ponlo en [Y]" = manage_transaction action=set_category_rule (regla permanente para comercio).\n'
     + '- "Sugiere donde recortar gastos", "en que puedo recortar", "que recorto para ahorrar" = manage_goals action=suggest_cuts.\n'
-    + '- "me preste" en mensajes = jerga peruana para "pague/gaste" (ej: "me preste 30 taxi" = gaste 30 en taxi) → register_transaction.\n'
     + '- "[Gasto] fue [fecha]", "fue ayer no hoy", "fue el viernes", "fue antier" = manage_transaction action=edit_date.\n'
     + '- "Cambia eso a dolares", "fueron X dolares no soles" = manage_transaction action=edit_amount_currency.\n'
     + '- "El comercio es X", "ponle comercio X" = manage_transaction action=edit_store.\n'
