@@ -256,9 +256,15 @@ describe('tipo e ingreso', () => {
    * rescataba como gasto por ser "jerga", y así entró "Me preste 50 soles" como Finanzas >
    * Prestamo. Ahora el salvavidas no rescata ninguna forma de préstamo (lib/prestamos.js).
    */
+  it('la cuota de un préstamo (el sustantivo) sí es un gasto', () => {
+    expect(extraerGastoSinIA('pagué la cuota del préstamo 300')).toMatchObject({ monto: 300, tipo: 'gasto' });
+  });
   it('prestar NO es gastar, en ninguna dirección', () => {
     for (const m of ['preste 100 a Juan', 'me presté 100 del banco', 'Me preste 50 soles', 'Y preste 118 soles',
-      'Mi mamá me prestó 200 soles', 'pedí prestado 300 soles']) {
+      'Mi mamá me prestó 200 soles', 'pedí prestado 300 soles',
+      // Con la plata delante o una coma: la segunda revisión del 07-oct los midió saliendo gasto.
+      '100 soles le presté a mi mamá', '50 soles me presté', '50 soles me preste', 'S/ 200 me prestó Juan',
+      'le presté a mi mamá, 118 soles']) {
       expect(extraerGastoSinIA(m), m).toBeNull();
     }
   });

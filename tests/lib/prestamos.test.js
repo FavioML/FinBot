@@ -67,10 +67,35 @@ describe('direccionPrestamo', () => {
     ['Mi viejo me prestó su carro y le eché 50 de gasolina', null],
     ['le presté mi taladro a Juan y compré brocas por 30', null],
     ['Rosa me prestó su casa de playa, gasté 200 en comida', null],
-    ['compré la refri de 1500 con lo que me prestó mi tío', null],
-    ['pagué 350 de la cuota de lo que me prestaron en el BCP', null],
-    // Con la coma corta la cláusula: el monto suelto después ya no se liga (lo decide el clasificador).
-    ['se lo presté a mi hermano, 200', null],
+    ['me prestó su carro 2 días', null],
+    ['me prestó su moto para ir a comprar 50 de gasolina', null],
+    ['Juan me prestó su tarjeta para comprar 300', null],
+    // Una persona después del verbo no es una cosa: el préstamo es de plata (el gasto, si lo hay, lo
+    // separa `enrutarPorVerbo`).
+    ['compré la refri de 1500 con lo que me prestó mi tío', 'debo'],
+    ['Me prestó mi tío 200', 'debo'],
+    ['se lo presté a mi hermano, 200', 'me_deben'],
+    // La plata ANTES del verbo, o en palabras (segunda revisión del 07-oct: volvían al clasificador).
+    ['118 le presté a mi madre', 'me_deben'],
+    ['100 soles le presté a mi mamá', 'me_deben'],
+    ['Los 200 que me prestó Juan, anótalos', 'debo'],
+    ['S/ 200 me prestó Juan', 'debo'],
+    ['le presté cincuenta a Juan', 'me_deben'],
+    ['Juan me prestó doscientos', 'debo'],
+    ['Le presté a Juan con intereses 500', 'me_deben'],
+    ['Mi tía me prestó con su tarjeta 500', 'debo'],
+    ['presté 1,500 a Juan', 'me_deben'],
+    // "a" + algo que no es una persona: no es un destinatario.
+    ['presté 5000 a pagar en 12 cuotas', 'ambiguo'],
+    ['presté 2000 a plazo fijo', 'ambiguo'],
+    ['presté 3000 a Falabella', 'ambiguo'],
+    // Una cita con una sola comilla en el borde no es la plantilla: la decide el clasificador, como
+    // antes (segunda revisión del 07-oct: salían me_deben, al revés).
+    ['"Te presté 200" me reclama Juan', null],
+    ['Juan me reclama "te presté 200"', null],
+    ['“Te presté 200” me escribe Juan', null],
+    ['Mi tío me manda: "te presté 500"', null],
+    ['Juan me reclama: te presté 200', 'ambiguo'],
     ['Gasté 25 soles en Wong', null],
     ['', null],
     [null, null],
@@ -104,7 +129,17 @@ describe('el abono a una deuda que ya existe', () => {
     ['¿Juan me pagó lo que me debía?', null],
     ['me dijo que me pagó lo que me debía pero no me llegó nada', null],
     ['si Juan me pagó lo que me debía, cuánto me queda', null],
-    ['Juan me pagó 50 de los 100 que me debía', null],
+    ['Juan me pagó 100 que me debía y aún me debe 50', null],
+    ['Juan me pagó los 100 que me debía, pero es mentira', null],
+    ['Juan supuestamente me pagó lo que me debía', null],
+    ['creo que Juan me pagó lo que me debía', null],
+    ['Juan me pagó lo que me debía pero no me llegó', null],
+    // Lo que va DESPUÉS del pago es un cierre normal, no una duda.
+    ['Juan me pagó lo que me debía, ya no me debe nada', 'me_deben'],
+    ['Le pagué a mi mamá lo que le debía, ya no le debo nada', 'debo'],
+    ['Juan me pagó lo que me debía, ahora si estamos a mano', 'me_deben'],
+    // El abono parcial, la forma más común con dos cifras.
+    ['Juan me pagó 50 de los 200 que me debía', 'me_deben'],
     // El plural impersonal es un ingreso (un empleador, un banco), no el abono de una persona.
     ['me pagaron 1500 que me debían del sueldo', null],
   ];
@@ -132,6 +167,18 @@ describe('enrutarPorVerbo', () => {
   it('el tipo del verbo pisa el del clasificador', () => {
     const r = enrutarPorVerbo({ intencion: 'registrar_deuda', datos: { tipo: 'debo', contraparte: 'madre', monto: 118 }, msg: 'No no, yo le preste 118 soles a mi madre' });
     expect(r).toEqual({ intencion: 'registrar_deuda', datos: { tipo: 'me_deben', contraparte: 'madre', monto: 118 } });
+  });
+  it('en "50 de los 200" el abono es el 50, diga lo que diga el modelo', () => {
+    const r = enrutarPorVerbo({ intencion: 'registrar_deuda', datos: { contraparte: 'Juan', monto: 200 }, msg: 'Juan me pagó 50 de los 200 que me debía' });
+    expect(r).toEqual({ intencion: 'abonar_deuda', datos: { contraparte: 'Juan', monto: 50, tipo: 'me_deben' } });
+  });
+  it('desde un gasto, un préstamo con un verbo de gasto al lado se separa', () => {
+    expect(enrutarPorVerbo({ intencion: 'registrar_manual', datos: { monto: 1500 }, msg: 'compré la refri de 1500 con lo que me prestó mi tío' }).pregunta)
+      .toContain('No anoté nada');
+  });
+  it('pagar una cuota "de lo que me prestaron" es un abono a lo que DEBO, no un gasto nuevo', () => {
+    expect(enrutarPorVerbo({ intencion: 'registrar_manual', datos: { monto: 350 }, msg: 'pagué 350 de la cuota de lo que me prestaron en el BCP' }))
+      .toEqual({ intencion: 'abonar_deuda', datos: { monto: 350, tipo: 'debo' } });
   });
   it('un gasto con una cosa prestada sigue siendo un gasto', () => {
     const datos = { monto: 30, comercio: 'brocas' };
