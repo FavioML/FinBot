@@ -191,7 +191,9 @@ const abonosDe = async (deudaIds) => (deudaIds.length
 // de un gasto trae el link de activación (`/activar?t=…`), y con `?` el control del 07-oct dio PASS
 // sobre "✅ S/50.00 en Finanzas > Prestamo".
 const pregunta = (r) => /¿/.test(r || '') && !/Anotado|Abono anotado|Listo,|✅/.test(r || '');
-const preguntaDireccion = (r) => pregunta(r) && /prest/i.test(r || '');
+// El texto exacto de `preguntaDireccionPrestamo`: con /prest/ a secas pasaba también "¿A quién se lo
+// prestaste?", que es una dirección DECIDIDA sin contraparte (revisión del 07-oct).
+const preguntaDireccion = (r) => pregunta(r) && /prestaste tú o te los? prestaron/.test(r || '');
 
 const CASOS = {
   'ambiguo-sin-tilde': {
@@ -218,16 +220,16 @@ const CASOS = {
     msg: 'No no, yo le preste 118 soles a mi madre',
     async afirmar(u) {
       const d = await deudasDe(u);
-      return [[d.length === 1 && d[0].tipo === 'me_deben' && Number(d[0].monto_original) === 118,
-        'UNA deuda me_deben de 118', JSON.stringify(d.map((x) => `${x.tipo} ${x.monto_original} ${x.contraparte}`))]];
+      return [[d.length === 1 && d[0].tipo === 'me_deben' && Number(d[0].monto_original) === 118 && /madre/i.test(d[0].contraparte),
+        'UNA deuda me_deben de 118 con la madre', JSON.stringify(d.map((x) => `${x.tipo} ${x.monto_original} ${x.contraparte}`))]];
     },
   },
   'me-presto': {
     msg: 'Mi mamá me prestó 200',
     async afirmar(u) {
       const d = await deudasDe(u);
-      return [[d.length === 1 && d[0].tipo === 'debo' && Number(d[0].monto_original) === 200,
-        'UNA deuda debo de 200', JSON.stringify(d.map((x) => `${x.tipo} ${x.monto_original} ${x.contraparte}`))]];
+      return [[d.length === 1 && d[0].tipo === 'debo' && Number(d[0].monto_original) === 200 && /mam/i.test(d[0].contraparte),
+        'UNA deuda debo de 200 con la mamá', JSON.stringify(d.map((x) => `${x.tipo} ${x.monto_original} ${x.contraparte}`))]];
     },
   },
   abono: {
@@ -270,7 +272,7 @@ const CASOS = {
       const d = await deudasDe(u);
       return [
         [d.length === 0, 'no crea ninguna deuda', JSON.stringify(d.map((x) => `${x.tipo} ${x.monto_original} ${x.contraparte}`))],
-        [pregunta(r), 'pregunta en vez de anotar'],
+        [pregunta(r) && /No tengo anotado que/.test(r || ''), 'dice que no hay esa deuda y pregunta qué era'],
       ];
     },
   },

@@ -1145,7 +1145,7 @@ describe('préstamos · la dirección la dice el verbo y el abono va a la deuda 
     montar({ deudas: [], deuda_abonos: [], transacciones: [] });
     const resp = await decir('registrar_manual', 'almuerzo 15 y le presté 50 a Juan', { monto: 15, comercio: 'almuerzo' });
     expect(pg.escrituras()).toEqual([]);
-    expect(resp).toContain('Mándame el préstamo aparte');
+    expect(resp).toContain('No anoté nada');
   });
 
   it('"Me pagó mi tío 150 que me debía" en registrar_deuda ABONA a la deuda del tío', async () => {
@@ -1191,6 +1191,25 @@ describe('préstamos · la dirección la dice el verbo y el abono va a la deuda 
     const resp = await decir('registrar_deuda', 'Me pagó mi tío 150 que me debía', { tipo: 'me_deben', contraparte: 'tío', monto: 150 });
     expect(pg.escrituras()).toEqual([]);
     expect(resp).toMatch(/No tengo anotado que \*tío\* te deba plata/);
+  });
+
+  // Mutación M-A de la revisión: un abono cuya referencia es "le presté" tiene que abonar, no crear.
+  it('"Juan ya me devolvió lo que le presté 100 soles" en registrar_deuda abona a lo que Juan me debe', async () => {
+    montar({ deudas: [deuda('d-juan', 'Juan', 100, '2026-09-10')], deuda_abonos: [] });
+    const resp = await decir('registrar_deuda', 'Juan ya me devolvió lo que le presté 100 soles', { tipo: 'me_deben', contraparte: 'Juan', monto: 100 });
+    expect(pg.tablas.deudas).toHaveLength(1);
+    expect(pg.fila('deudas', 'd-juan')).toMatchObject({ monto_pendiente: 0, estado: 'pagada' });
+    expect(resp).toContain('quedó saldada');
+  });
+
+  // Mutación M-J de la revisión: el muro juzga el intent ENRUTADO. Un préstamo que el clasificador
+  // mandó como gasto (libre) es una deuda (la cobra el muro).
+  it('en el muro, un préstamo que llegó como gasto lo frena el muro y no se escribe', async () => {
+    montar({ deudas: [], deuda_abonos: [], transacciones: [] });
+    const enMuro = { id: 'u-1', nombre: 'Rayza', plan: 'free', trial_estado: 'vencido', trial_vence: '2026-01-01' };
+    const d = await dispatchIntent({ intencion: 'registrar_manual', msg: 'Presté 200 a Juan', datos: { monto: 200, comercio: 'Juan' }, usuario: enMuro, from: '51999', ctx: ctx() });
+    expect(d.muro).toBe(true);
+    expect(pg.escrituras()).toEqual([]);
   });
 
   it('"Juan me pagó la mitad" saca la mitad de lo que Juan me debe, no de lo que le debo', async () => {

@@ -614,7 +614,7 @@ describe('registrar_deuda: "presté" es plata que me deben', () => {
 
   it('sin persona, la pregunta va en la dirección del verbo', async () => {
     const ctx = ctxDeuda();
-    const res = await deudas.handle({ intencion: 'registrar_deuda', msg: 'Presté 118 soles', datos: { monto: 118 }, usuario: USUARIO, from: '51999', ctx });
+    const res = await deudas.handle({ intencion: 'registrar_deuda', msg: 'le presté 118 soles', datos: { monto: 118 }, usuario: USUARIO, from: '51999', ctx });
     expect(ctx.registrarDeuda).not.toHaveBeenCalled();
     expect(res).toContain('¿A quién se lo prestaste?');
   });

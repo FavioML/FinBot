@@ -59,8 +59,7 @@ module.exports = {
           // Fallback: extraer contraparte del mensaje si el clasificador no la encontró
           if (!contraparte) {
             const mNombre = msg.match(/(?:^|\b)([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)?)\s+me\s+debe/i)
-              || msg.match(/(?:debo|le debo|prest[eé])\s+.*?\s+a\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)?)/i)
-              || msg.match(/(?:^|\b)([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)?)\s+me\s+(?:lo\s+)?prest(?:[oó]|aron)(?![a-záéíóúñ])/i);
+              || msg.match(/(?:debo|le debo|prest[eé])\s+.*?\s+a\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)?)/i);
             if (mNombre) contraparte = mNombre[1].trim();
           }
 
