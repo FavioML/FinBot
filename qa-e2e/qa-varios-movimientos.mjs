@@ -245,10 +245,11 @@ if (esMain) {
     const c = await crearUsuario();
     // Con NETO_QA_HISTORIAL=1 la persona ya conversó: el clasificador recibe las últimas 4 filas
     // (`historialConv.slice(-4)`), y un gasto y una consulta previos son el historial que más lo
-    // empuja a otra intención. Las filas de esos turnos no cuentan para el veredicto.
+    // empuja a otra intención. Las filas de esos turnos no cuentan para el veredicto. El gasto previo no
+    // repite ningún caso: el dedup de `guardarTransaccion` (10 s) devolvería esa fila en vez de una nueva.
     const previas = new Set();
     if (HISTORIAL) {
-      for (const texto of ['gasté 12 en taxi', 'cuánto llevo hoy']) {
+      for (const texto of ['gasté 9 en pan', 'cuánto llevo hoy']) {
         const stH = await enviarTexto(vars.META_APP_SECRET, c.whatsapp, texto, `wamid.qa-varios-${sufijo}-${++n}`);
         if (stH !== 200 || (await esperarRespuesta(sb, c.u.id, texto)) === null) {
           await dormir(60000);
