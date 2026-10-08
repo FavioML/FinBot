@@ -250,6 +250,8 @@ describe('textoAyuda: cada tema dice lo que el código hace', () => {
     }
     expect(textoAyuda('gmail', EN_TRIAL)).toMatch(/tu prueba no incluye/);
     expect(textoAyuda('gmail', EN_MURO)).not.toMatch(/tu prueba no incluye/);
+    // El cupo de OAuth de Google es un motivo interno; al cliente no se le cuenta (Favio, 07-oct-2026).
+    for (const u of [EN_TRIAL, EN_MURO]) expect(textoAyuda('gmail', u)).not.toMatch(/\bcupos?\b|contados/i);
     // Al que paga no se le vende: se le da el atajo a la app.
     const pagado = textoAyuda('gmail', PAGADO);
     expect(pagado).not.toMatch(/S\/\d+\/mes/);

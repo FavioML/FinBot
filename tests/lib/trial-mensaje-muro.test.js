@@ -410,6 +410,8 @@ describe('los cuatro mensajes de Pro por WhatsApp respetan la identidad', () => 
       const msg = mensajeGmailProPagado(u, opcion);
       expect(msg).not.toMatch(/sin\s+(anotar|ingresar|escribir|hacer)\s+nada|sin\s+que\s+(hagas|escribas)\s+nada|se\s+registran\s+solos|los\s+anoto\s+solos/i);
       expect(msg).not.toMatch(/notificaci\S*\s+(de\s+)?(tu|su|del)\s+banco|notificaciones\s+bancarias|SMS\s+bancarios?/i);
+      // El cupo de OAuth de Google es un motivo interno; al cliente no se le cuenta (Favio, 07-oct-2026).
+      expect(msg).not.toMatch(/\bcupos?\b|contados/i);
     }
     // El escaneo lee una lista fija de remitentes (`gmail.js`), no cualquier banco.
     expect(mensajeGmailProPagado({ ...WA_ONLY, plan: 'free', trial_estado: 'vencido' }, opcion)).toMatch(/si es uno de los que reviso/);

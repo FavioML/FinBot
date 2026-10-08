@@ -257,6 +257,16 @@ const SIEMPRE = [
     ],
   },
   {
+    // No es un claim falso: es un motivo interno. El cupo de OAuth de Google explica por que
+    // Gmail exige Pro pagado, pero al cliente no se le cuenta (Favio, 07-oct-2026). El panel de
+    // admin lo nombra y no cae: "Cupo OAuth de Google" no tiene "con/de" pegado al cupo.
+    id: 'cupo-de-google-al-cliente',
+    patron: /\bcupos?\s+(?:con|de)\s+Google|\blos\s+tenemos\s+contad/i,
+    porque: 'El limite de usuarios de OAuth de Google es un detalle interno. Al cliente se le dice que la lectura de correos se activa con el pago, no por que.',
+    debeMatchear: ['cada conexión nos cuesta un cupo con Google y los tenemos contados', 'gasta un cupo de Google'],
+    noDebeMatchear: ['Cupo OAuth de Google', 'Se activa al confirmar tu pago: es lo único que tu prueba no incluye.'],
+  },
+  {
     // Lo que se corrigio en /login el 31-jul ("una sola cuenta, sincronizada") y reaparecio tres
     // veces en la landing el 03-oct. El lookbehind deja pasar el texto o audio de un video.
     id: 'canales-sincronizados',

@@ -114,8 +114,9 @@ function textoAyuda(tema, usuario) {
       let r = '📧 Puedo leer los correos de consumo que te manda tu banco, pero es una función beta de *Neto Pro pagado* y es opcional. ' +
         'Se conecta solo desde la web, no desde este chat.';
       // Mismo motivo que `mensajeGmailProPagado`: a quien prueba Pro le suena a error que
-      // falte algo, así que se le dice por qué esta es la excepción.
-      if (enTrial(u)) r += '\n\nEs lo único que tu prueba no incluye: cada conexión nos cuesta un cupo con Google y los tenemos contados.';
+      // falte algo, así que se le dice que esta es la excepción. El porqué interno (el cupo de
+      // OAuth de Google) no se le cuenta: decisión de Favio, 07-oct-2026.
+      if (enTrial(u)) r += '\n\nEs lo único que tu prueba no incluye: se activa al confirmar tu pago.';
       return r + '\n\nEs un complemento: lo que no te llega por correo lo sigues anotando por acá, como ahora.\n\n' +
         lineaPrecioPro() + '\n_Escribe */premium* y te digo cómo pagarlo._';
     }

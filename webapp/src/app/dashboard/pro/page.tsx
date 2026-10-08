@@ -514,8 +514,8 @@ function GmailConnect({
             <p className="text-xs text-[#8A877D] mt-0.5">
               Opcional y de Neto Pro: si conectas tu Gmail, Neto registra los gastos de los correos que tu banco ya te
               envía. Es un complemento, lo demás lo sigues anotando tú por WhatsApp.{' '}
-              <span className="text-[#C8C6BC]">Se activa al confirmar tu pago</span>, porque cada conexión nos cuesta un
-              cupo con Google y los tenemos contados. Actívalo aquí arriba y empieza a leer el mismo día.
+              <span className="text-[#C8C6BC]">Se activa al confirmar tu pago</span>: es lo único que tu prueba no
+              incluye. Actívalo aquí arriba y empieza a leer el mismo día.
             </p>
           ) : (
             <p className="text-xs text-[#8A877D] mt-0.5">
