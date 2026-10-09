@@ -3,7 +3,7 @@ const { supabase } = require('../lib/db');
 const log = require('../lib/logger');
 const { enviarWhatsapp } = require('../lib/whatsapp');
 const { oauth2Client, obtenerPerfilGoogle, guardarTokens, verificarState, emailGmailVinculado, esElMismoGmail } = require('../gmail');
-const { esProPagado } = require('../lib/trial');
+const { esProPagado, mensajeGmailSinBuzon } = require('../lib/trial');
 const { escanearGmailYRegistrar, escanearHistoricoInicial } = require('../services/gmail-scanner');
 const analytics = require('../lib/analytics');
 
@@ -242,6 +242,10 @@ router.get('/auth/callback', async (req, res) => {
           : await escanearGmailYRegistrar(usuario);
         if (resultado && typeof resultado === 'string') {
           await enviarWhatsapp(usuario.whatsapp || usuario.bsuid, resultado);
+        } else if (resultado && resultado.sinBuzon) {
+          // Acaba de autorizar una cuenta de Google sin Gmail (migración 090). Es el único momento
+          // en que lo está mirando: decírselo ahora, no cuando note que nada se registra.
+          await enviarWhatsapp(usuario.whatsapp || usuario.bsuid, mensajeGmailSinBuzon(usuario));
         }
         if (modoConexion === 'inicial') {
           // Falla ABIERTO **a proposito, y la decision es del item 20**: arreglar una lectura
@@ -253,16 +257,20 @@ router.get('/auth/callback', async (req, res) => {
           const { error: errPaso } = await supabase.from('usuarios').update({ onboarding_paso: 0, onboarding_completado: true }).eq('id', usuario.id);
           if (errPaso) log.error({ tag: 'CALLBACK', err: errPaso.message, usuarioId: usuario.id }, 'Gmail conectado pero no se pudo cerrar el onboarding: el usuario va a seguir viendo el alta');
           analytics.capture(usuario.id, 'wa_onboarding_completed', { via: 'gmail' });
-          await new Promise(r => setTimeout(r, 1500));
-          await enviarWhatsapp(usuario.whatsapp || usuario.bsuid,
-            '🎉 *¡Listo, ' + primerNombre + '!* Tu cuenta está activa.\n\n' +
-            '📊 *Tu dashboard:* https://app.neto.pe\n' +
-            'Ahí puedes ver gráficos, metas, reportes PDF y más.\n\n' +
-            'Por WhatsApp escríbeme como quieras:\n' +
-            '_"cuánto gasté esta semana"_\n' +
-            '_"dame mi reporte"_\n\n' +
-            'Te aviso cada vez que detecte un gasto nuevo. 🔔'
-          );
+          // Sin buzón ya recibió el aviso de arriba: el "te aviso cada vez que detecte un gasto"
+          // de este mensaje se lo contradiría dos segundos después.
+          if (!(resultado && resultado.sinBuzon)) {
+            await new Promise(r => setTimeout(r, 1500));
+            await enviarWhatsapp(usuario.whatsapp || usuario.bsuid,
+              '🎉 *¡Listo, ' + primerNombre + '!* Tu cuenta está activa.\n\n' +
+              '📊 *Tu dashboard:* https://app.neto.pe\n' +
+              'Ahí puedes ver gráficos, metas, reportes PDF y más.\n\n' +
+              'Por WhatsApp escríbeme como quieras:\n' +
+              '_"cuánto gasté esta semana"_\n' +
+              '_"dame mi reporte"_\n\n' +
+              'Te aviso cada vez que detecte un gasto nuevo. 🔔'
+            );
+          }
         }
       } catch(e) { log.error({ tag: 'CALLBACK', err: e.message }, 'Error OAuth callback'); }
     }, 2000);

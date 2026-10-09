@@ -27,7 +27,7 @@ export async function GET() {
   // usuarios.gmail_access_token es legacy y puede estar vacío aunque haya cuenta activa.
   const { data: cuentaGmail } = await svc
     .from('gmail_cuentas')
-    .select('email, auth_error_at')
+    .select('email, auth_error_at, sin_buzon_at')
     .eq('usuario_id', userId)
     .eq('activa', true)
     .order('created_at', { ascending: false })
@@ -54,6 +54,9 @@ export async function GET() {
   // esos tokens no sabemos nada, y afirmar que están rotos sería inventar.
   const gmailAuthErrorAt = (cuentaGmail?.auth_error_at as string | null) ?? null;
   const gmailNecesitaReconexion = !!gmailAuthErrorAt;
+  // La cuenta de Google conectada no tiene Gmail (migración 090): el token anda y no hay bandeja
+  // que leer. Lo sella el backend la primera vez que Gmail responde "Mail service not enabled".
+  const gmailSinBuzonAt = (cuentaGmail?.sin_buzon_at as string | null) ?? null;
 
   // Descuento de referido (50% off primer mes). Se calcula server-side en fecha Lima para
   // no depender de la zona del navegador.
@@ -91,6 +94,7 @@ export async function GET() {
     gmailEmail,
     gmailNecesitaReconexion,
     gmailAuthErrorAt,
+    gmailSinBuzon: !!gmailSinBuzonAt,
     ultimoPago: pago ? { estado: pago.estado, tipoPlan: pago.tipo_plan } : null,
     descuento,
   });

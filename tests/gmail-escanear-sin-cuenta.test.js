@@ -70,6 +70,13 @@ describe('escanearGmailYRegistrar separa "no tiene cuenta" de "no hay correos"',
     expect(await escanearGmailYRegistrar(USUARIO)).toEqual({ authError: true });
   });
 
+  // La cuenta de Google conectada no tiene Gmail (migración 090). Ni `authError` (reconectar no
+  // lo arregla) ni `null` (los call-sites de copy responderían "no encontré correos nuevos").
+  it('con una cuenta de Google sin Gmail devuelve {sinBuzon:true}', async () => {
+    lectura = { error: 'SIN_BUZON', mensajes: [], salteados: 0 };
+    expect(await escanearGmailYRegistrar(USUARIO)).toEqual({ sinBuzon: true });
+  });
+
   /**
    * Y el cuarto: **no se pudo AVERIGUAR** si tiene cuentas.
    *

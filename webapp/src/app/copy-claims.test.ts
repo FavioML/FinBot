@@ -160,7 +160,56 @@ const NOTIFICACION_BANCARIA = new RegExp(
   'i'
 );
 
+// Bancos y billeteras sin lectura de Gmail verificada (todos menos BCP y Yape), y el conteo. Misma
+// regla, mismo id, en landing/scripts/verify-claims.mjs y content/scripts/verify-claims.mjs. El
+// lookbehind deja pasar la negación ("no lee los avisos de Interbank"), y el hueco no cruza una
+// foto: leer la CAPTURA de un Plin es otra capability y sí existe.
+const BANCOS_SIN_LECTURA_VERIFICADA = (() => {
+  // Tres formas: verbo de leer y después el banco, verbo y después "N bancos", y el banco antes del
+  // verbo ("tus avisos de Interbank, leídos"). La negación cercana ("aún no puede leer") no cuenta,
+  // el hueco no cruza oración (. ; salto de línea) ni una foto o captura.
+  const VERBO = String.raw`(?:lee|leer|lees|leo|leer[áa]|leemos|leyendo|le[íi]d[oa]s?|lectura)`;
+  const NEG = String.raw`(?<!\b(?:no|nunca)\s+(?:\S+\s+){0,2})`;
+  const HUECO = (n: number) => String.raw`(?:(?!fotos?\b|captura|im[áa]gen|pantallazo|voucher|comprobante|screenshot)[^\n.;]){0,` + n + '}?';
+  const BANCOS = String.raw`(?:BBVA|Interbank|Scotiabank|BanBif|Falabella|Ripley|Mibanco|Plin|Tunki|CMAC|Cajas?\s+(?:municipal\w*|Huancayo|Piura|Trujillo|Cusco|Ica|Sullana|Arequipa)|todos\s+los\s+bancos)`;
+  return new RegExp(
+    NEG + String.raw`\b` + VERBO + String.raw`\b` + HUECO(120) + String.raw`\b` + BANCOS + String.raw`\b` +
+      '|' + NEG + String.raw`\b` + VERBO + String.raw`\b` + HUECO(60) + String.raw`\b\d+\s+bancos\b` +
+      '|' + String.raw`\b` + BANCOS + String.raw`\b` + HUECO(60) + NEG + String.raw`\b(?:lee|leer|leo|leyendo|le[íi]d[oa]s?)\b`,
+    'i'
+  );
+})();
+
 const SIEMPRE = [
+  {
+    // Lo que Neto LEE de Gmail, contado de más. Medido el 08-oct-2026: las transacciones de Gmail de
+    // toda la vida del producto son de BCP o de Yape (auditoría en app/docs/DEFECTOS.md).
+    id: 'bancos-sin-lectura-verificada',
+    patron: BANCOS_SIN_LECTURA_VERIFICADA,
+    porque: 'Hoy Neto solo registra avisos por correo de BCP y Yape. Decir que lee los de otro banco, o contar bancos que lee, promete una lectura que no ocurre.',
+    debeMatchear: [
+      'lee los correos de notificación de BCP, BBVA, Interbank, Scotiabank, Yape y otros',
+      'lees automáticamente sus correos de transacciones de BCP, Interbank, BBVA, Scotiabank, Yape, Plin',
+      'Neto lee correos de 11 bancos peruanos',
+      'Neto leerá tus avisos de Banco Falabella',
+      // Evasiones de la primera versión, encontradas atacándola (segunda revisión, 08-oct-2026):
+      'Neto ya está leyendo tus correos de BBVA',
+      'Tus avisos de Interbank y BBVA, leídos automáticamente',
+      '¿Eres de Interbank? Neto lee tus correos',
+      'lee los correos de todos los bancos del Perú',
+    ],
+    noDebeMatchear: [
+      'Neto no lee los avisos de Interbank: avisa los consumos por SMS',
+      'Hoy Neto lee los avisos por correo de BCP y Yape',
+      'Funciona con BCP, BBVA, Interbank, Scotiabank, Yape, Plin y efectivo',
+      'compara las tasas de 3 bancos antes de abrir tu cuenta',
+      'lee fotos de Yape/Plin',
+      'lee Neto de una captura de Yape o Plin',
+      'Lectura de imágenes de Yape y Plin',
+      'Neto aún no puede leer los correos de Interbank',
+      'lee los avisos de BCP y Yape; los de Interbank llegan por SMS',
+    ],
+  },
   {
     id: 'integracion-bancaria',
     patron: /(conect|vincul|sincroniz|enlaz)\w*\s+(tu|su)\s+(banco|cuenta\s+bancaria)/i,

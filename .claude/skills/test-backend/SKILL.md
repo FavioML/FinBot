@@ -24,7 +24,7 @@ Archivos de test: `tasks/tests/`
 
 ### 3. Verificar cobertura critica
 Los tests cubren:
-- Parsers de correos bancarios (11 bancos: BCP, BBVA, Interbank, Scotiabank, Yape, Plin, Falabella, Ripley, BanBif, Mibanco, CMAC)
+- Lectura de correos bancarios (hoy registra BCP y Yape; ver la auditoría del 08-oct-2026 en `docs/DEFECTOS.md`)
 - Validacion de montos (NaN, Infinity, negativos, >999999.99)
 - Dedup hash MD5
 - Formatters y utilidades

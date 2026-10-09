@@ -355,6 +355,10 @@ async function guardarTokens(usuarioId, tokens, email) {
     // que Google aceptó, así que la fila vuelve a ser sana. Va en el mismo upsert para que
     // no exista un instante en que la cuenta esté reconectada y la app la siga dando por rota.
     auth_error_at: null,
+    // Y la de "sin buzón" (migración 090), por simetría: no sabemos si la cuenta reconectada
+    // tiene Gmail hasta que se liste. Si sigue sin tenerlo, el barrido histórico del callback
+    // la vuelve a sellar en el mismo minuto.
+    sin_buzon_at: null,
     updated_at: new Date().toISOString()
   };
   if (tokens.refresh_token) cuenta.refresh_token = encrypt(tokens.refresh_token);
@@ -414,7 +418,9 @@ async function obtenerCuentasGmail(usuarioId) {
 async function tieneGmailConectado(usuario) {
   if (usuario.gmail_access_token) return true;
   try {
-    return (await obtenerCuentasGmail(usuario.id)).length > 0;
+    // Una cuenta sellada sin buzón (migración 090) no cuenta: con ella el prompt del bot le
+    // afirmaba "lees automáticamente sus correos" a quien la app ya le dice que no tiene Gmail.
+    return (await obtenerCuentasGmail(usuario.id)).some(c => !c.sin_buzon_at);
   } catch (e) {
     log.warn({ tag: 'GMAIL', usuarioId: usuario.id, err: e.message }, 'No se pudo verificar Gmail; asumo sin correo');
     return false;
@@ -792,6 +798,93 @@ async function sellarAuthCaida(cuenta) {
   }
 }
 
+/**
+ * ¿Gmail respondió que esta cuenta de Google NO TIENE buzón?
+ *
+ * Una cuenta de Google se puede crear con un correo ajeno (Hotmail, Outlook, un dominio sin
+ * Workspace). El OAuth pasa igual —y gasta un cupo de los 100—, el refresh token anda, pero
+ * `users.messages.list` responde 400 FAILED_PRECONDITION "Mail service not enabled". No es
+ * transitorio: esa dirección no puede ganar un buzón de Gmail, así que reintentar cada 15
+ * minutos solo producía dos líneas de log por barrido (medido en Railway el 07-oct-2026).
+ *
+ * Se reconoce por el TEXTO y no solo por `failedPrecondition`: esa razón la comparten otras
+ * precondiciones de Gmail que sí son de configuración nuestra, y confundirlas sellaría como
+ * "sin buzón" a alguien que sí lo tiene. Se mira en los tres lugares donde gaxios lo deja
+ * (mensaje, `errors[]` y el cuerpo crudo) para no depender de cuál propague cada versión.
+ */
+function esErrorSinBuzon(e) {
+  if (!e) return false;
+  const textos = [e.message];
+  for (const x of (Array.isArray(e.errors) ? e.errors : [])) textos.push(x && x.message);
+  const cuerpo = e.response && e.response.data && e.response.data.error;
+  if (cuerpo) textos.push(typeof cuerpo === 'string' ? cuerpo : cuerpo.message);
+  return textos.some(t => typeof t === 'string' && /mail service not enabled/i.test(t));
+}
+
+/**
+ * Persiste que la cuenta de Google conectada no tiene Gmail (migración 090).
+ *
+ * Mismo molde que `sellarAuthCaida`: condicional a NULL (la marca es CUÁNDO se detectó), lee el
+ * `{ error }` porque postgrest-js no lanza, y no propaga — el `SIN_BUZON` que sigue es la señal
+ * que le importa al llamador. Va por `id` porque `leerCorreosBancarios` tiene la fila entera.
+ *
+ * Desbloqueo manual, si soporte confirma que la cuenta ya tiene Gmail y no quiere esperar la
+ * re-prueba diaria: `update gmail_cuentas set sin_buzon_at = null where id = '<id>'`.
+ */
+async function sellarSinBuzon(cuenta) {
+  try {
+    const { error } = await getSupabase().from('gmail_cuentas')
+      .update({ sin_buzon_at: new Date().toISOString() })
+      .eq('id', cuenta.id)
+      .is('sin_buzon_at', null);
+    if (error) throw new Error(error.message);
+    log.warn({ tag: 'GMAIL', usuarioId: cuenta.usuario_id, cuentaId: cuenta.id }, 'Cuenta de Google sin buzón de Gmail: sellada y fuera del barrido');
+  } catch (e) {
+    log.error({ tag: 'GMAIL', usuarioId: cuenta.usuario_id, cuentaId: cuenta.id, err: e.message }, 'No se pudo sellar la cuenta sin buzón');
+  }
+}
+
+/**
+ * La marca se quita sola cuando la re-prueba diaria lista bien. Hace falta porque el texto de
+ * Gmail no distingue "esta dirección no puede tener Gmail" (Hotmail) de "el admin de Workspace
+ * apagó Gmail" (que se puede volver a prender), y sellar sin salida dejaría a la segunda fuera
+ * del barrido para siempre, sin botón en la app.
+ */
+async function limpiarSinBuzon(cuenta) {
+  try {
+    const { error } = await getSupabase().from('gmail_cuentas')
+      .update({ sin_buzon_at: null })
+      .eq('id', cuenta.id)
+      .not('sin_buzon_at', 'is', null);
+    if (error) throw new Error(error.message);
+    log.info({ tag: 'GMAIL', usuarioId: cuenta.usuario_id, cuentaId: cuenta.id }, 'La cuenta sellada sin buzón volvió a listar: se quita la marca');
+  } catch (e) {
+    log.error({ tag: 'GMAIL', usuarioId: cuenta.usuario_id, cuentaId: cuenta.id, err: e.message }, 'No se pudo quitar la marca de sin buzón');
+  }
+}
+
+const DIA_MS = 24 * 60 * 60 * 1000;
+// El ancho de la ventana es el período del barrido automático, leído de la MISMA variable que
+// `cron/schedule.js` (`SCAN_INTERVAL_HOURS`, 0.25 h por default; no se importa de ahí para no
+// colgar `gmail.js` del módulo de crons). Con una ventana fija de 15 min y un barrido cada hora,
+// la fase de los ticks se repite cada día y una cuenta sellada podía no re-probarse NUNCA.
+function ventanaReprueba() {
+  const horas = parseFloat(process.env.SCAN_INTERVAL_HOURS || '0.25');
+  return (Number.isFinite(horas) && horas > 0 ? horas : 0.25) * 60 * 60 * 1000;
+}
+
+/**
+ * ¿Toca volver a preguntarle a Gmail por una cuenta sellada sin buzón? Una vez por día, contado
+ * desde la marca. Una marca ilegible se re-prueba: preferible un listado de más a una cuenta que
+ * no se vuelve a mirar nunca.
+ */
+function tocaReprobarSinBuzon(sinBuzonAt, ahora = Date.now()) {
+  const desde = Date.parse(sinBuzonAt);
+  if (!Number.isFinite(desde)) return true;
+  const transcurrido = ahora - desde;
+  return transcurrido >= DIA_MS && (transcurrido % DIA_MS) < ventanaReprueba();
+}
+
 async function configurarClienteParaCuenta(cuenta) {
   const cliente = crearClienteOAuth();
   const decryptedAccess = decrypt(cuenta.access_token);
@@ -965,7 +1058,9 @@ function construirQueriesBancarias(remitentes, windowDays) {
 // opts controla la ventana y los caps del scan. Defaults = comportamiento recurrente
 // (últimos ~2-3 días, caps bajos). El barrido histórico inicial pasa windowDays=30.
 async function leerCorreosDesdeCuenta(authClient, cuentaEmail, remitentes = REMITENTES_BANCARIOS, opts = {}) {
-  const { windowDays = 2, filterDays = 3, maxPerQuery = 20, maxProcess = 25 } = opts;
+  // `usuarioId`/`cuentaId` son solo para el log: hasta el 08-oct los errores de Gmail salían sin
+  // dueño y una cuenta rota se atribuía por descarte.
+  const { windowDays = 2, filterDays = 3, maxPerQuery = 20, maxProcess = 25, usuarioId = null, cuentaId = null } = opts;
 
   const gmail = google.gmail({ version: 'v1', auth: authClient });
 
@@ -993,7 +1088,18 @@ async function leerCorreosDesdeCuenta(authClient, cuentaEmail, remitentes = REMI
           if (!mensajesIds.has(m.id)) { mensajesIds.add(m.id); todosLosIds.push(m.id); }
         }
       }
-    } catch(e) { salteados++; log.error({ tag: 'GMAIL', err: e.message }, 'Error en query Gmail'); }
+    } catch(e) {
+      // Sin buzón es su propio desenlace, no un `listado_fallido`: el scanner le contesta otra
+      // cosa a la persona y la cuenta se sella. No suma a `salteados` porque no hay correos que
+      // un reintento recupere (el claim del histórico se libera igual, por `noCorrio`). Corta
+      // antes de la segunda query, que daría el mismo 400.
+      if (esErrorSinBuzon(e)) {
+        log.warn({ tag: 'GMAIL', usuarioId, cuentaId, err: e.message }, 'La cuenta de Google no tiene buzón de Gmail');
+        return { error: 'SIN_BUZON', mensajes: [], cuentaEmail, salteados: 0 };
+      }
+      salteados++;
+      log.error({ tag: 'GMAIL', usuarioId, cuentaId, err: e.message }, 'Error en query Gmail');
+    }
   }
 
   // Sin un solo listado que haya funcionado no se puede afirmar que no había correos: es el
@@ -1050,7 +1156,7 @@ async function leerCorreosDesdeCuenta(authClient, cuentaEmail, remitentes = REMI
       // de "dos compras iguales reales" (llegan con minutos u horas de diferencia).
       mensajes.push({ id, snippet: detalle.snippet, texto: textoParseo, asunto, remitente, fecha, recibidoEnMs: parseInt(detalle.internalDate) });
       log.info({ tag: 'GMAIL', asunto: asunto.substring(0, 60) }, 'Correo bancario encontrado');
-    } catch(e) { salteados++; log.error({ tag: 'GMAIL', err: e.message }, 'Error obteniendo correo'); }
+    } catch(e) { salteados++; log.error({ tag: 'GMAIL', usuarioId, cuentaId, err: e.message }, 'Error obteniendo correo'); }
   }
 
   // **El truncado por `maxProcess` NO se cuenta como salteado, y contarlo fue un defecto que
@@ -1098,6 +1204,10 @@ async function remitentesParaUsuario(usuarioId) {
  */
 function agregarResultadosDeCuentas(resultados) {
   const authExpired = resultados.some(r => r.error === 'AUTH_EXPIRED');
+  // `SIN_BUZON` (la cuenta de Google no tiene Gmail) es un hecho permanente, no un listado
+  // perdido: no suma salteados, y solo es el desenlace global cuando es el de TODAS. Junto a una
+  // cuenta sana no hay nada que decirle al usuario sobre el barrido.
+  const todasSinBuzon = resultados.length > 0 && resultados.every(r => r.error === 'SIN_BUZON');
 
   // Unificar mensajes de todas las cuentas (deduplicar por id)
   const vistos = new Set();
@@ -1111,14 +1221,14 @@ function agregarResultadosDeCuentas(resultados) {
 
   const salteados = resultados.reduce((n, r) => {
     if (r.salteados) return n + r.salteados;
-    return n + (r.error && r.error !== 'AUTH_EXPIRED' ? 1 : 0);
+    return n + (r.error && r.error !== 'AUTH_EXPIRED' && r.error !== 'SIN_BUZON' ? 1 : 0);
   }, 0);
   // Si NINGUNA cuenta pudo leerse y no hay un solo mensaje, el vacío no es un hecho sobre el
   // usuario sino sobre la corrida. Con una cuenta sana el error deja de ser global, pero su
   // hermana caída ya quedó contada en `salteados`.
   const todasFallaron = resultados.length > 0 && resultados.every(r => r.error) && mensajesUnificados.length === 0;
   return {
-    error: authExpired ? 'AUTH_EXPIRED' : (todasFallaron ? 'listado_fallido' : null),
+    error: authExpired ? 'AUTH_EXPIRED' : todasSinBuzon ? 'SIN_BUZON' : (todasFallaron ? 'listado_fallido' : null),
     mensajes: mensajesUnificados,
     salteados,
   };
@@ -1144,21 +1254,31 @@ async function leerCorreosBancarios(usuarioId, opts = {}) {
     // Fallback: intentar con token legacy en usuarios
     const authClient = await configurarClienteAutenticado(usuarioId);
     if (!authClient) return { error: 'no_auth', mensajes: [] };
-    return leerCorreosDesdeCuenta(authClient, null, remitentes, opts);
+    return leerCorreosDesdeCuenta(authClient, null, remitentes, { ...opts, usuarioId });
   }
+
+  // Las cuentas ya selladas sin buzón no se tocan, salvo la re-prueba diaria: ni refresh de token
+  // ni listado. Antes cada barrido de 15 minutos le pedía a Gmail dos listados que siempre
+  // respondían 400, y sin la re-prueba un falso positivo quedaba fuera del barrido para siempre.
+  const conBuzon = cuentas.filter(c => !c.sin_buzon_at || tocaReprobarSinBuzon(c.sin_buzon_at));
+  if (conBuzon.length === 0) return { error: 'SIN_BUZON', mensajes: [], salteados: 0 };
 
   // Escanear todas las cuentas activas en paralelo
   const resultados = await Promise.all(
-    cuentas.map(async (cuenta) => {
+    conBuzon.map(async (cuenta) => {
       try {
         const cliente = await configurarClienteParaCuenta(cuenta);
-        return leerCorreosDesdeCuenta(cliente, cuenta.email, remitentes, opts);
+        const r = await leerCorreosDesdeCuenta(cliente, cuenta.email, remitentes, { ...opts, usuarioId: cuenta.usuario_id, cuentaId: cuenta.id });
+        if (r.error === 'SIN_BUZON') await sellarSinBuzon(cuenta);
+        // Solo un listado SANO quita la marca: un 429 en la re-prueba no dice que haya buzón.
+        else if (cuenta.sin_buzon_at && r.error == null) await limpiarSinBuzon(cuenta);
+        return r;
       } catch(e) {
         if (e.code === 'AUTH_EXPIRED') {
           // Propagar como valor especial para que el scanner pueda notificar al usuario
           return { error: 'AUTH_EXPIRED', mensajes: [], cuentaEmail: cuenta.email, usuarioId: cuenta.usuario_id };
         }
-        log.error({ tag: 'GMAIL', email: cuenta.email, err: e.message }, 'Error en cuenta Gmail');
+        log.error({ tag: 'GMAIL', usuarioId: cuenta.usuario_id, cuentaId: cuenta.id, err: e.message }, 'Error en cuenta Gmail');
         return { error: e.message, mensajes: [], cuentaEmail: cuenta.email };
       }
     })
@@ -1171,4 +1291,4 @@ async function leerCorreosBancarios(usuarioId, opts = {}) {
 // primera recibe un `authClient` crudo y la segunda un array ya resuelto, así que llamarlas
 // desde producción saltearía la resolución de cuentas, `remitentesParaUsuario` y los gates de
 // plan que viven en `leerCorreosBancarios`. El camino de producción es ése, siempre.
-module.exports = { tieneGmailConectado, leerCorreosDesdeCuenta, agregarResultadosDeCuentas, generarUrlAutorizacion, verificarState, guardarTokens, cargarTokens, leerCorreosBancarios, oauth2Client, obtenerPerfilGoogle, obtenerCuentasGmail, revocarAccesoGmail, reintentarRevocacionesPendientes, BANCOS_CATALOGO, remitentesParaSeleccion, describirSeleccion, construirQueriesBancarias, emailGmailVinculado, hashEmailGmail, esElMismoGmail, esCorreoMasivo, direccionDe };
+module.exports = { tieneGmailConectado, leerCorreosDesdeCuenta, agregarResultadosDeCuentas, generarUrlAutorizacion, verificarState, guardarTokens, cargarTokens, leerCorreosBancarios, oauth2Client, obtenerPerfilGoogle, obtenerCuentasGmail, revocarAccesoGmail, reintentarRevocacionesPendientes, BANCOS_CATALOGO, remitentesParaSeleccion, describirSeleccion, construirQueriesBancarias, emailGmailVinculado, hashEmailGmail, esElMismoGmail, esCorreoMasivo, direccionDe, esErrorSinBuzon, tocaReprobarSinBuzon };

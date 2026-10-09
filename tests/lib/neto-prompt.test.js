@@ -65,7 +65,11 @@ describe('lib/neto-prompt', () => {
     it('con correo conectado: sí afirma la lectura automática y lista los bancos', () => {
       const p = construirNetoPrompt({ nombre: 'Ana', correoConectado: true, ultimaSync: '21/7/2026' });
       expect(p).toMatch(/lees automáticamente/i);
-      expect(p).toContain('Parsers activos: BCP, Interbank, BBVA, Scotiabank, Yape, Plin');
+      expect(p).toContain('Parsers activos: BCP y Yape');
+      // Solo los que se leen de verdad (auditoría del 08-oct-2026 en docs/DEFECTOS.md).
+      // El prompt nombra otros bancos en ejemplos de categoría; lo que no puede es afirmar que los LEE.
+      expect(p).toMatch(/correos de transacciones de BCP y Yape,/);
+      expect(p).not.toMatch(/correos de transacciones de[^\n]*(Interbank|BBVA|Scotiabank|Plin)/);
       expect(p).toContain('Última sincronización: 21/7/2026');
       expect(p).not.toContain('NO tiene su correo conectado');
     });

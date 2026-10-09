@@ -127,13 +127,24 @@ export default function DashboardPage() {
   // a un dashboard sin una sola señal de que hubiera funcionado.
   useEffect(() => {
     if (searchParams.get('gmail') !== 'conectado') return;
-    toast.success('Gmail conectado — Neto ya está leyendo tus correos bancarios.');
+    // "Revisando" y no "leyendo": el primer listado corre en el backend segundos DESPUÉS de este
+    // redirect, y si la cuenta de Google no tiene Gmail (migración 090) no va a leer nada.
+    toast.success('Gmail conectado. Neto está revisando tus correos bancarios.');
     queryClient.invalidateQueries({ queryKey: ['pro-status'] });
     // También el estado que alimenta el banner de "Gmail desconectado": si el usuario llegó
     // acá justamente por reconectar, dejarlo cacheado sería seguir avisando de algo ya resuelto.
     // Hoy el callback entra por una navegación completa y el bootstrap lo resiembra igual; esto
     // lo deja explícito para que un futuro redirect client-side no reintroduzca el aviso viejo.
     queryClient.invalidateQueries({ queryKey: ['gmail-estado'] });
+    // Y otra vez cuando el primer listado ya terminó: si la cuenta resultó sin buzón, el backend
+    // la sella ~5 s después del redirect y el banner tiene que aparecer en esta misma visita.
+    // Sin cleanup a propósito: el `replaceState` de abajo cambia `searchParams` y re-corre este
+    // efecto, así que un `clearTimeout` en el cleanup cancelaría la relectura antes de que ocurra.
+    // `pro-status` también: alimenta la tarjeta y el checklist, que si no seguirían en "conectado".
+    setTimeout(() => {
+      queryClient.invalidateQueries({ queryKey: ['gmail-estado'] });
+      queryClient.invalidateQueries({ queryKey: ['pro-status'] });
+    }, 15000);
     window.history.replaceState(null, '', '/dashboard');
   }, [searchParams, queryClient]);
 

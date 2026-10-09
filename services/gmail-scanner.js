@@ -114,6 +114,10 @@ async function escanearGmailYRegistrar(usuario, opts = {}) {
   if (salteados > 0 && estado) estado.fallidos += salteados;
   if (error === 'no_auth') { noCorrio('sin_cuenta'); return { sinCuenta: true }; }
   if (error === 'AUTH_EXPIRED') { noCorrio('auth_error'); return { authError: true }; }
+  // La cuenta de Google conectada no tiene Gmail (migración 090). Objeto propio y no `authError`:
+  // a esta persona "reconecta" no le sirve, y los dos disparadores manuales le dicen otra cosa.
+  // El barrido automático no le escribe (no es `authError` ni string): el aviso vive en la app.
+  if (error === 'SIN_BUZON') { noCorrio('sin_buzon'); return { sinBuzon: true }; }
   // No se pudo AVERIGUAR si tiene cuentas. Cae en `null` —el desenlace mudo— a proposito: es
   // el unico que no afirma nada. Decir `sinCuenta` seria pedirle que conecte Gmail a quien ya
   // lo tiene, que es el bug que `sinCuenta` vino a arreglar, servido por la rama de error.

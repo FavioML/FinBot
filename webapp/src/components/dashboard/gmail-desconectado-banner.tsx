@@ -31,7 +31,34 @@ export function GmailDesconectadoBanner() {
   const proPagado = !!user && esProPagado(user.plan, user.trial_estado);
   const { data } = useGmailEstado({ enabled: proPagado });
 
-  if (IS_DEMO || !proPagado || !data?.authErrorAt) return null;
+  if (IS_DEMO || !proPagado || !data) return null;
+
+  // La cuenta de Google conectada no tiene Gmail (migración 090). Mismo lugar que el aviso de
+  // auth caída y por el mismo motivo —el síntoma es "Neto no anota lo de mi correo"—, pero sin
+  // "Reconectar": esa cuenta no tiene bandeja y otra gasta un cupo de Google. Va por soporte.
+  if (data.sinBuzon) {
+    return (
+      <div className="mb-4 flex items-center gap-3 rounded-2xl border border-[#EF9F27]/40 bg-[#EF9F27]/10 px-4 py-3">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#EF9F27]/15 text-[#EF9F27]">
+          <AlertTriangle className="h-5 w-5" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-[#F0EFE8]">La cuenta de Google que conectaste no tiene Gmail</p>
+          <p className="text-xs text-[#8A877D]">
+            Neto no puede leer los avisos de tu banco desde ahí. Lo que anotas por WhatsApp sigue igual.
+          </p>
+        </div>
+        <Link
+          href="/dashboard/pro"
+          className="shrink-0 rounded-lg border border-[#EF9F27]/50 px-3 py-2 text-xs font-semibold text-[#EF9F27] transition-colors hover:bg-[#EF9F27]/10"
+        >
+          Ver detalle
+        </Link>
+      </div>
+    );
+  }
+
+  if (!data.authErrorAt) return null;
 
   const desde = new Date(data.authErrorAt).toLocaleDateString('es-PE', {
     timeZone: 'America/Lima',

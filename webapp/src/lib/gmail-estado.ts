@@ -14,16 +14,28 @@ export type EstadoGmail =
   /** Conectada y leyendo. NO lleva ninguna acción encima: un CTA acá contradice el "conectado". */
   | 'sano'
   /** Conectada en nuestros libros pero Google dejó de aceptar el token. Único estado con CTA. */
-  | 'caido';
+  | 'caido'
+  /**
+   * Conectó una cuenta de Google que NO TIENE Gmail (creada con un Hotmail u Outlook): el token
+   * anda pero no hay bandeja que leer (migración 090). Sin CTA: reconectar esa cuenta no cambia
+   * nada y otra gasta un cupo de Google y choca con la regla de una cuenta. Va por soporte.
+   */
+  | 'sin-buzon';
 
 export function estadoGmail(e: {
   conectado: boolean;
   necesitaReconexion: boolean;
   proPagado: boolean;
+  /** Opcional para no romper a quien no lo manda: ausente = no se sabe que falte el buzón. */
+  sinBuzon?: boolean;
 }): EstadoGmail {
-  // `caido` gana sobre `sano` y se evalúa primero: los dos tienen conectado=true, y el orden
-  // inverso dejaría el estado roto inalcanzable — que es exactamente el bug que esto cierra.
-  if (e.conectado) return e.necesitaReconexion ? 'caido' : 'sano';
+  // `sin-buzon` va antes que `caido`: si la cuenta no tiene Gmail, pedirle que reconecte es
+  // mandarlo a un arreglo que no arregla nada. `caido` gana sobre `sano` por el mismo motivo
+  // de orden: los tres tienen conectado=true, y el orden inverso los dejaría inalcanzables.
+  if (e.conectado) {
+    if (e.sinBuzon) return 'sin-buzon';
+    return e.necesitaReconexion ? 'caido' : 'sano';
+  }
   return e.proPagado ? 'sin-conectar' : 'bloqueado';
 }
 
@@ -35,6 +47,6 @@ export function estadoGmail(e: {
  * acción.
  */
 export function puedeAccionar(estado: EstadoGmail, proPagado: boolean): boolean {
-  if (estado === 'bloqueado' || estado === 'sano') return false;
+  if (estado === 'bloqueado' || estado === 'sano' || estado === 'sin-buzon') return false;
   return proPagado;
 }

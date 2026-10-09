@@ -144,7 +144,7 @@ export async function GET(request: Request) {
     // /api/pro/status a propósito: ese fan-out de requests es justo lo que este endpoint
     // existe para matar, y el aviso de "tu Gmail se cayó" tiene que estar disponible en el
     // primer paint de CUALQUIER pantalla del dashboard, no solo de /dashboard/pro.
-    svc.from('gmail_cuentas').select('auth_error_at').eq('usuario_id', userId).eq('activa', true).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+    svc.from('gmail_cuentas').select('auth_error_at, sin_buzon_at').eq('usuario_id', userId).eq('activa', true).order('created_at', { ascending: false }).limit(1).maybeSingle(),
   ]);
 
   // Goals: incluir metas colaborativas en las que participo (paridad con /api/goals)
@@ -209,7 +209,10 @@ export async function GET(request: Request) {
     score,
     scoreHistory: { history },
     alerts: { alerts, isPro },
-    gmail: { authErrorAt: (gmailRes.data?.auth_error_at as string | null) ?? null },
+    gmail: {
+      authErrorAt: (gmailRes.data?.auth_error_at as string | null) ?? null,
+      sinBuzon: !!gmailRes.data?.sin_buzon_at,
+    },
     isAdmin: isAdminAuthId(auth.authId),
   });
 }

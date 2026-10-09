@@ -108,10 +108,10 @@ function textoAyuda(tema, usuario) {
     // "Conectar Gmail es la unica capability que exige Pro PAGADO" y "Conectar es WEB-ONLY").
     case 'gmail': {
       if (esProPagado(u)) {
-        return 'Sí, como complemento de lo que anotas por acá: leo los correos de consumo que te manda tu banco.\n\n' +
+        return 'Sí, como complemento de lo que anotas por acá: leo los correos de aviso de tu banco, si es uno de los que reviso.\n\n' +
           mensajeConectarEnLaApp(u);
       }
-      let r = '📧 Puedo leer los correos de consumo que te manda tu banco, pero es una función beta de *Neto Pro pagado* y es opcional. ' +
+      let r = '📧 Puedo leer los correos de aviso de tu banco, si es uno de los que reviso, pero es una función beta de *Neto Pro pagado* y es opcional. ' +
         'Se conecta solo desde la web, no desde este chat.';
       // Mismo motivo que `mensajeGmailProPagado`: a quien prueba Pro le suena a error que
       // falte algo, así que se le dice que esta es la excepción. El porqué interno (el cupo de

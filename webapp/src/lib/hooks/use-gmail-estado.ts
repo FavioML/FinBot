@@ -7,6 +7,8 @@ import { useBootstrapGate } from '@/lib/hooks/use-dashboard-bootstrap';
 export interface GmailEstado {
   /** Instante en que Google rechazó el refresh token. null = sana, o no hay cuenta conectada. */
   authErrorAt: string | null;
+  /** La cuenta de Google conectada no tiene Gmail (migración 090). */
+  sinBuzon: boolean;
 }
 
 /**
@@ -36,7 +38,7 @@ export function useGmailEstado({ enabled = true }: { enabled?: boolean } = {}) {
       const r = await fetch('/api/pro/status', { cache: 'no-store' });
       if (!r.ok) throw new Error('No se pudo leer el estado de Gmail');
       const j = await r.json();
-      return { authErrorAt: (j.gmailAuthErrorAt as string | null) ?? null };
+      return { authErrorAt: (j.gmailAuthErrorAt as string | null) ?? null, sinBuzon: !!j.gmailSinBuzon };
     },
   });
 }

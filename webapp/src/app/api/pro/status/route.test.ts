@@ -97,6 +97,22 @@ describe('GET /api/pro/status — estado de la conexión de Gmail', () => {
     expect(b.gmailAuthErrorAt).toBeNull();
   });
 
+  it('cuenta de Google sin Gmail (migración 090): pide la columna y la devuelve, sin pedir reconexión', async () => {
+    // La cuenta conectada se creó con un Hotmail: el token anda y no hay bandeja. Sin este dato la
+    // tarjeta decía "Gmail conectado ✓" con 0 transacciones de Gmail (medido el 07-oct-2026).
+    filas.gmail_cuentas = { email: 'x@hotmail.com', auth_error_at: null, sin_buzon_at: '2026-10-08T12:00:00.000Z' };
+    const b = await body();
+    expect(selects.gmail_cuentas).toContain('sin_buzon_at');
+    expect(b.gmailConectado).toBe(true);
+    expect(b.gmailSinBuzon).toBe(true);
+    expect(b.gmailNecesitaReconexion, 'reconectar esa cuenta no le da un buzón').toBe(false);
+  });
+
+  it('CONTROL: cuenta sana no se marca sin buzón', async () => {
+    filas.gmail_cuentas = { email: 'x@gmail.com', auth_error_at: null, sin_buzon_at: null };
+    expect((await body()).gmailSinBuzon).toBe(false);
+  });
+
   it('sin cuenta: ni conectado ni caído (un false no puede significar las dos cosas)', async () => {
     const b = await body();
     expect(b.gmailConectado).toBe(false);

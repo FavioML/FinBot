@@ -149,7 +149,7 @@ const stubs = [
   ['lib/whatsapp.js', { enviarWhatsapp: enviarWhatsappMock, META_ERR_FUERA_VENTANA: 131047 }],
   ['lib/analytics.js', { capture: vi.fn(), default: { capture: vi.fn() } }],
   ['lib/notify-user.js', { notificarUsuario: vi.fn(async () => ({})), CANALES: { AMBOS: 'ambos', SOLO_WHATSAPP: 'wa', SOLO_IN_APP: 'app' } }],
-  ['lib/trial.js', { esProPagado: () => true, linkPanelPro: () => 'https://app.neto.pe/dashboard/pro' }],
+  ['lib/trial.js', { esProPagado: () => true, linkPanelPro: () => 'https://app.neto.pe/dashboard/pro', mensajeGmailSinBuzon: () => 'AVISO_SIN_BUZON' }],
   ['lib/pro-payment.js', {
     activarPro: activarProMock,
     reclamarPagoPendiente: vi.fn(async () => true),
@@ -555,6 +555,41 @@ describe('routes/public.js: el callback de OAuth y la mini-landing', () => {
       // Y el efecto que NO se apaga: el usuario conectó Gmail de verdad, así que el "listo"
       // sigue siendo cierto. Callarlo no arregla el flag y borra una confirmación real.
       expect(enviarWhatsappMock, 'se silenció una confirmación cierta por un flag que no pegó').toHaveBeenCalled();
+    });
+
+    /**
+     * La cuenta de Google que acaba de autorizar no tiene Gmail (migración 090): se le avisa, y NO
+     * se le manda después el "🎉 Listo… Te aviso cada vez que detecte un gasto", que lo contradiría.
+     * Se espera por el UPDATE de onboarding (va justo antes del "Listo"; se siembra caído porque su
+     * `log.error` es la única señal de que ya pasó, y ese UPDATE falla abierto) y un margen mayor
+     * que la espera de 1.5 s del "Listo", así la ausencia no es por haber mirado demasiado pronto.
+     */
+    it('sin buzón: avisa y no manda el "Listo, te aviso cada vez que detecte un gasto"', async () => {
+      const scanner = require(path.join(projectRoot, 'services', 'gmail-scanner.js'));
+      scanner.escanearGmailYRegistrar.mockResolvedValue({ sinBuzon: true });
+      // Número PROPIO: el `setTimeout` de un caso anterior sigue mandando su "Listo" dentro de este
+      // (ver el docblock del describe), y con el mismo destinatario se leía como si fuera de acá.
+      const NUM = '51911122233';
+      gmailMock.verificarState.mockReturnValue({ num: NUM, modo: 'inicial' });
+      db.resp = {
+        'usuarios:select': { data: { id: 'u10', whatsapp: NUM, nombre: null, plan: 'premium', trial_estado: 'convertido', historico_importado: true }, error: null },
+        'usuarios:update:onboarding_completado': CAIDA,
+      };
+      const res = await canjear();
+      expect(res.status).toBe(302);
+
+      const textos = () => enviarWhatsappMock.mock.calls.filter((c) => c[0] === NUM).map((c) => String(c[1]));
+      const onboardingCerrado = () => logMock.error.mock.calls.some(
+        (c) => c[0] && c[0].tag === 'CALLBACK' && c[0].usuarioId === 'u10' && /no se pudo cerrar el onboarding/.test(String(c[1])),
+      );
+      const limite = Date.now() + 8000;
+      while (!(textos().includes('AVISO_SIN_BUZON') && onboardingCerrado()) && Date.now() < limite) await new Promise((r) => setTimeout(r, 100));
+      await new Promise((r) => setTimeout(r, 2500));
+
+      expect(textos(), 'no se le avisó que esa cuenta no tiene Gmail').toContain('AVISO_SIN_BUZON');
+      expect(onboardingCerrado(), 'no llegó al cierre del onboarding: el caso no prueba la ausencia').toBe(true);
+      expect(textos().some((t) => /Tu cuenta está activa/.test(t)), 'se le prometió avisarle cada gasto a quien no tiene Gmail').toBe(false);
+      scanner.escanearGmailYRegistrar.mockReset();
     });
   });
 });

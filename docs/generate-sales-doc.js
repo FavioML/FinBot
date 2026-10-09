@@ -199,7 +199,7 @@ const doc = new Document({
         body('NETO es el primer asistente financiero inteligente que vive donde ya estás: WhatsApp. Combina lectura automática de correos bancarios, inteligencia artificial y un dashboard web completo para darte control total de tus finanzas sin esfuerzo.'),
         spacer(),
         h3('Tres pilares fundamentales:'),
-        bullet('Lee tus correos bancarios automáticamente de 11 bancos peruanos', '1. Lectura automática: '),
+        bullet('Con Pro, lee los avisos por correo de BCP y Yape (opcional, beta)', '1. Lectura de correos: '),
         bullet('Te resume todo por WhatsApp sin que hagas absolutamente nada', '2. Resúmenes inteligentes: '),
         bullet('Dashboard web completo con gráficos, metas, presupuestos y reportes PDF', '3. Dashboard completo: '),
         spacer(),
@@ -312,7 +312,7 @@ const doc = new Document({
             ['Metas de ahorro', '1 máximo', '✅ Ilimitadas'],
             ['Imágenes Yape/Plin', '5/mes', '✅ Ilimitadas'],
             ['Resumen semanal', 'Básico', '✅ Con insights IA'],
-            ['Lectura automática Gmail', '❌', '✅ 11 bancos'],
+            ['Lectura de Gmail (Pro, beta)', '❌', '✅ BCP y Yape'],
             ['Resúmenes diarios', '❌', '✅'],
             ['Consejos IA personalizados', '❌', '✅'],
             ['Reportes PDF', '❌', '✅'],
@@ -457,7 +457,7 @@ const doc = new Document({
 
         h3('Fase 2 — Multi-banco + IA (Febrero 2026)'),
         bullet('OAuth2 Gmail para lectura de correos bancarios'),
-        bullet('Parsers para 11 bancos peruanos'),
+        bullet('Lectura de avisos por correo de BCP y Yape'),
         bullet('Clasificación expandida a 23 intenciones NLP'),
         bullet('Categorías y subcategorías personalizables (10 raíces canónicas)'),
         bullet('Presupuestos por categoría con alertas al 80%'),
@@ -498,7 +498,7 @@ const doc = new Document({
         bullet('20 rondas de mejoras iterativas (38+ cambios)'),
 
         h3('Fase 6 — Marketing + Landing (Marzo 2026)'),
-        bullet('Landing page completa con 11 bancos, 8 features, pricing, CTAs'),
+        bullet('Landing page completa con 8 features, pricing, CTAs'),
         bullet('SEO: meta tags, JSON-LD (Organization, WebSite, FAQPage, BreadcrumbList)'),
         bullet('Google Search Console verificado + sitemap'),
         bullet('Google Ads (AW-8115117081) + Meta Pixel + GA4'),
@@ -519,7 +519,7 @@ const doc = new Document({
           shading: { type: ShadingType.SOLID, color: 'F0FFF8' },
           children: [
             new TextRun({ text: 'Estado actual: ', bold: true, font: 'Calibri', size: 20, color: NETO_GREEN }),
-            new TextRun({ text: '19+ funcionalidades completas, 11 bancos, 56 tests, 0 vulnerabilidades, 8 páginas dashboard, desplegado en producción en neto.pe + app.neto.pe + api.neto.pe.', font: 'Calibri', size: 20, color: '555555' }),
+            new TextRun({ text: '19+ funcionalidades completas, lectura de correos de BCP y Yape, 56 tests, 0 vulnerabilidades, 8 páginas dashboard, desplegado en producción en neto.pe + app.neto.pe + api.neto.pe.', font: 'Calibri', size: 20, color: '555555' }),
           ],
         }),
 

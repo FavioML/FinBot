@@ -61,3 +61,25 @@ describe('puedeAccionar', () => {
     expect(puedeAccionar('sin-conectar', false)).toBe(false);
   });
 });
+
+/**
+ * Una cuenta de Google creada con un Hotmail autoriza igual y no tiene bandeja de Gmail
+ * (migración 090). Es un estado propio: ni sano (no lee nada) ni caído (reconectar no lo arregla).
+ */
+describe('sin-buzon', () => {
+  it('conectada sin buzón es su propio estado', () => {
+    expect(estadoGmail({ conectado: true, necesitaReconexion: false, proPagado: true, sinBuzon: true })).toBe('sin-buzon');
+  });
+
+  it('gana sobre caído: pedirle reconectar sería mandarlo a un arreglo que no arregla', () => {
+    expect(estadoGmail({ conectado: true, necesitaReconexion: true, proPagado: true, sinBuzon: true })).toBe('sin-buzon');
+  });
+
+  it('no ofrece acción ni pagando: otra cuenta de Google gasta otro cupo de los 100', () => {
+    expect(puedeAccionar('sin-buzon', true)).toBe(false);
+  });
+
+  it('CONTROL: sin el flag, nada cambia para quien no lo manda', () => {
+    expect(estadoGmail({ conectado: true, necesitaReconexion: false, proPagado: true })).toBe('sano');
+  });
+});

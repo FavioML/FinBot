@@ -36,6 +36,8 @@ interface ProStatus {
   gmailEmail: string | null;
   /** Conectada pero con el token muerto. `gmailConectado` sigue en true: ver `@/lib/gmail-estado`. */
   gmailNecesitaReconexion: boolean;
+  /** La cuenta de Google conectada no tiene Gmail (migración 090). Ver `@/lib/gmail-estado`. */
+  gmailSinBuzon?: boolean;
   gmailAuthErrorAt: string | null;
   ultimoPago: { estado: string; tipoPlan: string } | null;
   descuento: Descuento;
@@ -210,6 +212,7 @@ function TrialState({ status, onDone }: { status: ProStatus; onDone: () => void 
           email={status.gmailEmail}
           proPagado={esProPagado(status.plan, status.trialEstado)}
           necesitaReconexion={status.gmailNecesitaReconexion}
+          sinBuzon={!!status.gmailSinBuzon}
           authErrorAt={status.gmailAuthErrorAt}
         />
       </div>
@@ -264,6 +267,7 @@ function PremiumState({ status, onDone }: { status: ProStatus; onDone: () => voi
           email={status.gmailEmail}
           proPagado={esProPagado(status.plan, status.trialEstado)}
           necesitaReconexion={status.gmailNecesitaReconexion}
+          sinBuzon={!!status.gmailSinBuzon}
           authErrorAt={status.gmailAuthErrorAt}
         />
       </div>
@@ -338,14 +342,15 @@ function BancosManager({ initial, proPagado }: { initial: string[] | null; proPa
         <div className="flex w-full items-center gap-2 text-left">
           <Lock className="h-4 w-4 text-[#8A877D] shrink-0" />
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-[#C8C6BC]">Bancos y billeteras que Neto leerá</p>
+            <p className="text-sm font-semibold text-[#C8C6BC]">Bancos de los que Neto busca avisos</p>
             <p className="text-xs text-[#8A877D] mt-0.5">
               Vuélvete Pro para activar esta función beta
             </p>
           </div>
         </div>
         <div className="grid grid-cols-2 gap-x-4 gap-y-1.5" aria-hidden="true">
-          {['BCP', 'BBVA', 'Interbank', 'Scotiabank', 'Yape', 'Plin'].map((n) => (
+          {/* Solo los que Neto registra hoy (auditoría del 08-oct-2026 en app/docs/DEFECTOS.md). */}
+          {['BCP', 'Yape'].map((n) => (
             <div key={n} className="flex items-center gap-2.5 py-1">
               <span className="h-4 w-4 rounded-[3px] border border-[rgba(240,239,232,0.15)] shrink-0" />
               <span className="text-sm text-[#8A877D] truncate blur-[2px] select-none">{n}</span>
@@ -365,7 +370,7 @@ function BancosManager({ initial, proPagado }: { initial: string[] | null; proPa
       >
         <Landmark className="h-4 w-4 text-[#1D9E75] shrink-0" />
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-[#F0EFE8]">Bancos y billeteras que Neto leerá</p>
+          <p className="text-sm font-semibold text-[#F0EFE8]">Bancos de los que Neto busca avisos</p>
           <p className="text-xs text-[#8A877D] mt-0.5">Se aplica al conectar tu Gmail · {resumen}</p>
         </div>
         <ChevronDown className={`h-4 w-4 text-[#8A877D] shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
@@ -377,6 +382,14 @@ function BancosManager({ initial, proPagado }: { initial: string[] | null; proPa
             <input type="checkbox" checked={allChecked} onChange={toggleAll} className="accent-[#1D9E75] h-4 w-4" />
             <span className="text-sm font-medium text-[#F0EFE8]">Todos mis bancos</span>
           </label>
+
+          {/* El catálogo filtra la búsqueda, pero no todos sus remitentes existen: medido el 08-oct-2026,
+              todo lo que Neto registró desde un Gmail es de BCP o Yape. Decirlo acá evita que alguien
+              de otro banco pague esperando una lectura que no va a ocurrir. */}
+          <p className="text-xs text-[#8A877D] leading-relaxed">
+            Hoy Neto registra avisos de BCP y Yape. Del resto todavía no reconoce desde qué correo avisan, así que
+            puede que no encuentre ninguno.
+          </p>
 
           <div className="grid grid-cols-2 gap-x-4 gap-y-1">
             {bancos.map((b) => (
@@ -420,12 +433,14 @@ function GmailConnect({
   email,
   proPagado,
   necesitaReconexion,
+  sinBuzon,
   authErrorAt,
 }: {
   conectado: boolean;
   email: string | null;
   proPagado: boolean;
   necesitaReconexion: boolean;
+  sinBuzon: boolean;
   authErrorAt: string | null;
 }) {
   const [loading, setLoading] = useState<string | null>(null);
@@ -443,9 +458,11 @@ function GmailConnect({
     }
   }
 
-  const estado = estadoGmail({ conectado, necesitaReconexion, proPagado });
+  const estado = estadoGmail({ conectado, necesitaReconexion, proPagado, sinBuzon });
   const accionable = puedeAccionar(estado, proPagado);
   const caido = estado === 'caido';
+  // Mismo color de alerta que `caido`, pero sin botón: ver `@/lib/gmail-estado`.
+  const alerta = caido || estado === 'sin-buzon';
 
   // Fecha Lima, igual que el resto de la app: "se desconectó el 3 de agosto" tiene que decir el
   // día que fue acá, no el del navegador de quien mira.
@@ -455,6 +472,7 @@ function GmailConnect({
 
   const TITULOS: Record<typeof estado, string> = {
     caido: 'Gmail desconectado',
+    'sin-buzon': 'Esta cuenta no tiene Gmail',
     sano: 'Gmail conectado',
     bloqueado: 'Lectura de correos bancarios',
     'sin-conectar': 'Conecta tu Gmail',
@@ -465,10 +483,10 @@ function GmailConnect({
       <div className="flex items-start gap-3">
         <div
           className={`mt-0.5 inline-flex items-center justify-center w-9 h-9 rounded-lg shrink-0 ${
-            caido ? 'bg-[#EF9F27]/10' : 'bg-[#1D9E75]/10'
+            alerta ? 'bg-[#EF9F27]/10' : 'bg-[#1D9E75]/10'
           }`}
         >
-          {caido ? (
+          {alerta ? (
             <AlertTriangle className="w-5 h-5 text-[#EF9F27]" />
           ) : estado === 'bloqueado' ? (
             <Lock className="w-5 h-5 text-[#1D9E75]" />
@@ -485,7 +503,20 @@ function GmailConnect({
             </span>
             {estado === 'sano' && <Check className="h-4 w-4 text-[#1D9E75] shrink-0" />}
           </div>
-          {caido ? (
+          {estado === 'sin-buzon' ? (
+            /* La cuenta de Google se creó con otro correo y no tiene bandeja de Gmail (migración
+               090). No hay botón: reconectarla no cambia nada y otra cuenta gasta otro cupo de
+               Google y la rechaza la regla de una cuenta por usuario. Se resuelve por soporte. */
+            <p className="text-xs text-[#8A877D] mt-0.5">
+              Google indica que{' '}
+              <span className="text-[#C8C6BC] font-medium break-all">{email || 'la cuenta que conectaste'}</span> no tiene
+              una bandeja de Gmail (pasa, por ejemplo, con las cuentas creadas con un correo de Hotmail u Outlook), así que
+              no hay dónde leer los avisos de tu banco. Por eso no se ha registrado nada desde tu correo. Lo que anotas por WhatsApp sigue
+              igual. Escríbenos a{' '}
+              <a href="mailto:hola@neto.pe" className="text-[#1D9E75] hover:underline">hola@neto.pe</a> y lo vemos
+              contigo.
+            </p>
+          ) : caido ? (
             /* Se dice QUÉ pasó y qué dejó de funcionar, porque el usuario no hizo nada para
                romperlo y el síntoma que ve es "Neto dejó de anotar mis gastos". No se ofrece
                cambiar de cuenta: mandarlo a Google con otro correo ya cuesta un cupo, aunque
@@ -504,7 +535,7 @@ function GmailConnect({
             </p>
           ) : estado === 'sano' ? (
             <p className="text-xs text-[#8A877D] mt-0.5">
-              Neto lee los correos que tu banco te envía a{' '}
+              Neto lee los avisos de BCP y Yape que te llegan a{' '}
               <span className="text-[#C8C6BC] font-medium break-all">{email || 'tu cuenta'}</span>. Solo lectura de esos avisos.
             </p>
           ) : estado === 'bloqueado' ? (
@@ -512,15 +543,20 @@ function GmailConnect({
                complemento de lo que la persona anota. Solo el 9.5% de los gastos nace de un correo:
                la versión anterior prometía registro sin esfuerzo, y la vigila `registro-automatico`. */
             <p className="text-xs text-[#8A877D] mt-0.5">
-              Opcional y de Neto Pro: si conectas tu Gmail, Neto registra los gastos de los correos que tu banco ya te
-              envía. Es un complemento, lo demás lo sigues anotando tú por WhatsApp.{' '}
+              Opcional y de Neto Pro: si conectas tu Gmail, Neto registra los gastos de los avisos por correo de BCP y
+              Yape. Es un complemento, lo demás lo sigues anotando tú por WhatsApp.{' '}
               <span className="text-[#C8C6BC]">Se activa al confirmar tu pago</span>: es lo único que tu prueba no
               incluye. Actívalo aquí arriba y empieza a leer el mismo día.
             </p>
           ) : (
             <p className="text-xs text-[#8A877D] mt-0.5">
-              Neto leerá los correos que tu banco te envía. Es un complemento de lo que anotas por WhatsApp: solo
-              lectura de esos avisos, sin contraseñas bancarias.
+              Neto leerá los avisos por correo de BCP y Yape. Es un complemento de lo que anotas por WhatsApp: solo
+              lectura de esos avisos, sin contraseñas bancarias.{' '}
+              {/* Antes de autorizar es el único momento en que se puede evitar gastar un cupo de
+                  Google en una cuenta sin bandeja (migración 090): después ya no se recupera. */}
+              <span className="text-[#C8C6BC]">
+                Usa una cuenta con Gmail: una cuenta de Google creada con Hotmail u Outlook no tiene bandeja que leer.
+              </span>
             </p>
           )}
         </div>

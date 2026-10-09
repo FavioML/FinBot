@@ -21,7 +21,8 @@ NETO es un asistente financiero personal por WhatsApp para el mercado peruano.
   completo. La lista real la da `ls handlers/intents/`, y los intents de cada uno, su propio `intents`
   exportado. Ojo al contar: dos archivos declaran `const intents = [...]` arriba y lo exportan al
   final en vez de inline, así que un grep del patrón inline los pierde
-- `gmail.js` — OAuth2 + parsers de correos bancarios (11 bancos)
+- `gmail.js` — OAuth2 + lectura de correos bancarios. Hoy registra avisos de BCP y Yape: el resto de
+  `REMITENTES_BANCARIOS` no tiene evidencia pública (auditoría del 08-oct-2026 en `docs/DEFECTOS.md`)
 - `reporte_html.js` — reportes HTML/PDF con Chart.js
 - `lib/` — piezas transversales sin lógica de negocio: acceso a datos y config (`db`, `config`,
   `constants`), utilidades puras (`validators`, `formatters`, `dates`, `crypto`, `codigos-seguros`),
@@ -645,7 +646,7 @@ Varias piezas dependen de que corra un solo proceso. Escalar a 2+ réplicas o ha
 
 ## Funcionalidades principales (19)
 1. Registro WhatsApp (onboarding 4 pasos)
-2. Lectura automatica correos bancarios (11 bancos)
+2. Lectura de correos bancarios (Pro pagado, opt-in): hoy BCP y Yape
 3. NLP inteligente con OpenAI Function Calling: las tools de `handlers/neto-tools.js` mapean a los
    intents de `handlers/intents/`. **Y no es un solo modelo**, que es lo que esta línea decía y
    distorsiona cualquier cálculo de costo: `gpt-4o-mini` es el default del dispatch y la redacción,
@@ -850,6 +851,7 @@ memoria que un redeploy borra.
 | `activa = false`, `refresh_token` null | desconexion **deliberada** (no-pagador, reemplazo, wipe). Revocada en Google. |
 | `activa = false`, `refresh_token` puesto | desconectada, pero Google **no confirmo** la revocacion: pendiente. La reintenta a diario `reintentarRevocacionesPendientes` (desde `checkGmailHuerfanos`), pague o no. En `usuarios` el equivalente es `gmail_refresh_token` puesto con `gmail_access_token` en null |
 | `auth_error_at` set | sigue conectada en nuestros libros, pero Google dejo de aceptar el token. |
+| `sin_buzon_at` set (migracion 090) | el token anda, pero la cuenta de Google no tiene Gmail ("Mail service not enabled", p.ej. creada con un Hotmail). El barrido la salta salvo una re-prueba diaria que quita la marca si vuelve a listar; la UI no ofrece reconectar (otra cuenta gasta otro cupo). Gana sobre `auth_error_at` en `gmail-estado.ts`. |
 
 El refresh token de una fila pendiente **no se anula**: es lo unico con que se puede revocar. Hasta
 el 30-sep-2026 se anulaba pasara lo que pasara con Google y el barrido solo miraba `activa=true`, asi

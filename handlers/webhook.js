@@ -30,7 +30,7 @@ const premiumIntents = require('./intents/premium');
 const { abrirSesion, cerrarSesion } = require('../lib/support-tickets');
 const { registrarOrigenDelAlta } = require('../lib/atribucion');
 const { manejarOnboarding } = require('./onboarding');
-const { colaConfirmacionGasto, estaEnMuro, mensajeMuro, mensajeCargaMasivaPro, esProPagado, mensajeGmailProPagado, mensajeConectarEnLaApp, mensajeGmailDesconectado, mensajeDashboard } = require('../lib/trial');
+const { colaConfirmacionGasto, estaEnMuro, mensajeMuro, mensajeCargaMasivaPro, esProPagado, mensajeGmailProPagado, mensajeConectarEnLaApp, mensajeGmailDesconectado, mensajeGmailSinBuzon, mensajeDashboard } = require('../lib/trial');
 const { comandoRequiereLectura, esComandoGmail } = require('./intents-acceso');
 const { verificarEscritura, entro } = require('../helpers/escritura-verificada');
 const { pideActivarManosLibres } = require('../lib/cierre-dia-prueba');
@@ -1173,6 +1173,8 @@ function createWebhookHandler(procesarMensajeLibre) {
         // scanner ya sabe cuál de los dos casos es, mirando las DOS fuentes.
         if (resultado && resultado.authError) {
           respuesta = mensajeGmailDesconectado(usuario);
+        } else if (resultado && resultado.sinBuzon) {
+          respuesta = mensajeGmailSinBuzon(usuario);
         } else if (resultado && resultado.sinCuenta) {
           respuesta = mensajeConectarEnLaApp(usuario);
         } else {

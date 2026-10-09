@@ -289,6 +289,7 @@ describe('gmail-scanner: el barrido HISTÓRICO libera su claim si algo se saltó
     ['no se pudo leer `gmail_cuentas` (`lectura_fallida`)', { error: 'lectura_fallida', mensajes: [] }],
     ['no hay ninguna cuenta conectada (`no_auth`)', { error: 'no_auth', mensajes: [] }],
     ['la autorización está caída (`AUTH_EXPIRED`)', { error: 'AUTH_EXPIRED', mensajes: [] }],
+    ['la cuenta de Google no tiene Gmail (`SIN_BUZON`)', { error: 'SIN_BUZON', mensajes: [] }],
   ]) {
     it(`si ${nombre}, el claim se libera`, async () => {
       sembrarClaim();

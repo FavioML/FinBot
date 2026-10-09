@@ -4,7 +4,7 @@ const { lineaPrecioPro } = require('../../lib/config');
 const { escanearGmailYRegistrar } = require('../../services/gmail-scanner');
 const { obtenerCuentasGmail } = require('../../gmail');
 const { getUserPlanConfig } = require('../../helpers/db-helpers');
-const { esProPagado, mensajeGmailProPagado, mensajeConectarEnLaApp, mensajeGmailDesconectado } = require('../../lib/trial');
+const { esProPagado, mensajeGmailProPagado, mensajeConectarEnLaApp, mensajeGmailDesconectado, mensajeGmailSinBuzon } = require('../../lib/trial');
 const { verificarEscritura, entro } = require('../../helpers/escritura-verificada');
 
 module.exports = {
@@ -29,6 +29,7 @@ module.exports = {
         // a quien no tiene Gmail conectado. Decirle que no hay correos nuevos a alguien que
         // nunca conectó su cuenta lo deja esperando algo que no va a llegar.
         if (resultado && resultado.authError) return mensajeGmailDesconectado(usuario);
+        if (resultado && resultado.sinBuzon) return mensajeGmailSinBuzon(usuario);
         if (resultado && resultado.sinCuenta) return mensajeConectarEnLaApp(usuario);
         return resultado || 'No encontre correos bancarios nuevos. Te aviso automaticamente cuando llegue uno.';
       }

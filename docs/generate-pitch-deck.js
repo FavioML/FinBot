@@ -97,7 +97,7 @@ const cardShadow = () => ({ type: "outer", blur: 8, offset: 3, angle: 135, color
   });
 
   const pillars = [
-    { icon: "1", title: "Lee tus correos bancarios", desc: "Automaticamente detecta gastos e ingresos de 11 bancos peruanos" },
+    { icon: "1", title: "Lee tus correos bancarios", desc: "Con Pro, registra los avisos por correo de BCP y Yape" },
     { icon: "2", title: "Te resume por WhatsApp", desc: "Resumenes diarios, semanales y mensuales sin que hagas nada" },
     { icon: "3", title: "Dashboard web completo", desc: "Graficos, metas, presupuestos, reportes PDF en app.neto.pe" },
   ];
@@ -154,7 +154,7 @@ const cardShadow = () => ({ type: "outer", blur: 8, offset: 3, angle: 135, color
 {
   const s = pres.addSlide();
   s.background = { color: C.bg };
-  s.addText("Compatible con 11 bancos peruanos", {
+  s.addText("Lee avisos por correo de BCP y Yape", {
     x: 0.6, y: 0.3, w: 9, h: 0.7,
     fontSize: 32, fontFace: FONT_BOLD, color: C.white, bold: true,
   });
@@ -337,7 +337,7 @@ const cardShadow = () => ({ type: "outer", blur: 8, offset: 3, angle: 135, color
   s.addText("PRO", { x: 5.2, y: 1.2, w: 4.2, h: 0.5, fontSize: 20, fontFace: FONT_BOLD, color: C.green, bold: true, align: "center" });
   s.addText("S/ 10/mes", { x: 5.2, y: 1.7, w: 4.2, h: 0.5, fontSize: 28, fontFace: FONT_BOLD, color: C.white, bold: true, align: "center" });
   const proFeatures = [
-    "Lectura automatica Gmail (11 bancos)",
+    "Lectura de Gmail (BCP y Yape)",
     "Dashboard historial completo",
     "Presupuestos y metas ilimitados",
     "Imagenes ilimitadas",
