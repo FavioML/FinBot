@@ -104,6 +104,7 @@ export interface KPIData {
   totalIngresos: number;
   totalGastos: number;
   ahorro: number;
+  /** Tasa de ahorro del mismo mes (`lib/tasa-ahorro.ts`), NO una variación vs el mes anterior. */
   ahorroPorcentaje: number;
   scoreFinanciero: number;
   prevGastos?: number;

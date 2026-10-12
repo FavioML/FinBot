@@ -6,6 +6,7 @@ import { NumberTicker } from '@/components/ui/number-ticker';
 import { StaggerContainer, StaggerItem } from '@/components/shared/motion-wrapper';
 import { Sparkline } from '@/components/charts/sparkline';
 import type { KPIData } from '@/lib/types';
+import { etiquetaTasaDeAhorro } from '@/lib/tasa-ahorro';
 
 interface KPICardsProps {
   data: KPIData;
@@ -112,8 +113,7 @@ function MobileAhorroHero({
             className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium"
             style={{ backgroundColor: `${color}1F`, color }}
           >
-            {porcentaje >= 0 ? '+' : ''}
-            {porcentaje.toFixed(1)}% vs mes anterior
+            {etiquetaTasaDeAhorro(porcentaje)}
           </span>
         )}
         {sparkline && sparkline.length >= 2 && (
@@ -197,7 +197,7 @@ export function KPICards({ data, sparklines, netoScore }: KPICardsProps) {
       icon: Wallet,
       prefix: 'S/ ',
       badge: data.ahorroPorcentaje !== 0
-        ? `${data.ahorroPorcentaje >= 0 ? '+' : ''}${data.ahorroPorcentaje.toFixed(1)}%`
+        ? etiquetaTasaDeAhorro(data.ahorroPorcentaje)
         : undefined,
       spark: sparklines?.ahorro,
       showScore: true,

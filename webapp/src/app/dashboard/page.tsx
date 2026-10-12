@@ -62,6 +62,7 @@ import { ErrorState } from '@/components/shared/error-state';
 import { getCategoriaEmoji, MESES, SOCIAL_LINKS } from '@/lib/constants';
 import { capitalizeDisplay, normalizeMetodoPago, getMetodoIcon } from '@/lib/format';
 import { subcategoriaUtil } from '@/lib/subcategoria';
+import { tasaDeAhorro } from '@/lib/tasa-ahorro';
 import { detectSubscriptions, TIPO_LABELS } from '@/lib/subscriptions-catalog';
 import type { Transaccion, KPIData, CategoriaGasto, TendenciaMensual } from '@/lib/types';
 
@@ -204,7 +205,7 @@ export default function DashboardPage() {
       .filter((t) => t.tipo === 'gasto')
       .reduce((sum, t) => sum + montoPen(t), 0);
     const ahorro = totalIngresos - totalGastos;
-    const ahorroPorcentaje = totalIngresos > 0 ? (ahorro / totalIngresos) * 100 : 0;
+    const ahorroPorcentaje = tasaDeAhorro(totalIngresos, totalGastos);
 
     // Previous month data for comparison (only in monthly view)
     let prevGastos: number | undefined;
