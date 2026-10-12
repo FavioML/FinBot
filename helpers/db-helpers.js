@@ -270,6 +270,19 @@ async function obtenerOCrearUsuario(numeroWhatsapp, bsuid = null) {
   // entera. Perder la columna es barato; perder al usuario que recién escribe, no.
   const { data: nuevo, error } = await supabase.from('usuarios').insert({ whatsapp: numeroNorm }).select().single();
   if (error) {
+    // 23505 con las lecturas SANAS es una carrera: dos mensajes de la misma persona nueva entraron
+    // casi juntos, los dos leyeron "no existe" y el otro insertó primero. Medido el 12-oct-2026
+    // (51970300434): fila creada 23:31:39.6, este throw 1,5 s después, y el mensaje perdedor se
+    // descartaba sin respuesta. Es el mismo caso que `altaPorBsuid` ya resolvía: se relee y se
+    // sigue con la fila ganadora. `wa_user_registered` no se captura acá: ya lo hizo el ganador.
+    if (error.code === '23505') {
+      const { data: ganadora, error: errRelectura } = await supabase.from('usuarios').select('*').eq('whatsapp', numeroNorm).maybeSingle();
+      if (ganadora) {
+        log.info({ tag: 'ALTA', usuarioId: ganadora.id }, 'Alta en carrera: otro mensaje creó la fila primero, se sigue con esa');
+        return await persistirBsuid(ganadora, bsuid);
+      }
+      if (errRelectura) log.error({ tag: 'ALTA', err: errRelectura.message, numero: numeroNorm }, 'No se pudo releer la fila tras el 23505 del alta');
+    }
     // El 23505 después de una lectura caída NO es un alta duplicada: es el índice único
     // haciendo de red porque no pudimos ver la fila que ya existía. Decirlo cambia a dónde
     // mira el que lee el log.

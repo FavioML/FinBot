@@ -205,12 +205,30 @@ describe('obtenerOCrearUsuario: falla ABIERTO, y el índice único es lo que lo 
     await expect(obtenerOCrearUsuario('51999888777')).rejects.toThrow(/No se pudo leer al usuario existente/);
   });
 
-  it('CONTROL: un 23505 SIN lectura caída sigue diciendo "Error creando usuario"', async () => {
+  it('CONTROL: un 23505 SIN lectura caída y sin fila al releer sigue diciendo "Error creando usuario"', async () => {
     // Sin este control, el caso de arriba pasaría igual si el mensaje nuevo fuera el único que
     // existe — y entonces no estaría distinguiendo nada.
-    db.resp['usuarios:select'] = [{ data: null, error: null }, { data: null, error: null }];
+    db.resp['usuarios:select'] = [{ data: null, error: null }, { data: null, error: null }, { data: null, error: null }];
     db.resp['usuarios:insert'] = { data: null, error: { code: '23505', message: 'duplicate key' } };
     await expect(obtenerOCrearUsuario('51999888777')).rejects.toThrow(/Error creando usuario/);
+  });
+
+  it('carrera del alta: dos mensajes juntos, el otro insertó primero → se sigue con la fila ganadora', async () => {
+    // El caso real del 12-oct-2026: las dos lecturas dicen "no existe", el INSERT choca contra
+    // `usuarios_whatsapp_key` porque el mensaje gemelo ya creó la fila. Antes lanzaba y el
+    // mensaje se perdía sin respuesta.
+    db.resp['usuarios:select'] = [{ data: null, error: null }, { data: null, error: null }, { data: { id: 'ganadora', whatsapp: '51999888777' }, error: null }];
+    db.resp['usuarios:insert'] = { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "usuarios_whatsapp_key"' } };
+    const u = await obtenerOCrearUsuario('51999888777');
+    expect(u.id, 'el mensaje perdedor de la carrera se descartó en vez de seguir con la fila ganadora').toBe('ganadora');
+    expect(logMock.error, 'una carrera resuelta no es un error').not.toHaveBeenCalled();
+  });
+
+  it('carrera con la lectura caída: si la relectura encuentra la fila, también se sigue', async () => {
+    db.resp['usuarios:select'] = [CAIDA, CAIDA, { data: { id: 'ganadora', whatsapp: '51999888777' }, error: null }];
+    db.resp['usuarios:insert'] = { data: null, error: { code: '23505', message: 'duplicate key' } };
+    const u = await obtenerOCrearUsuario('51999888777');
+    expect(u.id).toBe('ganadora');
   });
 
   it('CONTROL: con la base sana devuelve la fila existente y no inserta', async () => {
