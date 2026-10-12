@@ -51,7 +51,7 @@ recibiendo ni la función ni el camino a la función. Es la misma clase del íte
 | Editar/borrar en lote | "bulk redirige a app" | ✅ existe, cae a `/dashboard/transacciones` en las 2 ramas de fallo de `corregir_multiple` |
 | Dashboard / gráficos | "manda link" | ✅ `/dashboard`, `/app` y el intent `ver_dashboard` |
 | Reporte PDF | "manda link" | ✅ `ver_reporte` manda `/dashboard/reportes` |
-| Export CSV · JSON | "manda link" | ✅ `exportar_datos` manda `/dashboard/transacciones` |
+| Export CSV · JSON | "manda link" | ✅ `exportar_datos` manda un link por formato: CSV `/dashboard/transacciones`, PDF `/dashboard/reportes`, JSON `/dashboard/configuracion` (hasta el 11-oct mandaba los tres a transacciones, donde sólo hay CSV, y el pitch vendía un export a Excel que no existe) |
 | Conectar Gmail · bancos | "responde con deeplink" | ✅ `mensajeConectarEnLaApp` + `linkPanelPro`, con fallback si falta el secreto de firma |
 | **Espacios: editar % split** | "redirige" | ❌ **no hay intent de editar el reparto** (los 7 de `espacios.js` no lo cubren). El link a `/dashboard/espacios` sale al unirse y al listar, no al pedirlo |
 | **Categorías: editar/borrar** | "redirige a app" | ❌ **no hay redirect.** `/categorias` lista o abre el menú de agregar; cero referencias a una página de categorías en `handlers/` |
@@ -98,7 +98,7 @@ Leyenda: ✅ disponible · ⚠️ parcial/con matiz · ❌ no (o redirige al otr
 | Neto Score: ver | ✅ | ✅ | App (visual) |
 | Neto Score: desglose/tips/historial | ✅ (Pro) | ✅ (Pro; historial 1m free) | App |
 | Reporte PDF | ✅ (Pro) | ❌ (manda link) | **App** |
-| Export CSV (Pro) · JSON (free) | ✅ | ❌ (manda link) | **App** |
+| Export CSV (Pro, Movimientos) · JSON (Pro, Configuración; `/api/export` pasa por `requireLectura`) | ✅ | ❌ (manda un link por formato) | **App** |
 | Import Excel/CSV | ✅ (Pro) | ✅ (subes .xlsx al chat) | Ambos |
 | Resúmenes texto (día/semana/mes) | ✅ dashboard | ✅ en chat | **WhatsApp** (rápido) |
 | Consejos IA / recomendaciones (Pro) | ✅ | ✅ | Ambos |

@@ -29,12 +29,22 @@ module.exports = {
           '_Inicia sesión con Google para ver tus datos._';
       }
 
+      // Cada formato vive en una pantalla distinta de la webapp, y el copy apunta a cada una:
+      // CSV en Movimientos (`dashboard/transacciones`), PDF en Reporte (`dashboard/reportes`) y
+      // JSON en Configuración (`/api/export`). Antes mandaba todo a transacciones ("ahí puedes
+      // exportar en CSV, JSON o PDF", y ahí sólo hay CSV) y el pitch vendía un export a Excel
+      // que no existe: Excel sólo se IMPORTA. Encontrado el 11-oct-2026 armando el inventario
+      // de contenido; lo fija tests/handlers/copy-export-recordatorios.test.js.
       case 'exportar_datos': {
         const planConfigExp = getUserPlanConfig(usuario);
         if (planConfigExp.csvExport === false) {
-          return '⭐ *Exportar a Excel/CSV es una función Pro.*\n\nCon NETO Pro descargas todos tus movimientos en CSV, Excel o JSON desde el dashboard.\n\n' + lineaPrecioPro() + '\n📲 Yapea al *970398192* y envíame la captura.\n\n_Escribe /premium para más info._';
+          return '⭐ *Exportar tus datos es una función Pro.*\n\nCon NETO Pro descargas tus movimientos en CSV desde Movimientos, tu reporte en PDF desde Reporte y una copia de todos tus datos en JSON desde Configuración.\n\n' + lineaPrecioPro() + '\n📲 Yapea al *970398192* y envíame la captura.\n\n_Escribe /premium para más info._';
         }
-        return '📥 *Exporta tus datos*\n\nEntra a tu dashboard y descarga todo:\n\n🔗 https://app.neto.pe/dashboard/transacciones\n\nAhí puedes exportar en CSV, JSON o PDF.\n\n_Inicia sesión con tu cuenta de Google._';
+        return '📥 *Exporta tus datos*\n\nCada formato está en su sección del dashboard:\n\n' +
+          '• *CSV* de tus movimientos, en Movimientos:\n🔗 https://app.neto.pe/dashboard/transacciones\n\n' +
+          '• *PDF* de tu reporte, en Reporte:\n🔗 https://app.neto.pe/dashboard/reportes\n\n' +
+          '• *JSON* con todos tus datos, en Configuración → Exportar datos:\n🔗 https://app.neto.pe/dashboard/configuracion\n\n' +
+          '_Inicia sesión con tu cuenta de Google._';
       }
 
       // El copy de aca prometia un PDF por WhatsApp y era IMPOSIBLE por construccion, no un bug

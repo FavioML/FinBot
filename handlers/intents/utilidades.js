@@ -219,12 +219,23 @@ module.exports = {
         return respFinanciero || 'Buena pregunta. Te recomiendo consultar con tu banco o la SBS (sbs.gob.pe) para información detallada.\n\n¿Necesitas algo más con tus finanzas?';
       }
 
+      // Quien escribe "ponme un recordatorio de pagar luz el 15" pide algo que Neto NO hace: no
+      // hay recordatorios a medida (este intent 'no escribe', lib/datos-dichos.js). Antes la
+      // respuesta explicaba los avisos automáticos sin decir eso, y la persona se quedaba
+      // esperando un aviso que nunca iba a llegar; al Free, además, el pitch le daba a
+      // entender que con Pro sí. Las dos ramas lo dicen primero. Lo que sí se promete existe:
+      // aviso de cobro 3 días antes (checkRecordatorioSuscripciones), deudas con fecha de
+      // vencimiento (checkRecordatorioDeudas) y el resumen de las 9pm del Modo Manos Libres
+      // (checkResumenDiarioManosLibres, que no manda nada los días sin gastos), con hora fija: el pitch decía "a la hora que
+      // elijas" y no hay ninguna preferencia de hora. Configuración sólo tiene el interruptor
+      // general. Lo fija tests/handlers/copy-export-recordatorios.test.js.
       case 'recordatorio_pago': {
+        const NO_A_MEDIDA = 'Todavía no puedo crear recordatorios con la fecha que tú me digas (como "pagar la luz el 15"), así que ese aviso no va a llegar.';
         const planConfigRem = getUserPlanConfig(usuario);
         if (planConfigRem.recordatorios === false || planConfigRem.resumenDiario === false) {
-          return '⭐ *Recordatorios y resúmenes diarios son una función Pro.*\n\nCon NETO Pro recibes tu resumen diario a la hora que elijas y recordatorios de pagos automáticos.\n\n' + lineaPrecioPro() + '\n📲 Yapea al *970398192* y envíame la captura.\n\n_Escribe /premium para más info._';
+          return '⏰ ' + NO_A_MEDIDA + '\n\n⭐ *Los avisos automáticos son una función Pro.*\n\nCon NETO Pro te aviso 3 días antes de que se cobre una suscripción que detecté, te recuerdo tus deudas con fecha de vencimiento y, si activas el Modo Manos Libres, te mando a las 9pm el resumen de cada día en que anotes gastos.\n\n' + lineaPrecioPro() + '\n📲 Yapea al *970398192* y envíame la captura.\n\n_Escribe /premium para más info._';
         }
-        return '⏰ *Recordatorios de pago*\n\nYa te aviso *automáticamente 3 días antes* de que se te cobre una suscripción que detecté (Netflix, Spotify, etc.), para que decidas si la mantienes o la cancelas.\n\nTambién te recuerdo tus deudas y compromisos con fecha.\n\n🔗 Revisa o ajusta tus recordatorios en app.neto.pe/dashboard/configuracion';
+        return '⏰ ' + NO_A_MEDIDA + '\n\nLo que sí hago solo:\n\n• Te aviso *3 días antes* de que se cobre una suscripción que detecté (Netflix, Spotify, etc.), para que decidas si la mantienes.\n• Te recuerdo tus deudas que tienen fecha de vencimiento.\n\n🔗 Puedes prender o apagar tus recordatorios en https://app.neto.pe/dashboard/configuracion';
       }
     }
   }
