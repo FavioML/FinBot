@@ -19,6 +19,13 @@ const nextConfig: NextConfig = {
       { protocol: 'https', hostname: 'lh3.googleusercontent.com' },
     ],
   },
+  async redirects() {
+    return [
+      // El bot mandó /dashboard/metas hasta el 11-oct-2026 y esa ruta nunca existió: las metas
+      // viven en /dashboard/planes. Los mensajes ya enviados quedan en el chat con el link viejo.
+      { source: '/dashboard/metas', destination: '/dashboard/planes', permanent: true },
+    ];
+  },
   async headers() {
     const isDev = process.env.NODE_ENV !== 'production';
     // Comprobantes de pago del panel admin: URLs firmadas del bucket privado `comprobantes`.

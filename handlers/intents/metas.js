@@ -5,6 +5,7 @@ const { generarCodigoInvitacion, ALFABETO_META } = require('../../lib/codigos-se
 const { validarMonto } = require('../../lib/validators');
 const { verificarEscritura, entro } = require('../../helpers/escritura-verificada');
 const { hoyPeru } = require('../../lib/dates');
+const { WEBAPP_URL } = require('../../lib/constants');
 const { calcularCuotaDiaria, diasHastaInclusive } = require('../../services/metas');
 const { resolverNombre, mensajeNoResuelto, mensajeHomonimas, PALABRAS_DEL_DOMINIO } = require('../../lib/resolver-nombre');
 
@@ -94,7 +95,7 @@ module.exports = {
             }
             msgMetas += '\n\n';
           });
-          msgMetas += '_Abona: "ahorré 200 para [nombre]"_\n_Dashboard: https://app.neto.pe/dashboard/metas_';
+          msgMetas += '_Abona: "ahorré 200 para [nombre]"_\n_Dashboard: ' + WEBAPP_URL + '/dashboard/planes_';
           return msgMetas;
         } catch(e) {
           log.error({ tag: 'METAS', err: e.message }, 'Error consultando metas');
@@ -187,7 +188,7 @@ module.exports = {
             return '🎯 Ese plan ya lo tienes: *' + m.nombre + '*, S/ ' + objetivoM.toFixed(2)
               + (m.fecha_limite ? ' para el ' + formatFecha(m.fecha_limite) : '') + '.'
               + lineaCuotas(objetivoM, actualM, m.fecha_limite, cuotaM)
-              + '\n\n_Actualiza tu progreso en https://app.neto.pe/dashboard/metas_';
+              + '\n\n_Actualiza tu progreso en ' + WEBAPP_URL + '/dashboard/planes_';
           }
 
           // Calculate monthly quota if deadline exists
@@ -220,7 +221,7 @@ module.exports = {
             } catch (e) { /* silent — non-critical */ }
           }
 
-          resp += '\n\n_Actualiza tu progreso en https://app.neto.pe/dashboard/metas_';
+          resp += '\n\n_Actualiza tu progreso en ' + WEBAPP_URL + '/dashboard/planes_';
           return resp;
         } catch(e) {
           log.error({ tag: 'CREAR_META', err: e.message }, 'Error creando meta');

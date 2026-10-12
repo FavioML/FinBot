@@ -14,7 +14,8 @@
  *                "Quiero ahorrar 7000…" recibía "Cancelado." y la meta no existía. Hoy el menú se
  *                cierra, el mensaje se procesa, y en ese turno un "borra el último" no borra.
  *   meta         "¿cuánto por día?" volvía a crear la meta: 2 filas y "extender el plazo 190
- *                meses" (2a917ac4, 27-ago).
+ *                meses" (2a917ac4, 27-ago). Desde el 11-oct también afirma que la creación y el
+ *                listado mandan a /dashboard/planes (el link a /dashboard/metas daba 404).
  *
  * Dos casos del mismo trabajo NO están acá porque sus arreglos se retiraron antes del push ("4 en
  * pan y maca" y "¿vas a perder el registro?"): ver `docs/DEFECTOS.md`, 14-sep.
@@ -326,6 +327,9 @@ try {
   check(rMeta !== null && /mes completo/.test(rMeta), 'sin un mes cerrado, no da veredicto de viabilidad');
   check(rMeta !== null && !/\d{3,} meses/.test(rMeta), 'no promete plazos de cientos de meses');
   check(rMeta !== null && /por día/.test(rMeta), 'la creación trae la cuota por día');
+  // (11-oct) El link apuntaba a /dashboard/metas, que no existe: la página es /dashboard/planes.
+  check(rMeta !== null && /app\.neto\.pe\/dashboard\/planes/.test(rMeta) && !/\/dashboard\/metas/.test(rMeta),
+    'el link de la meta creada lleva a /dashboard/planes', (rMeta || '').match(/https?:\S+/)?.[0] || '');
   const rDia = await decir(c3, 'Y cuanto necesitaría ahorrar por día');
   check((await contar('metas_ahorro', c3)) === 1, 'la pregunta de seguimiento NO crea otra meta');
   check(rDia !== null && !/Plan de ahorro creado/.test(rDia), 'no repite "Plan de ahorro creado"');
@@ -340,6 +344,10 @@ try {
   } else {
     nota(`la respuesta no trae una cuota por día (la correcta es S/${esperadoDia})`);
   }
+  // El listado, con dos turnos de metas en el historial: es el otro mensaje que llevaba el link roto.
+  const rLista = await decir(c3, 'Muéstrame mis metas');
+  check(rLista !== null && /app\.neto\.pe\/dashboard\/planes/.test(rLista) && !/\/dashboard\/metas/.test(rLista),
+    'el listado de metas lleva a /dashboard/planes', (rLista || '').slice(0, 160).replace(/\n/g, ' '));
 } catch (e) {
   errorFatal = e;
   console.error('\nNo se pudo medir: ' + e.message);

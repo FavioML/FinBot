@@ -29,8 +29,8 @@ src/
       page.tsx            # Overview (KPIs, charts, widgets)
       transacciones/      # CRUD transacciones
       presupuestos/       # CRUD presupuestos
-      reporte/            # Reporte PDF descargable
-      metas/              # Metas de ahorro
+      reportes/           # Reporte PDF descargable
+      planes/             # Metas de ahorro (/dashboard/planes; /dashboard/metas redirige aquí)
       suscripciones/      # Deteccion automatica
       configuracion/      # Perfil, plan, referidos
     api/                  # API Routes (server-side)
