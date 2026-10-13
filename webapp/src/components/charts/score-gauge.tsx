@@ -44,7 +44,11 @@ export function ScoreGauge({ score, size = 'sm' }: ScoreGaugeProps) {
   }, [clamped, motionScore]);
 
   const fontSize = isLg ? 32 : 22;
-  const labelFontSize = isLg ? 11 : 8;
+  // Unidades del viewBox, no px: se dibujan escaladas por pxWidth / vbW (~1.33 en lg, ~1.18 en
+  // sm). Con 11 la etiqueta y el "/100" quedan sobre 12px en los dos tamaños; en sm eran 8 y 8.8
+  // (9.4 y 10.4px en pantalla). Piso de 12px: `src/app/letra-minima.test.ts`.
+  const labelFontSize = 11;
+  const subFontSize = Math.max(fontSize * 0.4, 11);
   const pxWidth = isLg ? 240 : 160;
 
   return (
@@ -109,7 +113,7 @@ export function ScoreGauge({ score, size = 'sm' }: ScoreGaugeProps) {
             >
               {displayScore}
             </motion.span>
-            <span style={{ fontSize: fontSize * 0.4, color: 'var(--muted-foreground)', fontWeight: 600 }}>
+            <span style={{ fontSize: subFontSize, color: 'var(--muted-foreground)', fontWeight: 600 }}>
               /100
             </span>
           </div>
