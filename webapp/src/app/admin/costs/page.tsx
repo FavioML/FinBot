@@ -153,14 +153,14 @@ function AmountCell({ cost }: { cost: AdminCost }) {
   if (cost.currency === 'USD' && cost.amount_original !== null) {
     return (
       <div>
-        <div className="text-sm">{formatPen(Number(cost.amount_pen))}</div>
-        <div className="text-xs text-muted-foreground">
+        <div className="whitespace-nowrap text-sm">{formatPen(Number(cost.amount_pen))}</div>
+        <div className="whitespace-nowrap text-xs text-muted-foreground">
           ${Number(cost.amount_original).toFixed(2)}
         </div>
       </div>
     );
   }
-  return <div className="text-sm">{formatPen(Number(cost.amount_pen))}</div>;
+  return <div className="whitespace-nowrap text-sm">{formatPen(Number(cost.amount_pen))}</div>;
 }
 
 interface CostFormState {
@@ -1452,7 +1452,7 @@ export default function AdminCostsPage() {
                     {ADMIN_COST_FREQUENCY_LABELS[cost.frequency]}
                   </td>
                   <td className="px-4 py-3">
-                    <div className="text-foreground">
+                    <div className="whitespace-nowrap text-foreground">
                       {formatDateLima(cost.next_due_date)}
                     </div>
                     <div className="mt-1">
