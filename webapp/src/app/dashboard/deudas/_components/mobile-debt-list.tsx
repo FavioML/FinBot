@@ -38,7 +38,7 @@ export function MobileDebtList({
                   </div>
                   <div className="min-w-0">
                     <p className="font-semibold text-sm text-foreground truncate">{group.contraparte}</p>
-                    <p className="text-[10px] text-muted-foreground">{group.debts.length} deuda{group.debts.length !== 1 ? 's' : ''}</p>
+                    <p className="text-xs text-muted-foreground">{group.debts.length} deuda{group.debts.length !== 1 ? 's' : ''}</p>
                   </div>
                 </div>
                 <p className={`text-sm font-bold tabular-nums shrink-0 ${color}`}>{fmtMulti(group.pen, group.usd)}</p>

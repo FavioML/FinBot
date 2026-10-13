@@ -78,7 +78,7 @@ export default function AdminHomePage() {
                 <p className="mt-1 text-sm text-muted-foreground">{section.desc}</p>
               </div>
               <span
-                className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wider ${
+                className={`shrink-0 rounded-full border px-2 py-0.5 text-xs uppercase tracking-wider ${
                   isLive
                     ? 'border-primary/35 bg-primary/10 text-primary-ink'
                     : 'border-border text-muted-foreground'

@@ -194,7 +194,7 @@ export function NuevaDeudaDialog({
                   <label className="text-xs text-muted-foreground mb-1.5 block flex items-center justify-between">
                     <span>Hasta</span>
                     {!fechaFin && (
-                      <span className="text-[10px] text-primary-ink flex items-center gap-1">
+                      <span className="text-xs text-primary-ink flex items-center gap-1">
                         <InfinityIcon className="h-3 w-3" /> indefinido
                       </span>
                     )}
@@ -286,7 +286,7 @@ export function AbonoDialog({
                       }`}
                     >
                       <span className="block text-sm font-bold">{pct}%</span>
-                      <span className="block text-[10px] text-muted-foreground tabular-nums">{sym} {val.toFixed(2)}</span>
+                      <span className="block text-xs text-muted-foreground tabular-nums">{sym} {val.toFixed(2)}</span>
                     </button>
                   );
                 })}

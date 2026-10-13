@@ -35,7 +35,7 @@ export function SplitParticipants({ gasto, handlers }: { gasto: GastoCompartido;
                       <div className="w-16 h-1 rounded-full bg-foreground/6 overflow-hidden">
                         <div className="h-full rounded-full bg-primary" style={{ width: `${pctPagado}%` }} />
                       </div>
-                      <span className="text-[10px] text-muted-foreground">{fmtMoneda(gasto.moneda, montoPagado)} de {fmtMoneda(gasto.moneda, montoDebe)}</span>
+                      <span className="text-xs text-muted-foreground">{fmtMoneda(gasto.moneda, montoPagado)} de {fmtMoneda(gasto.moneda, montoDebe)}</span>
                     </div>
                   )}
                 </div>

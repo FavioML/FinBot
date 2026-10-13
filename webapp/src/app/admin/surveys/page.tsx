@@ -77,7 +77,7 @@ function userLabel(e: SurveyEvent): string {
 function YesNo({ value }: { value: boolean }) {
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
         value
           ? 'bg-primary/14 text-primary-ink'
           : 'bg-foreground/4 text-muted-foreground'
@@ -109,7 +109,7 @@ function StatCard({
       : 'text-foreground';
   return (
     <div className="glass-card p-4">
-      <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
+      <p className="text-xs uppercase tracking-wider text-muted-foreground">
         {label}
       </p>
       <p className={`mt-1 text-2xl font-semibold tabular-nums ${valueColor}`}>
@@ -421,7 +421,7 @@ function RemindersTab({
                   <td className="px-4 py-3 text-foreground">{userLabel(r)}</td>
                   <td className="px-4 py-3">
                     {isInactivity ? (
-                      <span className="inline-flex items-center rounded-full bg-warning/14 px-2 py-0.5 text-[11px] font-medium text-warning-ink">
+                      <span className="inline-flex items-center rounded-full bg-warning/14 px-2 py-0.5 text-xs font-medium text-warning-ink">
                         {inactivityLabel}
                       </span>
                     ) : (
@@ -610,7 +610,7 @@ function FeedbackTab({
                   </td>
                   <td className="px-4 py-3">
                     <span
-                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
                         isRead
                           ? 'bg-primary/14 text-primary-ink'
                           : 'bg-warning/14 text-warning-ink'
@@ -1034,7 +1034,7 @@ function ProUpsellTab({
                   </td>
                   <td className="px-4 py-3">
                     {wasAlreadyPro ? (
-                      <span className="inline-flex items-center rounded-full bg-foreground/4 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                      <span className="inline-flex items-center rounded-full bg-foreground/4 px-2 py-0.5 text-xs font-medium text-muted-foreground">
                         Ya era Pro
                       </span>
                     ) : (
@@ -1046,19 +1046,19 @@ function ProUpsellTab({
                   </td>
                   <td className="px-4 py-3">
                     {isOptedOut ? (
-                      <span className="inline-flex items-center rounded-full bg-negative/14 px-2 py-0.5 text-[11px] font-medium text-negative-ink">
+                      <span className="inline-flex items-center rounded-full bg-negative/14 px-2 py-0.5 text-xs font-medium text-negative-ink">
                         Silenciado
                       </span>
                     ) : isConverted ? (
-                      <span className="inline-flex items-center rounded-full bg-primary/14 px-2 py-0.5 text-[11px] font-medium text-primary-ink">
+                      <span className="inline-flex items-center rounded-full bg-primary/14 px-2 py-0.5 text-xs font-medium text-primary-ink">
                         Convertido
                       </span>
                     ) : u.responded_at ? (
-                      <span className="inline-flex items-center rounded-full bg-info/14 px-2 py-0.5 text-[11px] font-medium text-info-ink">
+                      <span className="inline-flex items-center rounded-full bg-info/14 px-2 py-0.5 text-xs font-medium text-info-ink">
                         Respondió
                       </span>
                     ) : (
-                      <span className="inline-flex items-center rounded-full bg-warning/14 px-2 py-0.5 text-[11px] font-medium text-warning-ink">
+                      <span className="inline-flex items-center rounded-full bg-warning/14 px-2 py-0.5 text-xs font-medium text-warning-ink">
                         Pendiente
                       </span>
                     )}
@@ -1112,7 +1112,7 @@ function ConversationDialog({
                       : 'bg-foreground/4 text-foreground-soft'
                   }`}
                 >
-                  <p className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                  <p className="mb-1 text-xs uppercase tracking-wider text-muted-foreground">
                     {m.rol} · {formatDateTimeLima(m.created_at)}
                   </p>
                   <p className="whitespace-pre-wrap">{m.mensaje}</p>

@@ -60,7 +60,7 @@ export function InsightCard({ insight, aiContext, enableAI = true }: InsightCard
               {loading ? 'Analizando...' : 'Consejo del mes'}
             </h3>
             {isAI && !loading && (
-              <span className="text-[9px] font-medium text-primary-ink bg-primary/10 rounded px-1.5 py-0.5">IA</span>
+              <span className="text-xs font-medium text-primary-ink bg-primary/10 rounded px-1.5 py-0.5">IA</span>
             )}
           </div>
           <p className="text-sm text-muted-foreground leading-relaxed">
@@ -69,7 +69,7 @@ export function InsightCard({ insight, aiContext, enableAI = true }: InsightCard
           {isAI && !loading && aiContext && (
             <button
               onClick={() => refetch()}
-              className="mt-2 text-[10px] text-muted-foreground hover:text-primary transition-colors flex items-center gap-1"
+              className="mt-2 text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1"
             >
               <RefreshCw className="h-2.5 w-2.5" />
               Generar otro consejo

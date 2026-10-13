@@ -35,7 +35,7 @@ export function DebtCard({ debt, handlers }: { debt: Deuda; handlers: DebtHandle
             </p>
             {debt.descripcion && <p className="text-xs text-muted-foreground truncate">{debt.descripcion}</p>}
             {debt.es_recurrente && !isPagada && (
-              <p className="text-[10px] text-muted-foreground mt-0.5">
+              <p className="text-xs text-muted-foreground mt-0.5">
                 {debt.fecha_fin ? `Hasta ${fechaLarga(debt.fecha_fin)}` : 'Indefinido'}
                 {periodos > 0 && ` · ${periodos} periodo${periodos !== 1 ? 's' : ''} cobrado${periodos !== 1 ? 's' : ''}`}
               </p>

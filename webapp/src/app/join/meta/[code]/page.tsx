@@ -70,7 +70,7 @@ export default async function JoinMetaPage({ params }: { params: Promise<{ code:
               style={{ width: `${preview.porcentaje}%` }}
             />
           </div>
-          <div className="flex items-center justify-between text-[10px] text-muted-foreground mt-1">
+          <div className="flex items-center justify-between text-xs text-muted-foreground mt-1">
             <span>{formatCurrency(preview.monto_actual)}</span>
             <span>{formatCurrency(preview.monto_objetivo)}</span>
           </div>

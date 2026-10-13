@@ -11,7 +11,7 @@ export function VencimientoBadge({ debt, className = '' }: { debt: Deuda; classN
   if (!badge) return null;
   return (
     <span
-      className={`inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${className}`}
+      className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${className}`}
       style={{ backgroundColor: badge.bgColor, color: tinta(badge.color) }}
     >
       {badge.priority <= 1 ? <AlertTriangle className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
@@ -24,7 +24,7 @@ export function VencimientoBadge({ debt, className = '' }: { debt: Deuda; classN
 export function RecurrenteBadge({ debt, className = '' }: { debt: Deuda; className?: string }) {
   if (!debt.es_recurrente || !debt.frecuencia) return null;
   return (
-    <span className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-primary/12 text-primary-ink font-medium ${className}`}>
+    <span className={`inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full bg-primary/12 text-primary-ink font-medium ${className}`}>
       <Repeat className="h-3 w-3" />
       {frecuenciaLabel(debt.frecuencia)}
     </span>

@@ -141,7 +141,7 @@ export function Paywall() {
               obligatorio de Gmail (opcional, complemento de lo que la persona anota). */}
           <li>
             Lectura de tus correos bancarios{' '}
-            <span className="ml-1 rounded-full border border-accent-pro/40 bg-accent-pro/10 px-1.5 py-0.5 align-middle text-[10px] font-semibold uppercase tracking-wide text-accent-pro-ink">
+            <span className="ml-1 rounded-full border border-accent-pro/40 bg-accent-pro/10 px-1.5 py-0.5 align-middle text-xs font-semibold uppercase tracking-wide text-accent-pro-ink">
               beta
             </span>
             <span className="mt-0.5 block text-xs text-muted-foreground">

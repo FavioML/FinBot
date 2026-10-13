@@ -19,7 +19,7 @@ export function SplitCard({ gasto, handlers }: { gasto: GastoCompartido; handler
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <p className="font-semibold text-sm text-foreground">{gasto.descripcion}</p>
-            {allPaid && <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/12 text-primary-ink">Liquidado</span>}
+            {allPaid && <span className="text-xs px-2 py-0.5 rounded-full bg-primary/12 text-primary-ink">Liquidado</span>}
           </div>
           <p className="text-xs text-muted-foreground mt-0.5">
             {fechaCorta(gasto.fecha)} · {pagados}/{total} pagados

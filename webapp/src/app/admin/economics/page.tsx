@@ -70,10 +70,10 @@ function SmallKpi({
 }) {
   return (
     <div className="glass-card rounded-xl p-3">
-      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className="text-xs uppercase tracking-wider text-muted-foreground">{label}</div>
       <div className="mt-1.5 text-lg font-semibold text-foreground">{value}</div>
       {subtitle && (
-        <div className="mt-0.5 text-[11px] text-muted-foreground">{subtitle}</div>
+        <div className="mt-0.5 text-xs text-muted-foreground">{subtitle}</div>
       )}
     </div>
   );
@@ -268,12 +268,12 @@ export default function AdminEconomicsPage() {
                 <CartesianGrid strokeDasharray="3 3" stroke="color-mix(in srgb, var(--foreground) 5%, transparent)" />
                 <XAxis
                   dataKey="month"
-                  tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
+                  tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
                   axisLine={false}
                   tickLine={false}
                 />
                 <YAxis
-                  tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
+                  tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
                   axisLine={false}
                   tickLine={false}
                   tickFormatter={(v) => formatPenShort(v)}
@@ -314,13 +314,13 @@ export default function AdminEconomicsPage() {
                 <CartesianGrid strokeDasharray="3 3" stroke="color-mix(in srgb, var(--foreground) 5%, transparent)" />
                 <XAxis
                   dataKey="week"
-                  tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
+                  tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
                   axisLine={false}
                   tickLine={false}
                   interval={1}
                 />
                 <YAxis
-                  tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
+                  tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
                   axisLine={false}
                   tickLine={false}
                   allowDecimals={false}

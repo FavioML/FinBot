@@ -89,7 +89,7 @@ function formatDateLima(iso: string | null): string {
 
 function CategoryBadge({ category }: { category: AdminCostCategory }) {
   return (
-    <span className="inline-flex items-center rounded-full border border-border bg-foreground/[0.03] px-2 py-0.5 text-[10px] uppercase tracking-wider text-foreground-soft">
+    <span className="inline-flex items-center rounded-full border border-border bg-foreground/[0.03] px-2 py-0.5 text-xs uppercase tracking-wider text-foreground-soft">
       {ADMIN_COST_CATEGORY_LABELS[category]}
     </span>
   );
@@ -99,7 +99,7 @@ function AutoDebitBadge() {
   return (
     <span
       title="Débito automático: se cobra solo, solo aviso informativo"
-      className="inline-flex items-center rounded-full border border-primary/35 bg-primary/12 px-2 py-0.5 text-[10px] uppercase tracking-wider text-primary-ink"
+      className="inline-flex items-center rounded-full border border-primary/35 bg-primary/12 px-2 py-0.5 text-xs uppercase tracking-wider text-primary-ink"
     >
       Auto
     </span>
@@ -109,7 +109,7 @@ function AutoDebitBadge() {
 function DueBadge({ cost, today }: { cost: AdminCost; today: string }) {
   if (!cost.active) {
     return (
-      <span className="inline-flex items-center rounded-full bg-foreground/5 px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+      <span className="inline-flex items-center rounded-full bg-foreground/5 px-2 py-0.5 text-xs uppercase tracking-wider text-muted-foreground">
         Pausado
       </span>
     );
@@ -119,21 +119,21 @@ function DueBadge({ cost, today }: { cost: AdminCost; today: string }) {
   const days = diffDaysUTC(today, cost.next_due_date);
   if (days < 0) {
     return (
-      <span className="inline-flex items-center rounded-full bg-negative/12 px-2 py-0.5 text-[10px] uppercase tracking-wider text-negative-ink">
+      <span className="inline-flex items-center rounded-full bg-negative/12 px-2 py-0.5 text-xs uppercase tracking-wider text-negative-ink">
         Atrasado
       </span>
     );
   }
   if (days === 0) {
     return (
-      <span className="inline-flex items-center rounded-full bg-negative/12 px-2 py-0.5 text-[10px] uppercase tracking-wider text-negative-ink">
+      <span className="inline-flex items-center rounded-full bg-negative/12 px-2 py-0.5 text-xs uppercase tracking-wider text-negative-ink">
         Vence HOY
       </span>
     );
   }
   if (days <= 7) {
     return (
-      <span className="inline-flex items-center rounded-full bg-warning/12 px-2 py-0.5 text-[10px] uppercase tracking-wider text-warning-ink">
+      <span className="inline-flex items-center rounded-full bg-warning/12 px-2 py-0.5 text-xs uppercase tracking-wider text-warning-ink">
         En {days} {days === 1 ? 'día' : 'días'}
       </span>
     );
@@ -154,7 +154,7 @@ function AmountCell({ cost }: { cost: AdminCost }) {
     return (
       <div>
         <div className="text-sm">{formatPen(Number(cost.amount_pen))}</div>
-        <div className="text-[11px] text-muted-foreground">
+        <div className="text-xs text-muted-foreground">
           ${Number(cost.amount_original).toFixed(2)}
         </div>
       </div>
@@ -383,7 +383,7 @@ function CostFormModal({
                   }
                   className="h-3.5 w-3.5 accent-primary"
                 />
-                <span className="text-[11px] text-foreground-soft">¿Es en USD?</span>
+                <span className="text-xs text-foreground-soft">¿Es en USD?</span>
               </label>
             </label>
             {!form.isUSD && (
@@ -475,7 +475,7 @@ function CostFormModal({
                 Automático
               </button>
             </div>
-            <p className="mt-1 text-[11px] text-muted-foreground">
+            <p className="mt-1 text-xs text-muted-foreground">
               {form.autoDebit
                 ? 'Se cobra solo (ej. tarjeta). Solo te aviso el día del cobro; se registra y avanza solo.'
                 : 'Te recuerdo por Telegram el día del vencimiento y cada día que siga sin pagarse.'}
@@ -852,7 +852,7 @@ function CostDetailModal({
             </ul>
           )}
           {dirty && (
-            <p className="mt-2 text-[11px] text-muted-foreground">
+            <p className="mt-2 text-xs text-muted-foreground">
               Corregir el historial ajusta el P&L. No cambia la próxima fecha de cobro (usa “Editar” para eso).
             </p>
           )}
@@ -1037,7 +1037,7 @@ function PnlSection() {
         <div className="flex flex-col items-end gap-2">
           {current && (
             <div className="text-right">
-              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Este mes</div>
+              <div className="text-xs uppercase tracking-wider text-muted-foreground">Este mes</div>
               <div className={`text-xl font-semibold ${currentColor}`}>
                 {signedPen(current.result_pen)}
               </div>
@@ -1067,7 +1067,7 @@ function PnlSection() {
         <div className="mt-4 overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-[10px] uppercase tracking-wider text-muted-foreground">
+              <tr className="text-left text-xs uppercase tracking-wider text-muted-foreground">
                 <th className="pb-2 pr-4 font-medium">Mes</th>
                 <th className="pb-2 pr-4 text-right font-medium">Ingresos</th>
                 <th className="pb-2 pr-4 text-right font-medium">Costos</th>
@@ -1136,7 +1136,7 @@ function UpcomingSection({ costs, today }: { costs: AdminCost[]; today: string }
           { label: '90 días', v: d90 },
         ].map((w) => (
           <div key={w.label} className="rounded-lg border border-border bg-foreground/[0.02] p-3">
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{w.label}</div>
+            <div className="text-xs uppercase tracking-wider text-muted-foreground">{w.label}</div>
             <div className="mt-1 text-base font-semibold text-foreground">{formatPen(w.v)}</div>
           </div>
         ))}
@@ -1151,7 +1151,7 @@ function UpcomingSection({ costs, today }: { costs: AdminCost[]; today: string }
             <div className="flex items-center gap-2">
               <span className="text-foreground">{o.label}</span>
               {o.overdue && (
-                <span className="rounded-full bg-negative/12 px-2 py-0.5 text-[10px] uppercase tracking-wider text-negative-ink">
+                <span className="rounded-full bg-negative/12 px-2 py-0.5 text-xs uppercase tracking-wider text-negative-ink">
                   Atrasado
                 </span>
               )}
@@ -1410,7 +1410,7 @@ export default function AdminCostsPage() {
         <div className="hidden overflow-x-auto glass-card md:block">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border bg-foreground/[0.02] text-left text-[10px] uppercase tracking-wider text-muted-foreground">
+              <tr className="border-b border-border bg-foreground/[0.02] text-left text-xs uppercase tracking-wider text-muted-foreground">
                 <th className="px-4 py-3">Label</th>
                 <th className="px-4 py-3">Categoría</th>
                 <th className="px-4 py-3">Monto</th>

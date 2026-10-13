@@ -51,17 +51,17 @@ function ClusterRow({ c, onClick }: { c: RecurringCluster; onClick: () => void }
         <div className="flex items-center gap-2">
           <p className="text-sm text-foreground truncate">{c.label}</p>
           {c.variantKeys.length > 1 && (
-            <span className="shrink-0 rounded bg-primary/12 px-1.5 py-0.5 text-[9px] text-primary-ink">
+            <span className="shrink-0 rounded bg-primary/12 px-1.5 py-0.5 text-xs text-primary-ink">
               {c.variantKeys.length} nombres
             </span>
           )}
-          <span className="shrink-0 rounded bg-foreground/6 px-1.5 py-0.5 text-[9px] text-muted-foreground">
+          <span className="shrink-0 rounded bg-foreground/6 px-1.5 py-0.5 text-xs text-muted-foreground">
             {c.monthsDetected} meses
           </span>
         </div>
         <div className="flex items-center gap-1 mt-0.5">
           <Calendar className="h-2.5 w-2.5 text-muted-foreground" />
-          <span className="text-[10px]" style={{ color: st.color }}>
+          <span className="text-xs" style={{ color: st.color }}>
             {st.text}
           </span>
         </div>
@@ -208,17 +208,17 @@ export function RecurringPayments({ transactions }: RecurringPaymentsProps) {
                 ¿<span className="font-medium">{s.aLabel}</span> y{' '}
                 <span className="font-medium">{s.bLabel}</span> son el mismo pago?
               </p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">{s.reason}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{s.reason}</p>
               <div className="mt-1.5 flex gap-2">
                 <button
                   onClick={() => doMerge(s.aId, s.bId)}
-                  className="inline-flex items-center gap-1 rounded-md bg-primary/15 px-2 py-1 text-[11px] font-medium text-primary-ink hover:bg-primary/25 transition-colors"
+                  className="inline-flex items-center gap-1 rounded-md bg-primary/15 px-2 py-1 text-xs font-medium text-primary-ink hover:bg-primary/25 transition-colors"
                 >
                   <Link2 className="h-3 w-3" /> Unir
                 </button>
                 <button
                   onClick={() => doIgnoreSuggestion(s.aId, s.bId)}
-                  className="rounded-md px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground-soft transition-colors"
+                  className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-foreground-soft transition-colors"
                 >
                   No, son distintos
                 </button>
@@ -238,7 +238,7 @@ export function RecurringPayments({ transactions }: RecurringPaymentsProps) {
       {clusters.length > visible.length && (
         <button
           onClick={() => setShowAllOpen(true)}
-          className="mt-3 w-full text-center text-[11px] text-muted-foreground hover:text-foreground-soft transition-colors py-1"
+          className="mt-3 w-full text-center text-xs text-muted-foreground hover:text-foreground-soft transition-colors py-1"
         >
           Ver todos ({clusters.length}) &rarr;
         </button>
@@ -260,7 +260,7 @@ export function RecurringPayments({ transactions }: RecurringPaymentsProps) {
               <div className="px-4 pb-4 space-y-4">
                 {/* Renombrar */}
                 <div>
-                  <label className="text-[11px] text-muted-foreground flex items-center gap-1.5 mb-1.5">
+                  <label className="text-xs text-muted-foreground flex items-center gap-1.5 mb-1.5">
                     <Pencil className="h-3 w-3" /> Nombre
                   </label>
                   <div className="flex gap-2">
@@ -285,7 +285,7 @@ export function RecurringPayments({ transactions }: RecurringPaymentsProps) {
                   <div>
                     <button
                       onClick={() => setShowMerge((v) => !v)}
-                      className="w-full flex items-center gap-1.5 text-[11px] text-muted-foreground mb-1.5"
+                      className="w-full flex items-center gap-1.5 text-xs text-muted-foreground mb-1.5"
                     >
                       <Link2 className="h-3 w-3" /> Unir con otro pago
                     </button>
@@ -383,7 +383,7 @@ export function RecurringPayments({ transactions }: RecurringPaymentsProps) {
               >
                 <div className="min-w-0">
                   <p className="text-sm text-foreground truncate">{cand.label}</p>
-                  <p className="text-[10px] text-muted-foreground">{cand.count} veces</p>
+                  <p className="text-xs text-muted-foreground">{cand.count} veces</p>
                 </div>
                 <Plus className="h-4 w-4 text-primary-ink shrink-0 ml-2" />
               </button>

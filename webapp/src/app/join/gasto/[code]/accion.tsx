@@ -71,7 +71,7 @@ export function AccionConfirmarGasto({ code }: { code: string }) {
         {enviando ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Users className="h-4 w-4 mr-2" />}
         Confirmar mi parte
       </Button>
-      <p className="text-[10px] text-muted-foreground text-center">
+      <p className="text-xs text-muted-foreground text-center">
         Se agregara como deuda pendiente en tu cuenta NETO
       </p>
     </div>

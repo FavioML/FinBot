@@ -78,7 +78,7 @@ export function TrendLine({ data }: TrendLineProps) {
             <YAxis
               axisLine={false}
               tickLine={false}
-              tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
+              tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
               tickFormatter={(v) => `S/${(v / 1000).toFixed(0)}k`}
               width={52}
             />

@@ -141,7 +141,7 @@ export function NPSCard() {
                     );
                   })}
                 </div>
-                <div className="mt-1 flex justify-between text-[11px] text-muted-foreground">
+                <div className="mt-1 flex justify-between text-xs text-muted-foreground">
                   <span>{q.low}</span>
                   <span>{q.high}</span>
                 </div>
@@ -167,14 +167,14 @@ export function NPSCard() {
               placeholder="Lo que más te gusta, lo que falta, lo que cambiarías…"
               className="form-input mt-2 w-full resize-none rounded-lg bg-surface-elevated px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
             />
-            <p className="mt-1 text-right text-[11px] text-muted-foreground">
+            <p className="mt-1 text-right text-xs text-muted-foreground">
               {comment.length}/{MAX_COMMENT}
             </p>
           </div>
         </div>
 
         <div className="mt-5 flex flex-col-reverse items-stretch justify-between gap-3 sm:flex-row sm:items-center">
-          <p className="text-[11px] leading-snug text-muted-foreground">
+          <p className="text-xs leading-snug text-muted-foreground">
             Tus respuestas van directo a Favio (creador de Neto). Cero data
             compartida con terceros.
           </p>

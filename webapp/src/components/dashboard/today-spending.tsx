@@ -58,7 +58,7 @@ export function TodaySpending({ transactions, currentMonth, currentYear }: Today
         <span className="text-lg font-bold" style={{ color: barColor }}>
           {formatCurrency(todayTotal)}
         </span>
-        <span className="text-[10px] text-muted-foreground">
+        <span className="text-xs text-muted-foreground">
           / prom. {formatCurrency(dailyAvg)}
         </span>
       </div>
@@ -72,12 +72,12 @@ export function TodaySpending({ transactions, currentMonth, currentYear }: Today
         />
       </div>
       {todayTotal > 0 && ratio > 1.3 && (
-        <p className="text-[10px] text-negative mt-1.5">
+        <p className="text-xs text-negative mt-1.5">
           {Math.round((ratio - 1) * 100)}% sobre tu promedio diario
         </p>
       )}
       {todayTotal === 0 && (
-        <p className="text-[10px] text-primary mt-1.5">
+        <p className="text-xs text-primary mt-1.5">
           Sin gastos hoy
         </p>
       )}

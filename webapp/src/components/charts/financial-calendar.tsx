@@ -157,7 +157,7 @@ export function FinancialCalendar({ transactions, currentMonth, currentYear, deb
       {/* Day headers */}
       <div className="grid grid-cols-7 gap-1 mb-1">
         {DIAS_SEMANA.map((d) => (
-          <div key={d} className="text-center text-[9px] text-muted-foreground font-medium py-1">{d}</div>
+          <div key={d} className="text-center text-xs text-muted-foreground font-medium py-1">{d}</div>
         ))}
       </div>
 
@@ -191,13 +191,13 @@ export function FinancialCalendar({ transactions, currentMonth, currentYear, deb
                   }`}
                   style={{ backgroundColor: isSelected ? undefined : getCellColor(amount) }}
                 >
-                  <span className={`text-[11px] font-medium ${
+                  <span className={`text-xs font-medium ${
                     isToday(day) ? 'text-primary-ink' : 'text-foreground-soft'
                   }`}>
                     {day}
                   </span>
                   {amount > 0 && (
-                    <span className="text-[8px] text-muted-foreground tabular-nums mt-0.5 leading-none">
+                    <span className="text-xs text-muted-foreground tabular-nums mt-0.5 leading-none">
                       {amount >= 1000 ? `${(amount / 1000).toFixed(1)}k` : Math.round(amount)}
                     </span>
                   )}
@@ -221,11 +221,11 @@ export function FinancialCalendar({ transactions, currentMonth, currentYear, deb
       <div className="flex items-center gap-4 mt-3 pt-2 border-t border-border">
         <div className="flex items-center gap-1.5">
           <span className="h-2 w-2 rounded-full bg-negative" />
-          <span className="text-[9px] text-muted-foreground">Vencimiento deuda</span>
+          <span className="text-xs text-muted-foreground">Vencimiento deuda</span>
         </div>
         <div className="flex items-center gap-1.5">
           <span className="h-2 w-2 rounded-full bg-primary" />
-          <span className="text-[9px] text-muted-foreground">Deadline meta</span>
+          <span className="text-xs text-muted-foreground">Deadline meta</span>
         </div>
       </div>
 

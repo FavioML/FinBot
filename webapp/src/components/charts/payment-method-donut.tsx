@@ -112,7 +112,7 @@ export function PaymentMethodDonut({ transactions, onMethodClick }: PaymentMetho
             </PieChart>
           </ResponsiveContainer>
           <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-            <span className="text-[10px] text-muted-foreground">Total</span>
+            <span className="text-xs text-muted-foreground">Total</span>
             <span className="text-xs font-bold text-foreground">{formatCurrency(total)}</span>
           </div>
         </div>

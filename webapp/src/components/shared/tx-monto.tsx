@@ -53,7 +53,7 @@ export function TxMonto({ tx, signo = '', className, style, align = 'end' }: TxM
         {signo}
         {formatTxMonto(tx)}
       </span>
-      <span className="text-[10px] font-normal text-muted-foreground">≈ {equivalente}</span>
+      <span className="text-xs font-normal text-muted-foreground">≈ {equivalente}</span>
     </span>
   );
 }

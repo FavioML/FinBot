@@ -99,7 +99,7 @@ export function TopMerchants({ transactions, onMerchantClick }: TopMerchantsProp
                 <div className="flex items-center gap-2 min-w-0 flex-1">
                   <span className="text-xs shrink-0">{getCategoriaEmoji(data.categoria)}</span>
                   <span className="text-sm text-foreground truncate">{name}</span>
-                  <span className="text-[10px] text-muted-foreground shrink-0">{data.count}x</span>
+                  <span className="text-xs text-muted-foreground shrink-0">{data.count}x</span>
                 </div>
                 <span className="text-sm font-medium text-negative tabular-nums shrink-0 ml-2">
                   {formatCurrency(data.total)}

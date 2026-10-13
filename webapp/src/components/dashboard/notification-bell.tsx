@@ -133,7 +133,7 @@ export function NotificationBell() {
         <Bell className="h-5 w-5" />
         {unreadCount > 0 && (
           <motion.span
-            className="absolute -top-0.5 -right-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-negative px-1 text-[9px] font-bold text-negative-foreground"
+            className="absolute -top-0.5 -right-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-negative px-1 text-badge font-bold text-negative-foreground"
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
             transition={{ type: 'spring', stiffness: 500, damping: 25 }}
@@ -160,7 +160,7 @@ export function NotificationBell() {
                 {unreadCount > 0 && (
                   <button
                     onClick={handleMarkAllRead}
-                    className="text-[10px] text-primary-ink hover:text-primary-ink/80 transition-colors flex items-center gap-1"
+                    className="text-xs text-primary-ink hover:text-primary-ink/80 transition-colors flex items-center gap-1"
                   >
                     <Check className="h-3 w-3" />
                     Marcar todas
@@ -222,11 +222,11 @@ export function NotificationBell() {
                         <p className={`text-xs font-medium ${!notif.leida ? 'text-foreground' : 'text-foreground-soft'}`}>
                           {notif.titulo}
                         </p>
-                        <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2">
+                        <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
                           {notif.mensaje}
                         </p>
                       </div>
-                      <span className="text-[9px] text-muted-foreground shrink-0 mt-0.5">
+                      <span className="text-xs text-muted-foreground shrink-0 mt-0.5">
                         {timeAgo(notif.fecha)}
                       </span>
                       {!notif.leida && (

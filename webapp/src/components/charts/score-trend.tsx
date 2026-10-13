@@ -67,7 +67,7 @@ export function ScoreTrend() {
                   transition={{ duration: 0.6, delay: i * 0.1, ease: [0.25, 0.46, 0.45, 0.94] }}
                 />
               </div>
-              <span className="text-[10px] text-muted-foreground">{month.label}</span>
+              <span className="text-xs text-muted-foreground">{month.label}</span>
             </div>
           );
         })}

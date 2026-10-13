@@ -97,6 +97,18 @@
   --text-hero: 3.25rem;    /* 52px — balance hero on larger phones / tablets */
   --text-section: 1.125rem; /* 18px — section titles */
   --text-label: 0.75rem;   /* 12px — labels, min mobile-legible size */
+  /* 11px — SOLO el número de un contador sobre un ícono (el "9+" de la campana). No es texto de
+   * lectura: todo lo que se lee va a 12px o más (`src/app/letra-minima.test.ts`). */
+  --text-badge: 0.6875rem;
+  --text-badge--line-height: 1;
+}
+
+/* Celular: el texto de lectura (`text-sm`) sube de 14 a 15px. Se cambia la variable del tema y no
+ * cada clase; bajo `md`, que es donde la webapp se usa como app, así desktop queda igual. */
+@media (width < 48rem) {
+  :root {
+    --text-sm: 0.9375rem;
+  }
 }
 
 /* Lo que no cambia con el tema. */
@@ -392,6 +404,11 @@
   [role="option"]:not(.touch-exempt),
   summary:not(.touch-exempt) {
     min-height: 44px;
+  }
+  /* La barra crece con sus pestañas de 44px. Con su `h-8` fijo, la pestaña activa se salía de la
+   * caja y el selector se veía cortado (Mensual/Total anual, Mes/Semana/Rango/Año). */
+  [data-slot="tabs-list"]:not(.touch-exempt) {
+    height: auto;
   }
   input:not([type="checkbox"]):not([type="radio"]):not(.touch-exempt),
   select:not(.touch-exempt),

@@ -81,12 +81,12 @@ export function SpendingProjection({
     >
       <div className="flex items-start justify-between mb-3">
         <div>
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Proyeccion del mes</p>
+          <p className="text-xs text-muted-foreground uppercase tracking-wider mb-0.5">Proyeccion del mes</p>
           <p className="text-xl font-bold text-foreground tabular-nums">{formatCurrency(projection.projected)}</p>
         </div>
         {projection.prevGastos > 0 && (
           <div
-            className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium"
+            className="flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium"
             style={{
               backgroundColor: isOverPrev ? 'color-mix(in srgb, var(--negative) 10%, transparent)' : 'color-mix(in srgb, var(--positive) 10%, transparent)',
               color: isOverPrev ? 'var(--negative-ink)' : 'var(--positive-ink)',
@@ -108,20 +108,20 @@ export function SpendingProjection({
             transition={{ duration: 0.6 }}
           />
         </div>
-        <div className="flex justify-between text-[10px] text-muted-foreground">
+        <div className="flex justify-between text-xs text-muted-foreground">
           <span>Dia {projection.dayOfMonth} de {projection.daysInMonth}</span>
           <span>{projection.daysRemaining} dias restantes</span>
         </div>
       </div>
 
       {/* Stats row */}
-      <div className="flex items-center gap-4 text-xs">
-        <div>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+        <div className="whitespace-nowrap">
           <span className="text-muted-foreground">Gastado: </span>
           <span className="text-negative font-medium tabular-nums">{formatCurrency(projection.totalSpent)}</span>
         </div>
         <ArrowRight className="h-3 w-3 text-muted-foreground" />
-        <div>
+        <div className="whitespace-nowrap">
           <span className="text-muted-foreground">Promedio diario: </span>
           <span className="text-foreground-soft font-medium tabular-nums">{formatCurrency(projection.dailyAvg)}</span>
         </div>

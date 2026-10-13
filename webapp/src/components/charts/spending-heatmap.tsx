@@ -82,7 +82,7 @@ export function SpendingHeatmap({ transactions }: SpendingHeatmapProps) {
           {[0, 1, 2, 3, 4, 5, 6].map((d) => (
             <div key={d} className="h-[14px] flex items-center">
               {d % 2 === 0 && (
-                <span className="text-[9px] text-muted-foreground w-6 text-right">{DIAS[d]}</span>
+                <span className="text-xs text-muted-foreground w-6 text-right">{DIAS[d]}</span>
               )}
             </div>
           ))}
@@ -109,7 +109,7 @@ export function SpendingHeatmap({ transactions }: SpendingHeatmapProps) {
       </div>
 
       {/* Legend */}
-      <div className="flex items-center gap-2 mt-3 text-[9px] text-muted-foreground">
+      <div className="flex items-center gap-2 mt-3 text-xs text-muted-foreground">
         <span>Menos</span>
         {[0, 0.2, 0.4, 0.7, 1].map((v) => (
           <div

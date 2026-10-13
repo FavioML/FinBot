@@ -130,7 +130,7 @@ export function BudgetCard({
       {/* Warning banner */}
       {(isWarning || isExceeded) && (
         <div
-          className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px]"
+          className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs"
           style={{
             backgroundColor: isExceeded ? 'color-mix(in srgb, var(--negative) 8%, transparent)' : 'color-mix(in srgb, var(--warning) 8%, transparent)',
             color: isExceeded ? 'var(--negative-ink)' : 'var(--warning-ink)',
@@ -162,7 +162,7 @@ export function BudgetCard({
                   <span className="text-xs text-foreground-soft">
                     {capitalizeDisplay(sub.subcategoria || '')}
                   </span>
-                  <span className="text-[10px] text-muted-foreground">
+                  <span className="text-xs text-muted-foreground">
                     {formatCurrency(subSpent)} / {formatCurrency(sub.monto_limite)}
                   </span>
                 </div>

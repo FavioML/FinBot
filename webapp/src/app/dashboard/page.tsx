@@ -71,7 +71,7 @@ import type { Transaccion, KPIData, CategoriaGasto, TendenciaMensual } from '@/l
 function TierLabel({ label, question }: { label: string; question: string }) {
   return (
     <div className="flex items-center gap-3 pt-2">
-      <span className="whitespace-nowrap rounded-full border border-primary/22 bg-primary/10 px-2.5 py-[5px] text-[10px] font-bold uppercase tracking-[0.14em] text-primary-ink">
+      <span className="whitespace-nowrap rounded-full border border-primary/22 bg-primary/10 px-2.5 py-[5px] text-xs font-bold uppercase tracking-[0.14em] text-primary-ink">
         {label}
       </span>
       <span className="text-[12.5px] text-muted-foreground">{question}</span>
@@ -410,8 +410,9 @@ export default function DashboardPage() {
         </HeaderActions>
       </div>
 
-      {/* View mode toggle — tabs + period selector share one row on all sizes */}
-      <div className="flex flex-row items-center justify-between gap-3">
+      {/* View mode toggle — tabs + period selector share one row; on a narrow phone the selector
+          wraps to its own line instead of running past the right edge */}
+      <div className="flex flex-row flex-wrap items-center justify-between gap-3">
         <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as string)}>
           <TabsList className="glass-card border-0">
             <TabsTrigger value="mensual">Mensual</TabsTrigger>
@@ -859,7 +860,7 @@ export default function DashboardPage() {
                         {meDebenTotal - deboTotal >= 0 ? '+' : ''}{formatCurrency(meDebenTotal - deboTotal)}
                       </span>
                     </div>
-                    <p className="text-[10px] text-muted-foreground">{activas.length} deuda{activas.length !== 1 ? 's' : ''} activa{activas.length !== 1 ? 's' : ''}</p>
+                    <p className="text-xs text-muted-foreground">{activas.length} deuda{activas.length !== 1 ? 's' : ''} activa{activas.length !== 1 ? 's' : ''}</p>
                   </div>
                 );
               })()}

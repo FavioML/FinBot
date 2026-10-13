@@ -34,20 +34,20 @@ function DebtDetailBlock({ debt, handlers, titleMode }: { debt: Deuda; handlers:
             <p className="text-xs text-muted-foreground mt-0.5">{debt.descripcion}</p>
           )}
           {debt.es_recurrente && !isPagada && (
-            <p className="text-[10px] text-muted-foreground mt-0.5">
+            <p className="text-xs text-muted-foreground mt-0.5">
               {debt.fecha_fin ? `Hasta ${fechaLarga(debt.fecha_fin)}` : 'Indefinido'}
               {periodos > 0 && ` · ${periodos} periodo${periodos !== 1 ? 's' : ''} cobrado${periodos !== 1 ? 's' : ''}`}
             </p>
           )}
           {!debt.es_recurrente && debt.fecha_vencimiento && !isPagada && !getVencimientoBadge(debt) && (
-            <p className="text-[10px] text-muted-foreground mt-0.5">Vence: {fechaLarga(debt.fecha_vencimiento)}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Vence: {fechaLarga(debt.fecha_vencimiento)}</p>
           )}
         </div>
         <div className="text-right shrink-0">
           <p className={`text-lg font-bold tabular-nums ${isPagada ? 'text-muted-foreground' : esDebo ? 'text-negative-ink' : 'text-primary-ink'}`}>
             {fmtMoneda(debt.moneda, debt.monto_pendiente)}
           </p>
-          <p className="text-[10px] text-muted-foreground tabular-nums">de {fmtMoneda(debt.moneda, debt.monto_original)}</p>
+          <p className="text-xs text-muted-foreground tabular-nums">de {fmtMoneda(debt.moneda, debt.monto_original)}</p>
         </div>
       </div>
 
@@ -126,12 +126,12 @@ export function DetailPanel({
                 </div>
               </div>
               <div className="text-right shrink-0">
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{esDebo ? 'Le debes' : 'Te debe'}</p>
+                <p className="text-xs text-muted-foreground uppercase tracking-wider">{esDebo ? 'Le debes' : 'Te debe'}</p>
                 <p className={`text-lg font-bold tabular-nums ${esDebo ? 'text-negative' : 'text-primary'}`}>
                   {fmtMulti(group.pen, group.usd)}
                 </p>
                 {group.proximoVencimiento && (
-                  <p className="text-[10px] text-muted-foreground flex items-center gap-1 justify-end mt-0.5">
+                  <p className="text-xs text-muted-foreground flex items-center gap-1 justify-end mt-0.5">
                     <Calendar className="h-3 w-3" /> Próx. {fechaCorta(group.proximoVencimiento)}
                   </p>
                 )}

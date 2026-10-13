@@ -44,7 +44,7 @@ export function DebtHistory({
 
   return (
     <div>
-      <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1.5">
+      <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1.5">
         Historial de abonos
         <span className="ml-1.5 text-muted-foreground normal-case tracking-normal">{abonos.length}</span>
       </p>
@@ -69,7 +69,7 @@ export function DebtHistory({
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
-          className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-medium text-muted-foreground hover:text-foreground-soft transition-colors"
+          className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground-soft transition-colors"
         >
           <ChevronDown className={`h-3 w-3 transition-transform ${expanded ? 'rotate-180' : ''}`} />
           {expanded ? 'Ver menos' : `Ver los ${abonos.length} abonos`}

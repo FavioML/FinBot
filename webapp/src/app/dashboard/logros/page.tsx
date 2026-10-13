@@ -187,7 +187,7 @@ export default function LogrosPage() {
           {/* Total logros */}
           <div className="glass-card p-4 text-center">
             <p className="text-2xl font-bold text-primary">{totalUnlocked}</p>
-            <p className="text-[10px] text-muted-foreground mt-1">Logros</p>
+            <p className="text-xs text-muted-foreground mt-1">Logros</p>
             <div className="mt-2 h-1 rounded-full bg-foreground/6 overflow-hidden">
               <motion.div
                 className="h-full rounded-full bg-primary"
@@ -203,7 +203,7 @@ export default function LogrosPage() {
             <p className="text-2xl font-bold text-warning">
               {streak > 0 ? streak : '—'}
             </p>
-            <p className="text-[10px] text-muted-foreground mt-1">
+            <p className="text-xs text-muted-foreground mt-1">
               {streak === 1 ? 'Semana racha' : 'Semanas racha'}
             </p>
             {streak >= 3 && (
@@ -214,7 +214,7 @@ export default function LogrosPage() {
           {/* Metas completadas */}
           <div className="glass-card p-4 text-center">
             <p className="text-2xl font-bold text-foreground">{completedGoals}</p>
-            <p className="text-[10px] text-muted-foreground mt-1">
+            <p className="text-xs text-muted-foreground mt-1">
               {totalGoals > 0 ? `de ${totalGoals} metas` : 'Metas cumplidas'}
             </p>
           </div>
@@ -231,7 +231,7 @@ export default function LogrosPage() {
             <div className="min-w-0 flex-1">
               <p className="text-xs font-medium text-warning">Proximo logro</p>
               <p className="text-sm text-foreground-soft font-medium">{nextToUnlock.label}</p>
-              <p className="text-[10px] text-muted-foreground">{nextToUnlock.desc}</p>
+              <p className="text-xs text-muted-foreground">{nextToUnlock.desc}</p>
             </div>
           </div>
         </FadeIn>
@@ -273,12 +273,12 @@ export default function LogrosPage() {
                   <p className={`text-xs font-medium ${isUnlocked ? 'text-foreground' : 'text-muted-foreground'}`}>
                     {item.label}
                   </p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5 leading-snug">
+                  <p className="text-xs text-muted-foreground mt-0.5 leading-snug">
                     {item.desc}
                   </p>
 
                   {isUnlocked && unlocked.fecha && (
-                    <p className="text-[9px] text-primary mt-2 flex items-center gap-1">
+                    <p className="text-xs text-primary mt-2 flex items-center gap-1">
                       <CalendarDays className="h-3 w-3" />
                       {timeAgo(unlocked.fecha)}
                     </p>
@@ -307,9 +307,9 @@ export default function LogrosPage() {
                   <span className="text-lg shrink-0">{catalogItem.emoji}</span>
                   <div className="min-w-0 flex-1">
                     <p className="text-xs font-medium text-foreground-soft">{catalogItem.label}</p>
-                    <p className="text-[10px] text-muted-foreground">{catalogItem.desc}</p>
+                    <p className="text-xs text-muted-foreground">{catalogItem.desc}</p>
                   </div>
-                  <span className="text-[10px] text-muted-foreground shrink-0">
+                  <span className="text-xs text-muted-foreground shrink-0">
                     {logro.fecha
                       ? new Date(logro.fecha + 'T12:00:00').toLocaleDateString('es-PE', { day: 'numeric', month: 'short' })
                       : ''}

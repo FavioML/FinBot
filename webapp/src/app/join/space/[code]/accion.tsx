@@ -69,7 +69,7 @@ export function AccionUnirseEspacio({ code }: { code: string }) {
         {enviando ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Users className="h-4 w-4 mr-2" />}
         Unirme al espacio
       </Button>
-      <p className="text-[10px] text-muted-foreground text-center">
+      <p className="text-xs text-muted-foreground text-center">
         Podrás compartir gastos y dividir cuentas con los miembros
       </p>
     </div>

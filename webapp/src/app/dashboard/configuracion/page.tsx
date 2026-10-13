@@ -118,7 +118,7 @@ function getInitial(email?: string) {
 /* ------------------------------------------------------------------ */
 function GroupHeading({ children }: { children: ReactNode }) {
   return (
-    <h2 className="px-1 pt-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+    <h2 className="px-1 pt-1 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
       {children}
     </h2>
   );
@@ -266,7 +266,7 @@ function ThemeOption({
         <span className={cn('text-sm font-medium', active ? 'text-foreground' : 'text-secondary-foreground')}>{label}</span>
         {active && <span className="ml-auto h-2 w-2 rounded-full bg-primary" />}
       </div>
-      <span className="text-[11px] text-muted-foreground">{caption}</span>
+      <span className="text-xs text-muted-foreground">{caption}</span>
     </button>
   );
 }
@@ -925,7 +925,7 @@ export default function ConfiguracionPage() {
             <div className="space-y-4">
               {NAV_GROUPS.map((group) => (
                 <div key={group.label} className="space-y-1">
-                  <p className="px-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/60">
+                  <p className="px-3 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground/60">
                     {group.label}
                   </p>
                   {group.items.map((item) => (
@@ -1193,7 +1193,7 @@ export default function ConfiguracionPage() {
                   ].map((s) => (
                     <div key={s.label} className="rounded-lg border border-border bg-muted/40 px-2 py-3">
                       <div className="text-xl font-bold tabular-nums text-secondary-foreground">{s.value}</div>
-                      <div className="mt-0.5 text-[11px] text-muted-foreground">{s.label}</div>
+                      <div className="mt-0.5 text-xs text-muted-foreground">{s.label}</div>
                     </div>
                   ))}
                 </div>
@@ -1348,7 +1348,7 @@ export default function ConfiguracionPage() {
                   loading={manosLibresLoading}
                   badge={
                     !isPremium ? (
-                      <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary-ink">Pro</span>
+                      <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-xs font-semibold text-primary-ink">Pro</span>
                     ) : undefined
                   }
                   onToggle={(v) => {
@@ -1373,7 +1373,7 @@ export default function ConfiguracionPage() {
                       <p className="text-sm font-medium text-secondary-foreground">{pref.label}</p>
                       <p className="mt-0.5 text-xs text-muted-foreground">{pref.desc}</p>
                     </div>
-                    <Badge className="mt-0.5 shrink-0 border-primary/25 bg-primary/10 text-[10px] text-primary-ink">Automático</Badge>
+                    <Badge className="mt-0.5 shrink-0 border-primary/25 bg-primary/10 text-xs text-primary-ink">Automático</Badge>
                   </div>
                 ))}
 

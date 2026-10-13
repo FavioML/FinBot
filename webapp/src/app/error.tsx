@@ -47,7 +47,7 @@ export default function RootError({ error, reset }: ErrorProps) {
         {/* El `digest` es lo único que ata lo que vio el usuario con la fila del log del
             servidor. Sin él, un reporte por WhatsApp es imposible de rastrear. */}
         {error.digest && (
-          <p className="font-mono text-[11px] text-muted-foreground/70">ref: {error.digest}</p>
+          <p className="font-mono text-xs text-muted-foreground/70">ref: {error.digest}</p>
         )}
         <div className="flex flex-col items-center gap-3 pt-1">
           <button

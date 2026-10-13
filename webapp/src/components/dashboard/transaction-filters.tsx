@@ -104,7 +104,7 @@ export function TransactionFilters({
           // Reset subcategory when category changes
           onSubcategoriaChange('all');
         }}>
-          <SelectTrigger className="w-[180px] bg-foreground/3 border-border text-foreground-soft">
+          <SelectTrigger className="w-full sm:w-[180px] bg-foreground/3 border-border text-foreground-soft">
             <SelectValue>
               {categoriaFilter === 'all'
                 ? 'Todas las categorías'
@@ -127,7 +127,7 @@ export function TransactionFilters({
         {/* Subcategory filter */}
         {categoriaFilter !== 'all' && subcategorias.length > 0 && (
           <Select value={subcategoriaFilter} onValueChange={onSubcategoriaChange}>
-            <SelectTrigger className="w-[200px] bg-foreground/3 border-border text-foreground-soft">
+            <SelectTrigger className="w-full sm:w-[200px] bg-foreground/3 border-border text-foreground-soft">
               <SelectValue>
                 {subcategoriaFilter === 'all' ? 'Todas las subcategorías' : capitalizeDisplay(subcategoriaFilter)}
               </SelectValue>
@@ -145,7 +145,7 @@ export function TransactionFilters({
 
         {/* Payment method filter */}
         <Select value={metodoPagoFilter} onValueChange={onMetodoPagoChange}>
-          <SelectTrigger className="w-[180px] bg-foreground/3 border-border text-foreground-soft">
+          <SelectTrigger className="w-full sm:w-[180px] bg-foreground/3 border-border text-foreground-soft">
             <SelectValue>
               {metodoPagoFilter === 'all' ? 'Todos los métodos' : metodoPagoFilter}
             </SelectValue>

@@ -51,7 +51,7 @@ export function MasterList({
               <div className="min-w-0 flex-1">
                 <p className="font-semibold text-sm text-foreground truncate">{group.contraparte}</p>
                 <div className="flex items-center gap-1.5 mt-0.5">
-                  <span className="text-[10px] text-muted-foreground">
+                  <span className="text-xs text-muted-foreground">
                     {group.debts.length} deuda{group.debts.length !== 1 ? 's' : ''}
                   </span>
                   {urgente && <VencimientoBadge debt={urgente} />}
@@ -96,7 +96,7 @@ export function MasterList({
                 <RecurrenteBadge debt={debt} />
               </p>
               <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
-                {debt.descripcion && <span className="text-[10px] text-muted-foreground truncate">{debt.descripcion}</span>}
+                {debt.descripcion && <span className="text-xs text-muted-foreground truncate">{debt.descripcion}</span>}
                 {!isPagada && <VencimientoBadge debt={debt} />}
               </div>
             </div>

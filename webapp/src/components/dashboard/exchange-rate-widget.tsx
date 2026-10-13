@@ -46,7 +46,7 @@ export function ExchangeRateWidget() {
         <DollarSign className="h-4 w-4 text-warning-ink" />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">USD / PEN</p>
+        <p className="text-xs text-muted-foreground uppercase tracking-wider">USD / PEN</p>
         {loading ? (
           <div className="h-5 w-16 rounded bg-foreground/6 animate-pulse mt-0.5" />
         ) : (

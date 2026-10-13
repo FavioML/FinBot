@@ -92,7 +92,7 @@ export function GlobalSearch() {
       >
         <Search className="h-3.5 w-3.5" />
         <span>Buscar...</span>
-        <kbd className="ml-4 rounded bg-foreground/6 px-1.5 py-0.5 text-[10px] font-mono">
+        <kbd className="ml-4 rounded bg-foreground/6 px-1.5 py-0.5 text-xs font-mono">
           Ctrl K
         </kbd>
       </button>
@@ -111,7 +111,7 @@ export function GlobalSearch() {
               className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none"
               autoFocus
             />
-            <kbd className="rounded bg-foreground/6 px-1.5 py-0.5 text-[10px] text-muted-foreground font-mono">
+            <kbd className="rounded bg-foreground/6 px-1.5 py-0.5 text-xs text-muted-foreground font-mono">
               ESC
             </kbd>
           </div>
@@ -121,7 +121,7 @@ export function GlobalSearch() {
             {/* Pages */}
             {results.pages.length > 0 && (
               <div className="px-2 py-2">
-                <p className="px-2 pb-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Paginas</p>
+                <p className="px-2 pb-1 text-xs font-medium text-muted-foreground uppercase tracking-wider">Paginas</p>
                 {results.pages.map((page) => {
                   const Icon = page.icon;
                   return (
@@ -142,7 +142,7 @@ export function GlobalSearch() {
             {/* Transactions */}
             {results.transactions.length > 0 && (
               <div className="px-2 py-2 border-t border-border">
-                <p className="px-2 pb-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Transacciones</p>
+                <p className="px-2 pb-1 text-xs font-medium text-muted-foreground uppercase tracking-wider">Transacciones</p>
                 {results.transactions.map((tx) => (
                   <button
                     key={tx.id}
@@ -152,7 +152,7 @@ export function GlobalSearch() {
                     <span className="text-sm shrink-0">{getCategoriaEmoji(tx.categoria)}</span>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm text-foreground-soft truncate">{tx.comercio || tx.descripcion_original || tx.subcategoria}</p>
-                      <p className="text-[10px] text-muted-foreground">{formatFecha(tx.fecha)} · {tx.categoria}</p>
+                      <p className="text-xs text-muted-foreground">{formatFecha(tx.fecha)} · {tx.categoria}</p>
                     </div>
                     <TxMonto
                       tx={tx}

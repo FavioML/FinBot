@@ -79,7 +79,7 @@ export function DailySpendingChart({ data, dailyAverage, onSelect }: { data: Dai
     <ResponsiveContainer width="100%" height={220}>
       <BarChart data={data} margin={{ left: 0, right: 0 }}>
         <XAxis
-          dataKey="label" tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
+          dataKey="label" tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
           axisLine={false} tickLine={false}
         />
         <YAxis hide />

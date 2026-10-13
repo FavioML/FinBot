@@ -26,7 +26,7 @@ export function DebtSummary({
           <TrendingDown className="h-5 w-5 text-negative-ink" />
         </div>
         <div>
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Lo que debes</p>
+          <p className="text-xs text-muted-foreground uppercase tracking-wider mb-0.5">Lo que debes</p>
           <p className="text-xl font-bold text-negative">{fmtMulti(deboPen, deboUsd)}</p>
           <p className="text-xs text-muted-foreground">{deboCount} deuda{deboCount !== 1 ? 's' : ''} activa{deboCount !== 1 ? 's' : ''}</p>
         </div>
@@ -36,7 +36,7 @@ export function DebtSummary({
           <TrendingUp className="h-5 w-5 text-positive-ink" />
         </div>
         <div>
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Te deben</p>
+          <p className="text-xs text-muted-foreground uppercase tracking-wider mb-0.5">Te deben</p>
           <p className="text-xl font-bold text-positive">{fmtMulti(meDebenPen, meDebenUsd)}</p>
           <p className="text-xs text-muted-foreground">{meDebenCount} deuda{meDebenCount !== 1 ? 's' : ''} activa{meDebenCount !== 1 ? 's' : ''}</p>
         </div>

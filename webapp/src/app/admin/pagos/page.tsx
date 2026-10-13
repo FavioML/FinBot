@@ -155,7 +155,7 @@ type FilaMonitor = { r: AdminRenovacion; m: ReturnType<typeof monitorRenovacion>
 function GrupoRenovacion({ titulo, filas, vacio }: { titulo: string; filas: FilaMonitor[]; vacio: string }) {
   return (
     <div className="mt-4">
-      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+      <div className="text-xs uppercase tracking-wider text-muted-foreground">
         {titulo} · {filas.length}
       </div>
       {filas.length === 0 ? (
@@ -180,7 +180,7 @@ function FilaRenovacion({ r, m }: FilaMonitor) {
           <div className="flex flex-wrap items-center gap-2 text-sm text-foreground">
             {nombre}
             {r.pago_pendiente && (
-              <span className="rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-medium text-warning-ink">
+              <span className="rounded-full bg-warning/15 px-2 py-0.5 text-xs font-medium text-warning-ink">
                 comprobante pendiente
               </span>
             )}
@@ -319,7 +319,7 @@ function DetalleDelMes({ mes, pagos }: { mes: string; pagos: AdminPagoFila[] }) 
         <div className="mt-4 overflow-x-auto">
           <table className="w-full min-w-[760px] text-sm">
             <thead>
-              <tr className="text-left text-[10px] uppercase tracking-wider text-muted-foreground">
+              <tr className="text-left text-xs uppercase tracking-wider text-muted-foreground">
                 <th className="pb-2 pr-4 font-medium">Fecha</th>
                 <th className="pb-2 pr-4 font-medium">Usuario</th>
                 <th className="pb-2 pr-4 text-right font-medium">Monto</th>
@@ -358,7 +358,7 @@ function FilaPago({ p }: { p: AdminPagoFila }) {
       <td className="whitespace-nowrap py-2 pr-4 text-foreground-soft">{formatFecha(fechaLima(p.cuando))}</td>
       <td className="py-2 pr-4 text-foreground">
         {etiquetaPagador(p)}
-        {p.interno && <span className="ml-2 text-[10px] uppercase text-muted-foreground">interna, no suma</span>}
+        {p.interno && <span className="ml-2 text-xs uppercase text-muted-foreground">interna, no suma</span>}
       </td>
       <td className="whitespace-nowrap py-2 pr-4 text-right text-foreground">{p.monto == null ? '—' : formatPen(p.monto)}</td>
       <td className="py-2 pr-4 text-foreground-soft">{p.tipo_plan || '—'}</td>
@@ -474,7 +474,7 @@ function HistorialMeses({
             aire en los dos bordes para que la fila resaltada no toque el borde de la tarjeta. */}
         <table className="w-full min-w-[560px] text-sm tabular-nums">
           <thead>
-            <tr className="text-left text-[10px] uppercase tracking-wider text-muted-foreground">
+            <tr className="text-left text-xs uppercase tracking-wider text-muted-foreground">
               <th className="pb-2 pl-3 pr-4 font-medium">Mes</th>
               <th className="pb-2 pr-4 text-right font-medium">Cobrado</th>
               <th className="pb-2 pr-4 text-right font-medium">Pagos</th>

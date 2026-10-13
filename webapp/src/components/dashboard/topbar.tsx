@@ -31,14 +31,14 @@ export function Topbar({ onMenuClick }: TopbarProps) {
 
   return (
     <header className="flex h-12 shrink-0 items-center justify-between border-b border-border md:hidden">
-      <div className="flex items-center gap-3 px-4">
+      <div className="flex min-w-0 items-center gap-3 px-4">
         <button
           onClick={onMenuClick}
           className="rounded-md p-2 text-muted-foreground hover:text-foreground-soft transition-colors"
         >
           <Menu className="h-5 w-5" />
         </button>
-        <span className="text-sm font-medium text-foreground-soft">{title}</span>
+        <span className="truncate text-sm font-medium text-foreground-soft">{title}</span>
       </div>
       <div className="flex items-center gap-2 px-4">
         <ThemeToggle />

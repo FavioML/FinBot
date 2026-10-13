@@ -23,13 +23,13 @@ export function ScoreEvolutionChart({ data }: ScoreEvolutionChartProps) {
         <CartesianGrid strokeDasharray="3 3" stroke="color-mix(in srgb, var(--foreground) 4%, transparent)" />
         <XAxis
           dataKey="period"
-          tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
+          tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
           axisLine={false}
           tickLine={false}
         />
         <YAxis
           domain={[0, 100]}
-          tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
+          tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
           axisLine={false}
           tickLine={false}
           width={28}

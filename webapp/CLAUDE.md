@@ -323,6 +323,10 @@ Claro y oscuro; por defecto sigue al sistema. Porqué de B: `products/neto/docs/
 - `.glass-card`/`.glass-card-elevated` conservan el nombre por compatibilidad: son sólidas desde
   abril de 2026. Typographic tokens: `--text-display` (44px), `--text-hero` (52px),
   `--text-section` (18px), `--text-label` (12px), en `@theme`.
+- **Letra en celular:** piso 12px (`text-xs`) en todo `src/`; `text-sm` es 15px bajo `md` (variable
+  `--text-sm` en `globals.css`), 14px en desktop; `text-badge` (11px) sólo para el número de un
+  contador. Lo hace cumplir `src/app/letra-minima.test.ts`. Un tamaño nuevo se mide a 360 y 390 px
+  con `paleta-neto-capturas.mjs` (`NETO_ANCHO`): ningún test ve un desborde.
 
 ## Deploy
 - Vercel: **el auto-deploy de `main` esta APAGADO** (`webapp/vercel.json`,

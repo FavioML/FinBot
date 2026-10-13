@@ -608,7 +608,7 @@ export default function SpaceDetailPage() {
                         style={{ width: `${Math.min(pct, 100)}%`, backgroundColor: barColor }}
                       />
                     </div>
-                    <div className="text-[10px] text-muted-foreground space-y-0.5">
+                    <div className="text-xs text-muted-foreground space-y-0.5">
                       {members.map((m) => {
                         const frac = resolveSplit(budget.category, m.user_id, members, data.splitRules ?? []);
                         const memberSpent = expenses

@@ -348,7 +348,7 @@ export default function PresupuestosPage() {
                   style={{ width: `${globalStatus.clampedPct}%`, backgroundColor: globalStatus.color }}
                 />
               </div>
-              <div className="flex items-center justify-between mt-1.5 text-[10px] text-muted-foreground">
+              <div className="flex items-center justify-between mt-1.5 text-xs text-muted-foreground">
                 <span>{formatCurrency(summary.totalGastado)} gastado</span>
                 <span>{formatCurrency(summary.totalPresupuestado)} presupuestado</span>
               </div>

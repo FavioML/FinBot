@@ -337,7 +337,7 @@ export default function LoginPage() {
           <div className="mt-10 flex items-center gap-4">
             <div className="flex -space-x-2">
               {['bg-primary', 'bg-warning', 'bg-info', 'bg-negative'].map((bg, i) => (
-                <div key={i} className={`h-8 w-8 rounded-full ${bg} border-2 border-background flex items-center justify-center text-[10px] text-card font-bold`}>
+                <div key={i} className={`h-8 w-8 rounded-full ${bg} border-2 border-background flex items-center justify-center text-xs text-card font-bold`}>
                   {['FM', 'AC', 'JR', 'LP'][i]}
                 </div>
               ))}

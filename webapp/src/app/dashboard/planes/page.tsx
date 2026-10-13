@@ -84,7 +84,7 @@ function ParticipantsList({ metaId, isOwner, onDisable }: { metaId: string; isOw
               {participants.map((p: MetaParticipante) => (
                 <div key={p.id} className="flex items-center justify-between text-xs">
                   <div className="flex items-center gap-2">
-                    <div className="w-6 h-6 rounded-full bg-primary/15 flex items-center justify-center text-[10px] text-primary-ink font-bold">
+                    <div className="w-6 h-6 rounded-full bg-primary/15 flex items-center justify-center text-xs text-primary-ink font-bold">
                       {p.nombre.charAt(0).toUpperCase()}
                     </div>
                     <div>
@@ -397,15 +397,15 @@ export default function MetasPage() {
       {activeGoals.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="glass-card glass-card-glow p-4 text-center">
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Planes activos</p>
+            <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Planes activos</p>
             <p className="text-2xl font-bold text-foreground">{activeGoals.length}</p>
           </div>
           <div className="glass-card glass-card-glow p-4 text-center">
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Ahorrado</p>
+            <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Ahorrado</p>
             <p className="text-2xl font-bold text-positive">{formatCurrency(totalSaved)}</p>
           </div>
           <div className="glass-card glass-card-glow p-4 text-center">
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Objetivo total</p>
+            <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Objetivo total</p>
             <p className="text-2xl font-bold text-foreground">{formatCurrency(totalTarget)}</p>
           </div>
         </div>
@@ -440,10 +440,10 @@ export default function MetasPage() {
                         <Trophy className="h-3.5 w-3.5 text-warning animate-pulse" />
                       )}
                       {goal.status === 'completed' && (
-                        <span className="px-1.5 py-0.5 rounded-full bg-primary/15 text-[10px] text-primary-ink font-medium">Completado</span>
+                        <span className="px-1.5 py-0.5 rounded-full bg-primary/15 text-xs text-primary-ink font-medium">Completado</span>
                       )}
                       {goal.status === 'abandoned' && (
-                        <span className="px-1.5 py-0.5 rounded-full bg-foreground/6 text-[10px] text-muted-foreground font-medium">Abandonado</span>
+                        <span className="px-1.5 py-0.5 rounded-full bg-foreground/6 text-xs text-muted-foreground font-medium">Abandonado</span>
                       )}
                     </div>
                     <div className="flex gap-1 opacity-0 group-hover:opacity-100 max-sm:opacity-100 transition-opacity">
@@ -482,7 +482,7 @@ export default function MetasPage() {
                   {/* Collaborative badge + participants */}
                   {goal.colaborativa && (
                     <div className="space-y-2">
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-warning/10 text-[10px] text-warning-ink font-medium">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-warning/10 text-xs text-warning-ink font-medium">
                         <Users className="h-3 w-3" /> Colaborativa
                       </span>
                       <ParticipantsList

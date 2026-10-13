@@ -498,7 +498,7 @@ function GmailConnect({
           <div className="flex items-center gap-2">
             <h3 className="text-sm font-semibold text-foreground">{TITULOS[estado]}</h3>
             {/* Beta en los cuatro estados, igual que la tarjeta Pro del Pricing de neto.pe. */}
-            <span className="rounded-full border border-accent-pro/40 bg-accent-pro/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent-pro-ink">
+            <span className="rounded-full border border-accent-pro/40 bg-accent-pro/10 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-accent-pro-ink">
               beta
             </span>
             {estado === 'sano' && <Check className="h-4 w-4 text-primary shrink-0" />}
@@ -588,7 +588,7 @@ function GmailConnect({
           >
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Reconectar Gmail'}
           </Button>
-          <p className="text-[11px] text-muted-foreground leading-relaxed">
+          <p className="text-xs text-muted-foreground leading-relaxed">
             Neto lee de una sola cuenta; para cambiarla, escríbenos.
           </p>
         </>
@@ -714,7 +714,7 @@ function PaymentForm({ rejected = false, renewal = false, descuento = null, onDo
               <div className="flex items-center justify-between">
                 <span className="text-sm font-semibold text-foreground capitalize">{p}</span>
                 {p === 'anual' && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-accent-pro/15 text-accent-pro-ink font-medium">2 meses gratis</span>
+                  <span className="text-xs px-1.5 py-0.5 rounded-full bg-accent-pro/15 text-accent-pro-ink font-medium">2 meses gratis</span>
                 )}
               </div>
               <p className="mt-1 text-lg font-bold text-primary-ink">
@@ -741,7 +741,7 @@ function PaymentForm({ rejected = false, renewal = false, descuento = null, onDo
             <Dialog>
               <DialogTrigger data-theme="light" className="group relative shrink-0 rounded-xl overflow-hidden border border-border bg-card p-2 cursor-zoom-in outline-none focus-visible:ring-2 focus-visible:ring-primary">
                 <Image src="/yape-favio-qr.jpeg" alt="QR Yape de Favio Mendoza" width={150} height={150} className="rounded-md" />
-                <span className="absolute inset-x-1 bottom-1 flex items-center justify-center gap-1 rounded-md bg-foreground/70 py-0.5 text-[10px] font-medium text-card opacity-90 transition-opacity group-hover:opacity-100">
+                <span className="absolute inset-x-1 bottom-1 flex items-center justify-center gap-1 rounded-md bg-foreground/70 py-0.5 text-xs font-medium text-card opacity-90 transition-opacity group-hover:opacity-100">
                   <ZoomIn className="h-3 w-3" /> toca para ampliar
                 </span>
               </DialogTrigger>

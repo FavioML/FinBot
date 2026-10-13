@@ -518,7 +518,7 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
                 return (
                   <div key={row.key} className="flex items-end gap-2">
                     <div className="flex-1">
-                      {idx === 0 && <label className="text-[10px] text-muted-foreground mb-1 block">Subcategoría</label>}
+                      {idx === 0 && <label className="text-xs text-muted-foreground mb-1 block">Subcategoría</label>}
                       <Select
                         value={row.subcategoria || undefined}
                         onValueChange={(val) => {
@@ -549,7 +549,7 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
                       )}
                     </div>
                     <div className="w-28">
-                      {idx === 0 && <label className="text-[10px] text-muted-foreground mb-1 block">Límite S/</label>}
+                      {idx === 0 && <label className="text-xs text-muted-foreground mb-1 block">Límite S/</label>}
                       <Input
                         type="number" min="0" step="0.01" placeholder="0.00"
                         value={row.monto} onChange={(e) => updateSubRow(idx, 'monto', e.target.value)}

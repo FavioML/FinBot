@@ -135,7 +135,7 @@ function HiloTicket({ ticketId }: { ticketId: string }) {
           }`}
         >
           <div className="whitespace-pre-wrap break-words">{m.mensaje}</div>
-          <div className="mt-1 text-[10px] text-muted-foreground">
+          <div className="mt-1 text-xs text-muted-foreground">
             {m.rol === 'admin' ? 'Neto' : 'Usuario'} · {formatDateTime(m.created_at)}
             {m.rol === 'admin' && <> · <EstadoEntrega entrega={m.entrega} /></>}
           </div>
@@ -402,7 +402,7 @@ function UserActions({
               className={itemClass}
             >
               <span className="text-muted-foreground">&#128179;</span> Ver pagos / comprobante
-              {user.pago_pendiente && <span className="ml-auto rounded-full bg-warning/15 px-1.5 py-0.5 text-[10px] text-warning-ink">pendiente</span>}
+              {user.pago_pendiente && <span className="ml-auto rounded-full bg-warning/15 px-1.5 py-0.5 text-xs text-warning-ink">pendiente</span>}
             </DropdownMenuItem>
 
             <DropdownMenuSeparator className="my-1 bg-foreground/5" />
@@ -637,7 +637,7 @@ function PaymentsModal({
                     </span>
                     <span className="text-xs text-muted-foreground">{p.tipo_plan || '—'} · {p.metodo_pago || '—'}</span>
                     {p.origen && (
-                      <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${p.origen === 'webapp' ? 'bg-primary/15 text-primary-ink' : 'bg-warning/15 text-warning-ink'}`}>
+                      <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-xs font-medium ${p.origen === 'webapp' ? 'bg-primary/15 text-primary-ink' : 'bg-warning/15 text-warning-ink'}`}>
                         {p.origen === 'webapp' ? 'webapp' : 'whatsapp'}
                       </span>
                     )}
@@ -1053,7 +1053,7 @@ export default function AdminOperacionPage() {
         <div className="glass-card rounded-xl p-4">
           <div className="flex items-center justify-between">
             <span className="text-xs text-muted-foreground">MRR</span>
-            <span className="text-[10px] text-muted-foreground" title="Ingreso anual recurrente">
+            <span className="text-xs text-muted-foreground" title="Ingreso anual recurrente">
               ARR S/{(stats?.kpis.arr ?? 0).toLocaleString('es-PE')}
             </span>
           </div>
@@ -1082,7 +1082,7 @@ export default function AdminOperacionPage() {
         >
           <div className="flex items-center justify-between">
             <span className="text-xs text-muted-foreground">Caja del mes</span>
-            <span className="text-[10px] text-primary">Ver pagos →</span>
+            <span className="text-xs text-primary">Ver pagos →</span>
           </div>
           <div className="mt-1 text-2xl font-semibold text-foreground">
             S/{stats?.kpis.cajaMes ?? '—'}
@@ -1157,8 +1157,8 @@ export default function AdminOperacionPage() {
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="color-mix(in srgb, var(--foreground) 5%, transparent)" />
-                  <XAxis dataKey="week" tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }} axisLine={false} tickLine={false} allowDecimals={false} />
+                  <XAxis dataKey="week" tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }} axisLine={false} tickLine={false} allowDecimals={false} />
                   <Tooltip itemStyle={{ color: 'var(--foreground)' }}
                     contentStyle={{ background: 'var(--surface-elevated)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }}
                     labelStyle={{ color: 'var(--foreground)' }}
@@ -1216,12 +1216,12 @@ export default function AdminOperacionPage() {
                   <CartesianGrid strokeDasharray="3 3" stroke="color-mix(in srgb, var(--foreground) 5%, transparent)" />
                   <XAxis
                     dataKey="date"
-                    tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }}
+                    tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
                     axisLine={false}
                     tickLine={false}
                     interval={6}
                   />
-                  <YAxis tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }} axisLine={false} tickLine={false} allowDecimals={false} />
+                  <YAxis tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }} axisLine={false} tickLine={false} allowDecimals={false} />
                   <Tooltip itemStyle={{ color: 'var(--foreground)' }}
                     contentStyle={{ background: 'var(--surface-elevated)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }}
                     labelStyle={{ color: 'var(--foreground)' }}
@@ -1422,7 +1422,7 @@ export default function AdminOperacionPage() {
                       <PlanBadge estado={estadoComercial(u)} bajaAt={u.cuenta_borrada_at} />
                       {/* El tipo de plan es del que PAGA: "Anual" sobre una prueba no significa nada. */}
                       {estadoComercial(u) === 'pro_pagado' && (
-                        <div className="mt-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+                        <div className="mt-1 text-xs uppercase tracking-wide text-muted-foreground">
                           {u.tipo_plan === 'anual' ? 'Anual' : 'Mensual'}
                         </div>
                       )}

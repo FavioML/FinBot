@@ -37,7 +37,7 @@ export function SplitMasterList({
             </div>
             <div className="min-w-0 flex-1">
               <p className="font-semibold text-sm text-foreground truncate">{gasto.descripcion}</p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">
+              <p className="text-xs text-muted-foreground mt-0.5">
                 {pagados}/{total} pagados{allPaid && ' · liquidado'}
               </p>
             </div>

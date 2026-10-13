@@ -108,12 +108,12 @@ function MonthlySubscriptionCard({
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-foreground-soft font-medium truncate">{sub.nombre}</span>
             {sub.plan_actual && (
-              <span className="shrink-0 rounded-full bg-primary/12 px-1.5 py-0.5 text-[9px] text-primary-ink">
+              <span className="shrink-0 rounded-full bg-primary/12 px-1.5 py-0.5 text-xs text-primary-ink">
                 {sub.plan_actual}
               </span>
             )}
             {sub.split_parent_id && (
-              <span className="shrink-0 rounded-full bg-foreground/6 px-1.5 py-0.5 text-[9px] text-muted-foreground">
+              <span className="shrink-0 rounded-full bg-foreground/6 px-1.5 py-0.5 text-xs text-muted-foreground">
                 dividido
               </span>
             )}
@@ -128,7 +128,7 @@ function MonthlySubscriptionCard({
           <p className="text-foreground-soft font-medium">
             S/{totalPen.toFixed(2)}
           </p>
-          <p className="text-[10px] text-muted-foreground">
+          <p className="text-xs text-muted-foreground">
             {hasExtras
               ? `cuota S/${(totalPen - extrasPen).toFixed(2)} + S/${extrasPen.toFixed(2)} extra`
               : `Pago en ${monthLabel}`}
@@ -149,7 +149,7 @@ function MonthlySubscriptionCard({
               <span className="flex items-center gap-1.5 text-muted-foreground">
                 {formatDate(p.fecha)}
                 {!p.recurrente && (
-                  <span className="rounded bg-warning/12 px-1.5 py-0.5 text-[9px] text-warning-ink">
+                  <span className="rounded bg-warning/12 px-1.5 py-0.5 text-xs text-warning-ink">
                     cargo adicional
                   </span>
                 )}
@@ -667,7 +667,7 @@ export default function SuscripcionesPage() {
                     {/* Marcar plan */}
                     {editSub.planes_disponibles.length > 0 && (
                       <div>
-                        <p className="text-[11px] text-muted-foreground mb-1.5">Tu plan</p>
+                        <p className="text-xs text-muted-foreground mb-1.5">Tu plan</p>
                         <div className="space-y-1">
                           {editSub.planes_disponibles.map((plan) => {
                             const isCurrent = editSub.plan_actual
@@ -700,7 +700,7 @@ export default function SuscripcionesPage() {
 
                     {/* Renombrar */}
                     <div>
-                      <label className="text-[11px] text-muted-foreground flex items-center gap-1.5 mb-1.5">
+                      <label className="text-xs text-muted-foreground flex items-center gap-1.5 mb-1.5">
                         <Pencil className="h-3 w-3" /> Nombre
                       </label>
                       <div className="flex gap-2">
@@ -723,10 +723,10 @@ export default function SuscripcionesPage() {
                     {/* Dividir en varios servicios */}
                     {editClusters.length >= 2 && (
                       <div>
-                        <p className="text-[11px] text-muted-foreground flex items-center gap-1.5 mb-1.5">
+                        <p className="text-xs text-muted-foreground flex items-center gap-1.5 mb-1.5">
                           <Split className="h-3 w-3" /> Dividir en varios servicios
                         </p>
-                        <p className="text-[10px] text-muted-foreground mb-2">
+                        <p className="text-xs text-muted-foreground mb-2">
                           Este cargo agrupa montos distintos. Asigna cada uno a su servicio real.
                         </p>
                         <div className="space-y-2">
@@ -741,7 +741,7 @@ export default function SuscripcionesPage() {
                               >
                                 <span className="text-xs text-foreground-soft shrink-0 tabular-nums w-24">
                                   ≈ S/{cl.centroidPen.toFixed(2)}
-                                  <span className="text-[10px] text-muted-foreground ml-1">/mes</span>
+                                  <span className="text-xs text-muted-foreground ml-1">/mes</span>
                                 </span>
                                 <select
                                   value={current ?? ''}

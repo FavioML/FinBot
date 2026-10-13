@@ -90,7 +90,7 @@ export function CategoryComparison({ allTransactions, currentMonth, currentYear,
     >
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-sm font-medium md:text-base md:font-semibold text-foreground-soft">Comparativa por categoria</h3>
-        <div className="flex items-center gap-3 text-[10px]">
+        <div className="flex items-center gap-3 text-xs">
           <span className="flex items-center gap-1">
             <span className="w-2 h-2 rounded-full bg-muted-foreground" />
             {pmLabel}
@@ -108,7 +108,7 @@ export function CategoryComparison({ allTransactions, currentMonth, currentYear,
           <BarChart data={chartData} layout="vertical" margin={{ left: 0, right: 8, top: 0, bottom: 0 }}>
             <XAxis
               type="number"
-              tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }}
+              tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
               axisLine={false}
               tickLine={false}
               tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)}
@@ -116,7 +116,7 @@ export function CategoryComparison({ allTransactions, currentMonth, currentYear,
             <YAxis
               type="category"
               dataKey="label"
-              tick={{ fill: 'var(--foreground-soft)', fontSize: 11 }}
+              tick={{ fill: 'var(--foreground-soft)', fontSize: 12 }}
               axisLine={false}
               tickLine={false}
               width={120}
@@ -132,7 +132,7 @@ export function CategoryComparison({ allTransactions, currentMonth, currentYear,
                 boxShadow: '0 20px 25px -5px var(--shadow-color)',
               }}
               itemStyle={{ color: 'var(--foreground-soft)' }}
-              labelStyle={{ color: 'var(--muted-foreground)', fontSize: '11px' }}
+              labelStyle={{ color: 'var(--muted-foreground)', fontSize: '12px' }}
               formatter={(value: unknown, name: unknown) => [
                 formatCurrency(Number(value)),
                 name === 'previous' ? pmLabel : cmLabel,
@@ -160,7 +160,7 @@ export function CategoryComparison({ allTransactions, currentMonth, currentYear,
         {chartData.filter((d) => d.change !== 0).slice(0, 4).map((d) => (
           <span
             key={d.categoria}
-            className="rounded-full px-2 py-0.5 text-[10px] font-medium"
+            className="rounded-full px-2 py-0.5 text-xs font-medium"
             style={{
               backgroundColor: d.change > 0 ? 'color-mix(in srgb, var(--negative) 10%, transparent)' : 'color-mix(in srgb, var(--positive) 10%, transparent)',
               color: d.change > 0 ? 'var(--negative-ink)' : 'var(--positive-ink)',

@@ -34,7 +34,7 @@ function ComparisonBadge({ current, previous, invertColor }: { current: number; 
 
   return (
     <span
-      className="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium"
+      className="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-xs font-medium"
       style={{ backgroundColor: conAlfa(color, 9), color: tinta(color) }}
     >
       <Icon className="h-2.5 w-2.5" />
@@ -72,7 +72,7 @@ function MiniScoreRing({ score, sobreHero = false }: { score: number; sobreHero?
         />
       </svg>
       <span
-        className="absolute inset-0 flex items-center justify-center text-[10px] font-bold"
+        className="absolute inset-0 flex items-center justify-center text-xs font-bold"
         style={{ color }}
       >
         {score}
@@ -176,7 +176,7 @@ function MobileCompactKPI({
           <ComparisonBadge current={value} previous={prev} invertColor={invertColor} />
         )}
       </div>
-      <p className="text-[11px] font-medium mb-1" style={{ color: 'var(--muted-foreground)' }}>
+      <p className="text-xs font-medium mb-1" style={{ color: 'var(--muted-foreground)' }}>
         {label}
       </p>
       <p className="text-xl font-bold tracking-tight leading-none" style={{ color }}>

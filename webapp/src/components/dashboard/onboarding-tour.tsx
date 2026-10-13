@@ -158,7 +158,7 @@ export function OnboardingTour() {
           </div>
 
           {/* Step counter */}
-          <p className="text-[10px] text-muted-foreground text-center">
+          <p className="text-xs text-muted-foreground text-center">
             {step + 1} de {STEPS.length}
           </p>
         </motion.div>
