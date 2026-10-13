@@ -1230,8 +1230,8 @@ function TransactionCard({
           className="h-3.5 w-3.5 mt-1 rounded border-muted-foreground accent-primary cursor-pointer shrink-0"
         />
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-xs text-muted-foreground">{formatFecha(tx.fecha)}</span>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-1">
+            <span className="whitespace-nowrap text-xs text-muted-foreground">{formatFecha(tx.fecha)}</span>
             <Badge
               variant="outline"
               className="border-border bg-foreground/3 text-foreground-soft text-xs"
