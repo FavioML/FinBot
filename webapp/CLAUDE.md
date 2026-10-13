@@ -301,22 +301,26 @@ motor que cobra), nunca de una fórmula aparte, y la paridad TS↔CJS la cubre
 - Query keys incluyen filtros (mes, anio) para invalidacion
 - Mutations con `onSuccess` → `queryClient.invalidateQueries()`
 
-## Theme "Nocturnal Precision"
-- Dark-only, OLED-friendly
-- Background: #0E0E0C, Foreground: #F0EFE8
-- Primary: #1D9E75 (verde Neto)
-- Solid surface tiers (no glassmorphism): `.glass-card` uses #131311 + border
-  rgba(240,239,232,0.08) + drop shadow. `.glass-card-elevated` uses #1C1C19
-  for modals/nested content. Surface tokens live in `@theme` as
-  `--color-neto-bg2` (#131311) and `--color-neto-bg3` (#1C1C19).
-  Note: the class is named `.glass-card` for backwards compatibility but
-  the blur was removed during the mobile-comfort sprint (feat/mobile-comfort,
-  April 2026) because it drained battery on Android mid-range and was
-  nearly invisible on #0E0E0C anyway.
-- Form inputs use `.form-input` utility: #1A1A17 bg, focus ring #1D9E75.
-- Typographic tokens: `--text-display` (44px hero), `--text-hero` (52px),
-  `--text-section` (18px), `--text-label` (12px) — defined in `@theme`.
-- Tokens en `globals.css` via `@theme` (Tailwind v4)
+## Tema dual: paleta B "Verde protagonista" (12-oct-2026)
+Claro y oscuro; por defecto sigue al sistema. Porqué de B: `products/neto/docs/paleta-neto-2026-10.html`.
+
+- **Todo color es un token de `globals.css`** (claro en `:root, [data-theme=light]`, oscuro en
+  `[data-theme=dark]`). Lo hace cumplir `src/app/colores-por-token.test.ts`; su docblock dice qué
+  cuenta como color y cómo se declara una excepción.
+- Tokens propios: `primary` (acción) ≠ `positive` (plata a favor); `warning` (alerta) ≠ `accent-pro`
+  (Pro, beta, compartido); `negative`, `info`, `surface-elevated`, `foreground-soft`, `track`, `nav`,
+  `scrim`, `chart-1..8`. Texto de color **sobre su propio tinte** va con `*-ink`
+  (`bg-warning/12 text-warning-ink`); en JS, `conAlfa()` + `tinta()` de `lib/colores.ts`.
+- **El bloque verde (`hero-*`) va SOLO en la tarjeta de ahorro del dashboard (ahorro ≥ 0) y en el
+  botón principal.** En más sitios cansa.
+- El tema lo aplica un script inline en `<head>` (`lib/tema.ts`) antes del primer pintado, en
+  `data-theme` de `<html>`. No es `next-themes` por el bundle de `/login` (medición en `app/layout.tsx`).
+  `useTema()` sólo lee lo que aplicó el script. Si la CSP pasa a nonces, el script necesita el suyo.
+- Forzar un tema en un subárbol: `data-theme="light"` (QR de Yape, preview de Apariencia, y el PDF
+  de Reportes en el `onclone` de html2canvas). `global-error.tsx` no carga `globals.css`.
+- `.glass-card`/`.glass-card-elevated` conservan el nombre por compatibilidad: son sólidas desde
+  abril de 2026. Typographic tokens: `--text-display` (44px), `--text-hero` (52px),
+  `--text-section` (18px), `--text-label` (12px), en `@theme`.
 
 ## Deploy
 - Vercel: **el auto-deploy de `main` esta APAGADO** (`webapp/vercel.json`,
