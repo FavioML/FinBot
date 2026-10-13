@@ -262,7 +262,7 @@ function ThemeOption({
     >
       <ThemePreview variant={variant} />
       <div className="flex items-center gap-2">
-        <Icon className={cn('h-4 w-4', active ? 'text-primary' : 'text-muted-foreground')} />
+        <Icon className={cn('h-4 w-4', active ? 'text-primary-ink' : 'text-muted-foreground')} />
         <span className={cn('text-sm font-medium', active ? 'text-foreground' : 'text-secondary-foreground')}>{label}</span>
         {active && <span className="ml-auto h-2 w-2 rounded-full bg-primary" />}
       </div>
@@ -313,11 +313,11 @@ function DeleteConfirmPanel({
               : 'quedarán con su categoría principal, y se borrarán los presupuestos de esta subcategoría.'}
           </p>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-            <NextLink href={href} className="inline-flex items-center gap-0.5 text-xs font-medium text-primary hover:underline">
+            <NextLink href={href} className="inline-flex items-center gap-0.5 text-xs font-medium text-primary-ink hover:underline">
               Revisar transacciones
               <ChevronRight className="h-3.5 w-3.5" />
             </NextLink>
-            <button className="text-xs font-medium text-destructive hover:underline" onClick={onConfirm}>
+            <button className="text-xs font-medium text-destructive-ink hover:underline" onClick={onConfirm}>
               Eliminar de todos modos
             </button>
             <button className="text-xs text-muted-foreground hover:text-foreground" onClick={onCancel}>
@@ -1121,13 +1121,13 @@ export default function ConfiguracionPage() {
                 ) : (
                   <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
                     <div className="mb-2 flex items-center gap-2">
-                      <Sparkles className="h-4 w-4 text-primary" />
+                      <Sparkles className="h-4 w-4 text-primary-ink" />
                       <span className="text-sm font-semibold text-foreground">Activa Neto Pro</span>
                     </div>
                     <ul className="mb-3 space-y-1">
                       {PRO_HIGHLIGHTS.map((h) => (
                         <li key={h} className="flex items-start gap-2 text-xs text-muted-foreground">
-                          <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+                          <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary-ink" />
                           {h}
                         </li>
                       ))}
@@ -1784,7 +1784,7 @@ export default function ConfiguracionPage() {
                           de la configuracion. */}
                       <div className="space-y-2">
                         <label htmlFor="confirmar-borrado" className="text-xs text-muted-foreground">
-                          Escribe <strong className="text-destructive">ELIMINAR</strong> para confirmar
+                          Escribe <strong className="text-destructive-ink">ELIMINAR</strong> para confirmar
                         </label>
                         <Input
                           id="confirmar-borrado"

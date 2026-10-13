@@ -73,7 +73,7 @@ export function GmailDesconectadoBanner() {
       </span>
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium text-foreground">
-          Tu Gmail se desconectó <span className="text-warning">el {desde}</span>
+          Tu Gmail se desconectó <span className="text-warning-ink">el {desde}</span>
         </p>
         {/* Se nombra lo que SIGUE funcionando: si no, "se desconectó" se lee como que Neto
             entero dejó de servir, y lo que se rompió es una de las dos vías de registro. */}

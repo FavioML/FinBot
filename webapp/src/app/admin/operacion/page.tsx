@@ -457,7 +457,7 @@ function UserActions({
               closeOnClick={false}
               onClick={() => setConfirming('delete')}
               disabled={busy}
-              className={`${itemClass} text-negative/80 focus:text-negative`}
+              className={`${itemClass} text-destructive/80 focus:text-destructive`}
             >
               <span>&#10005;</span> Eliminar usuario
             </DropdownMenuItem>
@@ -586,7 +586,7 @@ function PaymentsModal({
         {avisos.length > 0 && (
           <div className="mb-4 space-y-1 rounded-xl border border-primary/20 bg-primary/[0.06] p-3 text-xs text-foreground/80">
             {avisos.map((a, i) => (
-              <div key={i} className={a.tono === 'advertencia' ? 'font-medium text-warning' : undefined}>
+              <div key={i} className={a.tono === 'advertencia' ? 'font-medium text-warning-ink' : undefined}>
                 {a.tono === 'advertencia' ? '\u26A0\uFE0F ' : '\u2022 '}{a.texto}
               </div>
             ))}
@@ -595,7 +595,7 @@ function PaymentsModal({
 
         {hasPending && (
           <div className="mb-4 rounded-xl border border-warning/20 bg-warning/[0.06] p-3">
-            <div className="mb-2 text-sm font-medium text-warning">Pago pendiente de aprobación</div>
+            <div className="mb-2 text-sm font-medium text-warning-ink">Pago pendiente de aprobación</div>
             <div className="flex flex-wrap items-center gap-2">
               <select
                 value={planSel}
@@ -637,7 +637,7 @@ function PaymentsModal({
                     </span>
                     <span className="text-xs text-foreground/40">{p.tipo_plan || '—'} · {p.metodo_pago || '—'}</span>
                     {p.origen && (
-                      <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${p.origen === 'webapp' ? 'bg-primary/15 text-primary' : 'bg-warning/15 text-warning'}`}>
+                      <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${p.origen === 'webapp' ? 'bg-primary/15 text-primary-ink' : 'bg-warning/15 text-warning-ink'}`}>
                         {p.origen === 'webapp' ? 'webapp' : 'whatsapp'}
                       </span>
                     )}

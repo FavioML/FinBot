@@ -163,7 +163,7 @@ export function CategoryComparison({ allTransactions, currentMonth, currentYear,
             className="rounded-full px-2 py-0.5 text-[10px] font-medium"
             style={{
               backgroundColor: d.change > 0 ? 'color-mix(in srgb, var(--negative) 10%, transparent)' : 'color-mix(in srgb, var(--positive) 10%, transparent)',
-              color: d.change > 0 ? 'var(--negative)' : 'var(--positive)',
+              color: d.change > 0 ? 'var(--negative-ink)' : 'var(--positive-ink)',
             }}
           >
             {d.emoji} {d.change > 0 ? '+' : ''}{d.change}%

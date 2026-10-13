@@ -62,12 +62,12 @@ export function TrialStatusBanner() {
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium text-foreground">
           Estás en <span className="font-semibold">Neto Pro</span> —{' '}
-          <span className={urgente ? 'text-warning' : 'text-primary'}>
+          <span className={urgente ? 'text-warning-ink' : 'text-primary-ink'}>
             {cuando.toLowerCase()}
           </span>{' '}
           de prueba
         </p>
-        <p className={`text-xs ${urgente ? 'font-medium text-warning' : 'text-muted-foreground'}`}>
+        <p className={`text-xs ${urgente ? 'font-medium text-warning-ink' : 'text-muted-foreground'}`}>
           {explicar
             ? 'Gráficos, categorías, presupuestos, reportes e historial completo, sin tarjeta.'
             : urgente

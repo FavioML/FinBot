@@ -352,7 +352,7 @@ export default function SpaceDetailPage() {
                             deleteExpense.mutate(exp.id);
                             toast.success('Gasto eliminado');
                           }}
-                          className="p-1 rounded text-muted-foreground hover:text-negative"
+                          className="p-1 rounded text-muted-foreground hover:text-destructive"
                         >
                           <Trash2 className="w-3 h-3" />
                         </button>
@@ -508,7 +508,7 @@ export default function SpaceDetailPage() {
                     updateSplitRules.mutate(updated);
                     toast.success('Regla eliminada');
                   }}
-                  className="text-muted-foreground hover:text-negative transition-colors"
+                  className="text-muted-foreground hover:text-destructive transition-colors"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -596,7 +596,7 @@ export default function SpaceDetailPage() {
                             updateBudgets.mutate(updated);
                             toast.success('Presupuesto eliminado');
                           }}
-                          className="text-muted-foreground hover:text-negative transition-colors"
+                          className="text-muted-foreground hover:text-destructive transition-colors"
                         >
                           <Trash2 className="w-3 h-3" />
                         </button>
@@ -678,7 +678,7 @@ export default function SpaceDetailPage() {
               return (
                 <div className="rounded-lg bg-primary/8 p-2.5 text-xs">
                   {rule ? (
-                    <p className="text-primary">
+                    <p className="text-primary-ink">
                       División: {members.map((m) =>
                         `${m.usuarios?.nombre} ${rule.splits[m.user_id] ?? 0}%`
                       ).join(', ')}
@@ -991,7 +991,7 @@ export default function SpaceDetailPage() {
             <div className="pt-3 border-t border-border">
               {showDeleteConfirm ? (
                 <div className="space-y-2">
-                  <p className="text-xs text-negative">¿Estás seguro? Se eliminarán todos los gastos, pagos y miembros de este espacio.</p>
+                  <p className="text-xs text-destructive">¿Estás seguro? Se eliminarán todos los gastos, pagos y miembros de este espacio.</p>
                   <div className="flex gap-2">
                     <Button
                       variant="outline"
@@ -1008,7 +1008,7 @@ export default function SpaceDetailPage() {
                         toast.success('Espacio eliminado');
                         router.push('/dashboard/espacios');
                       }}
-                      className="flex-1 text-xs bg-negative text-negative-foreground hover:bg-negative/90"
+                      className="flex-1 text-xs bg-destructive text-destructive-foreground hover:bg-destructive/90"
                     >
                       <Trash2 className="w-3.5 h-3.5 mr-1" />
                       Eliminar
@@ -1018,7 +1018,7 @@ export default function SpaceDetailPage() {
               ) : (
                 <button
                   onClick={() => setShowDeleteConfirm(true)}
-                  className="flex items-center gap-2 text-xs text-negative hover:underline"
+                  className="flex items-center gap-2 text-xs text-destructive hover:underline"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                   Eliminar espacio

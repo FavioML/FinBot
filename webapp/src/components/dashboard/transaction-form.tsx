@@ -527,7 +527,7 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
               variant="outline"
               onClick={() => setConfirmDelete(true)}
               disabled={saving}
-              className="h-12 px-3 text-negative-ink border-negative/30 hover:bg-negative/8 hover:text-negative"
+              className="h-12 px-3 text-destructive-ink border-destructive/30 hover:bg-destructive/8 hover:text-destructive"
               aria-label="Eliminar transacción"
             >
               <Trash2 className="h-4 w-4" />

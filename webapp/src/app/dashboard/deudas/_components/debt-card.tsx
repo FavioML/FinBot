@@ -26,7 +26,7 @@ export function DebtCard({ debt, handlers }: { debt: Deuda; handlers: DebtHandle
           <div className={`mt-0.5 w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
             isPagada ? 'bg-foreground/5' : esDebo ? 'bg-negative/10' : 'bg-primary/10'
           }`}>
-            <Coins className={`h-4 w-4 ${isPagada ? 'text-muted-foreground' : esDebo ? 'text-negative' : 'text-primary'}`} />
+            <Coins className={`h-4 w-4 ${isPagada ? 'text-muted-foreground' : esDebo ? 'text-negative-ink' : 'text-primary-ink'}`} />
           </div>
           <div className="min-w-0">
             <p className={`font-semibold text-sm ${isPagada ? 'text-muted-foreground line-through' : 'text-foreground'} flex items-center gap-1.5 flex-wrap`}>

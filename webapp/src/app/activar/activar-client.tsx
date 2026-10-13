@@ -67,7 +67,7 @@ export default function EntrarActivacion({
       <div className="mt-6 text-center">
         {enviado ? (
           <div className="rounded-xl border border-primary/20 bg-primary/8 px-4 py-3">
-            <p className="text-sm font-medium text-primary">
+            <p className="text-sm font-medium text-primary-ink">
               ✓ Enlace enviado — revísalo en tu correo.
             </p>
           </div>

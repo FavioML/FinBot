@@ -37,7 +37,7 @@ export default async function JoinDeudaPage({ params }: { params: Promise<{ code
       <div className="glass-card glass-card-glow p-6 space-y-5">
         <div className="text-center">
           <div className="w-14 h-14 rounded-2xl bg-negative/12 flex items-center justify-center mx-auto">
-            <Coins className="h-7 w-7 text-negative" />
+            <Coins className="h-7 w-7 text-negative-ink" />
           </div>
           <h1 className="text-lg font-semibold text-foreground mt-4">
             {preview.acreedor} registró una deuda

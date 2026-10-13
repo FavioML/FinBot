@@ -192,7 +192,7 @@ export function FinancialCalendar({ transactions, currentMonth, currentYear, deb
                   style={{ backgroundColor: isSelected ? undefined : getCellColor(amount) }}
                 >
                   <span className={`text-[11px] font-medium ${
-                    isToday(day) ? 'text-primary' : 'text-foreground-soft'
+                    isToday(day) ? 'text-primary-ink' : 'text-foreground-soft'
                   }`}>
                     {day}
                   </span>
@@ -259,7 +259,7 @@ export function FinancialCalendar({ transactions, currentMonth, currentYear, deb
                     Vence deuda: {debt.contraparte || 'Sin nombre'}
                   </span>
                 </div>
-                <span className="text-xs font-medium tabular-nums shrink-0 ml-2 text-negative">
+                <span className="text-xs font-medium tabular-nums shrink-0 ml-2 text-negative-ink">
                   {formatCurrency(debt.monto_pendiente)}
                 </span>
               </div>
@@ -276,7 +276,7 @@ export function FinancialCalendar({ transactions, currentMonth, currentYear, deb
                       {goal.nombre} ({pct}%)
                     </span>
                   </div>
-                  <span className="text-xs font-medium tabular-nums shrink-0 ml-2 text-primary">
+                  <span className="text-xs font-medium tabular-nums shrink-0 ml-2 text-primary-ink">
                     {formatCurrency(goal.monto_actual)} / {formatCurrency(goal.monto_objetivo)}
                   </span>
                 </div>

@@ -841,7 +841,7 @@ function CostDetailModal({
                       <button
                         onClick={() => removeEntry(p._key)}
                         title="Borrar"
-                        className="rounded-md p-1 text-muted-foreground hover:bg-negative/12 hover:text-negative"
+                        className="rounded-md p-1 text-muted-foreground hover:bg-destructive/12 hover:text-destructive"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
@@ -1205,7 +1205,7 @@ function PorPagarSection({
         <h3 className="text-sm font-semibold text-foreground">
           Por pagar ({pendientes.length})
         </h3>
-        <span className="text-sm text-negative">{formatPen(total)}</span>
+        <span className="text-sm text-negative-ink">{formatPen(total)}</span>
       </div>
       <ul className="mt-3 space-y-2">
         {pendientes.map((c) => (

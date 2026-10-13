@@ -210,7 +210,7 @@ export default function AlertasPage() {
         <FadeIn delay={0.15}>
           <div className="glass-card p-5 flex items-start gap-4 border border-primary/20">
             <div className="rounded-xl p-2.5 bg-primary/10 shrink-0">
-              <ShieldCheck className="w-5 h-5 text-primary" />
+              <ShieldCheck className="w-5 h-5 text-primary-ink" />
             </div>
             <div className="flex-1">
               <p className="text-sm font-semibold text-foreground">Más protección con Pro</p>

@@ -33,7 +33,7 @@ export function SplitMasterList({
             } ${allPaid ? 'opacity-60' : ''}`}
           >
             <div className="w-8 h-8 rounded-full bg-warning/10 flex items-center justify-center shrink-0">
-              <Users className="h-4 w-4 text-accent-pro" />
+              <Users className="h-4 w-4 text-accent-pro-ink" />
             </div>
             <div className="min-w-0 flex-1">
               <p className="font-semibold text-sm text-foreground truncate">{gasto.descripcion}</p>
@@ -41,8 +41,8 @@ export function SplitMasterList({
                 {pagados}/{total} pagados{allPaid && ' · liquidado'}
               </p>
             </div>
-            <p className="text-sm font-bold tabular-nums text-accent-pro shrink-0">{fmtMoneda(gasto.moneda, gasto.monto_total)}</p>
-            <ChevronRight className={`h-4 w-4 shrink-0 ${active ? 'text-accent-pro' : 'text-muted-foreground'}`} />
+            <p className="text-sm font-bold tabular-nums text-accent-pro-ink shrink-0">{fmtMoneda(gasto.moneda, gasto.monto_total)}</p>
+            <ChevronRight className={`h-4 w-4 shrink-0 ${active ? 'text-accent-pro-ink' : 'text-muted-foreground'}`} />
           </button>
         );
       })}

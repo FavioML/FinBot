@@ -343,7 +343,7 @@ export function EliminarDialog({
         </DialogHeader>
         <p className="text-sm text-muted-foreground">Esta acción no se puede deshacer.</p>
         <div className="flex gap-2 pt-2">
-          <Button onClick={onConfirm} className="flex-1 bg-negative text-negative-foreground hover:bg-negative/90" disabled={isPending}>
+          <Button onClick={onConfirm} className="flex-1 bg-destructive text-destructive-foreground hover:bg-destructive/90" disabled={isPending}>
             {isPending ? 'Eliminando...' : 'Eliminar'}
           </Button>
           <Button variant="outline" onClick={onClose} className="border-border bg-transparent text-foreground-soft">

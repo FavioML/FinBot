@@ -143,7 +143,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                   isActive
                     ? 'bg-primary/12 text-primary-ink glow-green shadow-[inset_2px_0_0_var(--primary)]'
                     : item.label === 'Admin'
-                      ? 'text-warning-ink hover:text-warning hover:bg-warning/6'
+                      ? 'text-warning-ink hover:text-warning-ink hover:bg-warning/6'
                       : 'text-muted-foreground hover:text-foreground-soft hover:bg-foreground/3'
                 )}
               >

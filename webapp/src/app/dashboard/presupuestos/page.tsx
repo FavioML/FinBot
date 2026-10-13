@@ -495,8 +495,8 @@ export default function PresupuestosPage() {
                 return (
                   <div className="space-y-2 rounded-xl border border-warning/18 bg-warning/5 p-3">
                     <div className="flex items-center justify-between">
-                      <h4 className="text-sm font-medium text-warning">Gastos no presupuestados</h4>
-                      <span className="text-sm font-semibold tabular-nums text-warning">
+                      <h4 className="text-sm font-medium text-warning-ink">Gastos no presupuestados</h4>
+                      <span className="text-sm font-semibold tabular-nums text-warning-ink">
                         {formatCurrency(unbudgetedTotal)}
                       </span>
                     </div>

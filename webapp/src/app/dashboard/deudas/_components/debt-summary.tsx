@@ -23,7 +23,7 @@ export function DebtSummary({
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <div className="glass-card glass-card-glow p-4 flex items-center gap-4">
         <div className="w-10 h-10 rounded-xl bg-negative/12 flex items-center justify-center shrink-0">
-          <TrendingDown className="h-5 w-5 text-negative" />
+          <TrendingDown className="h-5 w-5 text-negative-ink" />
         </div>
         <div>
           <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Lo que debes</p>
@@ -33,7 +33,7 @@ export function DebtSummary({
       </div>
       <div className="glass-card glass-card-glow p-4 flex items-center gap-4">
         <div className="w-10 h-10 rounded-xl bg-primary/12 flex items-center justify-center shrink-0">
-          <TrendingUp className="h-5 w-5 text-positive" />
+          <TrendingUp className="h-5 w-5 text-positive-ink" />
         </div>
         <div>
           <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Te deben</p>

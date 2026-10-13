@@ -115,7 +115,7 @@ export function DetailPanel({
             <div className="flex items-start justify-between gap-3 pb-4 border-b border-border">
               <div className="flex items-center gap-3 min-w-0">
                 <div className="w-11 h-11 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                  <Users className="h-5 w-5 text-primary" />
+                  <Users className="h-5 w-5 text-primary-ink" />
                 </div>
                 <div className="min-w-0">
                   <p className="font-semibold text-base text-foreground truncate">{group.contraparte}</p>
@@ -149,7 +149,7 @@ export function DetailPanel({
             <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
               debt!.estado === 'pagada' ? 'bg-foreground/5' : esDebo ? 'bg-negative/10' : 'bg-primary/10'
             }`}>
-              <Coins className={`h-5 w-5 ${debt!.estado === 'pagada' ? 'text-muted-foreground' : esDebo ? 'text-negative' : 'text-primary'}`} />
+              <Coins className={`h-5 w-5 ${debt!.estado === 'pagada' ? 'text-muted-foreground' : esDebo ? 'text-negative-ink' : 'text-primary-ink'}`} />
             </div>
             <p className="text-sm text-muted-foreground">Detalle de la deuda</p>
           </div>

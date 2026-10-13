@@ -706,7 +706,7 @@ export default function TransaccionesPage() {
               aria-pressed={porRevisarActive}
               className="flex w-full items-center gap-3 text-left"
             >
-              <AlertCircle className="h-4 w-4 shrink-0 text-warning" />
+              <AlertCircle className="h-4 w-4 shrink-0 text-warning-ink" />
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-foreground">
                   {mainCount} {plural(mainCount)} por revisar{!scopeGlobal && ` en ${periodLabel}`}
@@ -729,7 +729,7 @@ export default function TransaccionesPage() {
             {porRevisarOtherCount > 0 && !scopeGlobal && (
               <button
                 onClick={() => activarPorRevisar('global')}
-                className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-muted-foreground transition-colors hover:text-warning"
+                className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-muted-foreground transition-colors hover:text-warning-ink"
               >
                 +{porRevisarOtherCount} fuera de este periodo · ver todas
               </button>
@@ -758,7 +758,7 @@ export default function TransaccionesPage() {
       {selectedIds.size > 0 && (
         <div className="space-y-2">
           <div className="flex items-center justify-between rounded-xl bg-primary/8 border border-primary/20 px-4 py-2.5">
-            <span className="text-sm text-primary font-medium">
+            <span className="text-sm text-primary-ink font-medium">
               {selectedIds.size} seleccionada{selectedIds.size !== 1 ? 's' : ''}
             </span>
             <div className="flex items-center gap-2">
@@ -1164,7 +1164,7 @@ function TransactionTableRow({
             variant="ghost"
             size="icon-xs"
             onClick={onDelete}
-            className="text-muted-foreground hover:text-negative"
+            className="text-muted-foreground hover:text-destructive-ink"
           >
             <Trash2 className="h-3 w-3" />
           </Button>
@@ -1248,7 +1248,7 @@ function TransactionCard({
               variant="ghost"
               size="icon-xs"
               onClick={onDelete}
-              className="text-muted-foreground hover:text-negative"
+              className="text-muted-foreground hover:text-destructive-ink"
             >
               <Trash2 className="h-3 w-3" />
             </Button>

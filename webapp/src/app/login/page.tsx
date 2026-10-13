@@ -72,7 +72,7 @@ function AuthErrorBanner() {
   if (!mensaje) return null;
   return (
     <div className="mb-6 rounded-xl bg-negative/8 border border-negative/20 px-4 py-3">
-      <p className="text-sm text-negative">{mensaje}</p>
+      <p className="text-sm text-negative-ink">{mensaje}</p>
     </div>
   );
 }
@@ -93,7 +93,7 @@ function ActivacionBanner() {
           : 'mb-6 rounded-xl bg-primary/8 border border-primary/20 px-4 py-3'
       }
     >
-      <p className={expirado ? 'text-sm text-negative' : 'text-sm text-primary'}>
+      <p className={expirado ? 'text-sm text-negative-ink' : 'text-sm text-primary-ink'}>
         {expirado
           ? 'Ese enlace ya venció. Registra un gasto por WhatsApp y Neto te manda uno nuevo.'
           : 'Un paso y listo: entra con tu cuenta y tus gastos de WhatsApp aparecen acá.'}
@@ -216,7 +216,7 @@ export default function LoginPage() {
             </p>
             {sent ? (
               <div className="rounded-xl bg-primary/8 border border-primary/20 px-4 py-3">
-                <p className="text-sm text-primary font-medium">
+                <p className="text-sm text-primary-ink font-medium">
                   ✓ Enlace enviado — revisa tu correo y haz clic en el link.
                 </p>
               </div>

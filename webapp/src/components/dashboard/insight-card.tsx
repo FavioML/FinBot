@@ -49,9 +49,9 @@ export function InsightCard({ insight, aiContext, enableAI = true }: InsightCard
           transition={loading ? { duration: 1, repeat: Infinity, ease: 'linear' } : { duration: 3, repeat: Infinity, repeatDelay: 5 }}
         >
           {loading ? (
-            <RefreshCw className="h-5 w-5 text-primary" />
+            <RefreshCw className="h-5 w-5 text-primary-ink" />
           ) : (
-            <Sparkles className="h-5 w-5 text-primary" />
+            <Sparkles className="h-5 w-5 text-primary-ink" />
           )}
         </motion.div>
         <div className="flex-1 min-w-0">

@@ -25,7 +25,7 @@ export function ProGate({ featureName, description }: ProGateProps) {
     >
       <div className="text-center max-w-sm space-y-6">
         <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 border border-primary/30">
-          <Lock className="w-8 h-8 text-primary" />
+          <Lock className="w-8 h-8 text-primary-ink" />
         </div>
 
         <div className="space-y-2">

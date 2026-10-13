@@ -27,7 +27,7 @@ export default function DashboardError({ error, reset }: ErrorProps) {
         transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
       >
         <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-negative/10 border border-negative/25">
-          <AlertTriangle className="w-7 h-7 text-negative" />
+          <AlertTriangle className="w-7 h-7 text-negative-ink" />
         </div>
 
         <div className="space-y-2">

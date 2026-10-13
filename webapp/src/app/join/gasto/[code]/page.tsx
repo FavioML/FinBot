@@ -53,7 +53,7 @@ export default async function JoinGastoPage({ params }: { params: Promise<{ code
       <div className="glass-card glass-card-glow p-6 space-y-5">
         <div className="text-center">
           <div className="w-14 h-14 rounded-2xl bg-warning/12 flex items-center justify-center mx-auto">
-            <Users className="h-7 w-7 text-accent-pro" />
+            <Users className="h-7 w-7 text-accent-pro-ink" />
           </div>
           <h1 className="text-lg font-semibold text-foreground mt-4">
             {preview.creador} dividio un gasto
@@ -91,7 +91,7 @@ export default async function JoinGastoPage({ params }: { params: Promise<{ code
         )}
 
         {preview.ya_confirmada && !preview.pagado && (
-          <p className="text-center text-xs text-accent-pro bg-warning/10 rounded-lg py-2">
+          <p className="text-center text-xs text-accent-pro-ink bg-warning/10 rounded-lg py-2">
             Ya confirmaste esta participacion
           </p>
         )}

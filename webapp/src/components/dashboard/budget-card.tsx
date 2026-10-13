@@ -133,7 +133,7 @@ export function BudgetCard({
           className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px]"
           style={{
             backgroundColor: isExceeded ? 'color-mix(in srgb, var(--negative) 8%, transparent)' : 'color-mix(in srgb, var(--warning) 8%, transparent)',
-            color: isExceeded ? 'var(--negative)' : 'var(--warning)',
+            color: isExceeded ? 'var(--negative-ink)' : 'var(--warning-ink)',
           }}
         >
           <AlertTriangle className="h-3 w-3 shrink-0" />

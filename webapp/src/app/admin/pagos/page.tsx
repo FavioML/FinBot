@@ -493,7 +493,7 @@ function HistorialMeses({
                   onClick={() => onElegir(m.mes)}
                   className={`cursor-pointer transition-colors hover:bg-foreground/[0.03] ${activo ? 'bg-primary/8' : ''}`}
                 >
-                  <td className={`py-2.5 pl-3 pr-4 ${activo ? 'text-primary' : 'text-foreground'}`}>
+                  <td className={`py-2.5 pl-3 pr-4 ${activo ? 'text-primary-ink' : 'text-foreground'}`}>
                     {etiquetaMes(m.mes)}
                   </td>
                   <td className="whitespace-nowrap py-2.5 pr-4 text-right text-foreground">{formatPen(m.total_pen)}</td>

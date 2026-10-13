@@ -63,7 +63,7 @@ export function SplitDetailPanel({
               <button onClick={() => handlers.onEdit(gasto)} className="p-1.5 rounded-lg text-muted-foreground hover:text-accent-pro hover:bg-warning/8 transition-colors" title="Editar">
                 <Edit2 className="h-4 w-4" />
               </button>
-              <button onClick={() => handlers.onDelete(gasto.id)} className="p-1.5 rounded-lg text-muted-foreground hover:text-negative hover:bg-negative/8 transition-colors" title="Eliminar">
+              <button onClick={() => handlers.onDelete(gasto.id)} className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/8 transition-colors" title="Eliminar">
                 <Trash2 className="h-4 w-4" />
               </button>
             </div>

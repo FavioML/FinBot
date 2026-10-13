@@ -56,10 +56,10 @@ export function ReferralDiscountBanner() {
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium text-foreground">
           Tu 50% de bienvenida sigue activo — estrena Pro por{' '}
-          <span className="font-semibold text-accent-pro">S/{precio}</span>{' '}
+          <span className="font-semibold text-accent-pro-ink">S/{precio}</span>{' '}
           <span className="text-muted-foreground line-through">S/{PRO_PRICE_MONTHLY_PEN}</span>
         </p>
-        <p className={`text-xs ${urgente ? 'font-medium text-accent-pro' : 'text-muted-foreground'}`}>
+        <p className={`text-xs ${urgente ? 'font-medium text-accent-pro-ink' : 'text-muted-foreground'}`}>
           {cuando}. Aplica a tu primer mes (plan mensual).
         </p>
       </div>

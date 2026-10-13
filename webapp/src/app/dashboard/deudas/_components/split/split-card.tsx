@@ -36,7 +36,7 @@ export function SplitCard({ gasto, handlers }: { gasto: GastoCompartido; handler
             <button onClick={() => handlers.onEdit(gasto)} className="p-1 rounded text-muted-foreground hover:text-accent-pro" title="Editar">
               <Edit2 className="h-3.5 w-3.5" />
             </button>
-            <button onClick={() => handlers.onDelete(gasto.id)} className="p-1 rounded text-muted-foreground hover:text-negative" title="Eliminar">
+            <button onClick={() => handlers.onDelete(gasto.id)} className="p-1 rounded text-muted-foreground hover:text-destructive" title="Eliminar">
               <Trash2 className="h-3.5 w-3.5" />
             </button>
           </div>

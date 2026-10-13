@@ -592,7 +592,7 @@ export default function SuscripcionesPage() {
         const potentialSavings = inactive.reduce((s, sub) => s + sub.monto_pen, 0);
         return (
           <div className="glow-amber flex items-start gap-3 rounded-xl bg-warning/6 border border-warning/15 p-4">
-            <AlertTriangle className="h-5 w-5 text-warning shrink-0 mt-0.5" />
+            <AlertTriangle className="h-5 w-5 text-warning-ink shrink-0 mt-0.5" />
             <div>
               <p className="text-sm font-medium text-foreground">
                 {inactive.length} suscripci{inactive.length === 1 ? 'on' : 'ones'} sin cobro reciente
@@ -683,12 +683,12 @@ export default function SuscripcionesPage() {
                                     : 'bg-foreground/2 hover:bg-foreground/5'
                                 }`}
                               >
-                                <span className={`flex items-center gap-1.5 ${isCurrent ? 'text-primary' : 'text-foreground-soft'}`}>
+                                <span className={`flex items-center gap-1.5 ${isCurrent ? 'text-primary-ink' : 'text-foreground-soft'}`}>
                                   {isCurrent && <Check className="h-3 w-3" />}
                                   {plan.nombre}
                                   {isCurrent && ' (actual)'}
                                 </span>
-                                <span className={isCurrent ? 'text-primary' : 'text-muted-foreground'}>
+                                <span className={isCurrent ? 'text-primary-ink' : 'text-muted-foreground'}>
                                   {formatPrecioConversion(plan.precio, editSub.moneda)}
                                 </span>
                               </button>

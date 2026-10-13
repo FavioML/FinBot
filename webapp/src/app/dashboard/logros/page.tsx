@@ -138,7 +138,7 @@ export default function LogrosPage() {
         <FadeIn delay={0.05}>
           <div className="glass-card p-10 flex flex-col items-center text-center gap-4">
             <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
-              <Trophy className="h-8 w-8 text-primary/40" />
+              <Trophy className="h-8 w-8 text-primary-ink/40" />
             </div>
             <div className="space-y-1">
               <h2 className="text-base font-semibold text-foreground">Aún no tienes logros</h2>
@@ -170,7 +170,7 @@ export default function LogrosPage() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/12">
-              <Trophy className="h-5 w-5 text-primary" />
+              <Trophy className="h-5 w-5 text-primary-ink" />
             </div>
             <div>
               <h1 className="text-2xl font-bold text-foreground">Logros</h1>

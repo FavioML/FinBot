@@ -46,7 +46,7 @@ export function MasterList({
               }`}
             >
               <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                <Users className="h-4 w-4 text-primary" />
+                <Users className="h-4 w-4 text-primary-ink" />
               </div>
               <div className="min-w-0 flex-1">
                 <p className="font-semibold text-sm text-foreground truncate">{group.contraparte}</p>
@@ -60,7 +60,7 @@ export function MasterList({
               <div className="text-right shrink-0">
                 <p className={`text-sm font-bold tabular-nums ${color}`}>{fmtMulti(group.pen, group.usd)}</p>
               </div>
-              <ChevronRight className={`h-4 w-4 shrink-0 transition-colors ${active ? 'text-primary' : 'text-muted-foreground'}`} />
+              <ChevronRight className={`h-4 w-4 shrink-0 transition-colors ${active ? 'text-primary-ink' : 'text-muted-foreground'}`} />
             </button>
           );
         })}

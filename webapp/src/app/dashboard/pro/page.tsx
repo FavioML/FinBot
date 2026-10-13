@@ -180,7 +180,7 @@ function TrialState({ status, onDone }: { status: ProStatus; onDone: () => void 
               : 'bg-primary/15 border-primary/30'
           }`}
         >
-          <Clock className={`w-7 h-7 ${urgente ? 'text-accent-pro' : 'text-primary'}`} />
+          <Clock className={`w-7 h-7 ${urgente ? 'text-accent-pro-ink' : 'text-primary-ink'}`} />
         </div>
         <div className="flex-1">
           <h2 className="text-xl font-bold text-foreground">Estás probando Neto Pro</h2>
@@ -230,7 +230,7 @@ function PremiumState({ status, onDone }: { status: ProStatus; onDone: () => voi
       {/* Banner */}
       <div className="glass-card glass-card-glow p-6 flex flex-col sm:flex-row items-center gap-4 sm:gap-6 text-center sm:text-left">
         <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-primary/15 border border-primary/30 shrink-0">
-          <ShieldCheck className="w-7 h-7 text-primary" />
+          <ShieldCheck className="w-7 h-7 text-primary-ink" />
         </div>
         <div className="flex-1">
           <h2 className="text-xl font-bold text-foreground">Eres Neto Pro ⭐</h2>
@@ -487,11 +487,11 @@ function GmailConnect({
           }`}
         >
           {alerta ? (
-            <AlertTriangle className="w-5 h-5 text-accent-pro" />
+            <AlertTriangle className="w-5 h-5 text-accent-pro-ink" />
           ) : estado === 'bloqueado' ? (
-            <Lock className="w-5 h-5 text-primary" />
+            <Lock className="w-5 h-5 text-primary-ink" />
           ) : (
-            <Mail className="w-5 h-5 text-primary" />
+            <Mail className="w-5 h-5 text-primary-ink" />
           )}
         </div>
         <div className="flex-1 min-w-0">
@@ -603,7 +603,7 @@ function PendingState({ renewal = false, onRefresh }: { renewal?: boolean; onRef
   return (
     <div className="glass-card glass-card-glow p-6 text-center space-y-3 mx-auto max-w-xl">
       <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-accent-pro/15 border border-accent-pro/30">
-        <Clock className="w-7 h-7 text-accent-pro" />
+        <Clock className="w-7 h-7 text-accent-pro-ink" />
       </div>
       <h2 className="text-xl font-bold text-foreground">
         {renewal ? 'Tu renovación está en verificación' : 'Estamos verificando tu pago'}
@@ -673,13 +673,13 @@ function PaymentForm({ rejected = false, renewal = false, descuento = null, onDo
       {descuento && !renewal && (
         <div className="glass-card p-4 border border-primary/30 bg-primary/5 flex items-start gap-3">
           <div className="mt-0.5 inline-flex items-center justify-center w-9 h-9 rounded-lg bg-primary/15 shrink-0">
-            <Crown className="w-5 h-5 text-primary" />
+            <Crown className="w-5 h-5 text-primary-ink" />
           </div>
           <div className="flex-1">
             <p className="text-sm font-semibold text-foreground">Tu 50% de bienvenida está activo 🎉</p>
             <p className="text-xs text-muted-foreground mt-0.5">
               Estrena Neto Pro por{' '}
-              <span className="text-primary font-semibold">S/{precioEfectivo('mensual', descuento)}</span>{' '}
+              <span className="text-primary-ink font-semibold">S/{precioEfectivo('mensual', descuento)}</span>{' '}
               <span className="line-through">S/{PRECIOS.mensual}</span> tu primer mes (plan mensual).{' '}
               {descuento.diasRestantes > 0
                 ? `Vence en ${descuento.diasRestantes} día${descuento.diasRestantes === 1 ? '' : 's'}.`
@@ -691,7 +691,7 @@ function PaymentForm({ rejected = false, renewal = false, descuento = null, onDo
 
       {rejected && (
         <div className="glass-card p-4 border border-negative/30 bg-negative/5">
-          <p className="text-sm text-negative">
+          <p className="text-sm text-negative-ink">
             No pudimos validar tu comprobante anterior. Revisa que el Yape sea de S/{monto} a {YAPE_NOMBRE} y vuelve a enviarlo.
           </p>
         </div>
@@ -717,7 +717,7 @@ function PaymentForm({ rejected = false, renewal = false, descuento = null, onDo
                   <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-accent-pro/15 text-accent-pro-ink font-medium">2 meses gratis</span>
                 )}
               </div>
-              <p className="mt-1 text-lg font-bold text-primary">
+              <p className="mt-1 text-lg font-bold text-primary-ink">
                 {p === 'mensual' && descuento ? (
                   <>
                     S/{precioEfectivo('mensual', descuento)}

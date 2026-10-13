@@ -89,7 +89,7 @@ export function SpendingProjection({
             className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium"
             style={{
               backgroundColor: isOverPrev ? 'color-mix(in srgb, var(--negative) 10%, transparent)' : 'color-mix(in srgb, var(--positive) 10%, transparent)',
-              color: isOverPrev ? 'var(--negative)' : 'var(--positive)',
+              color: isOverPrev ? 'var(--negative-ink)' : 'var(--positive-ink)',
             }}
           >
             {isOverPrev ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}

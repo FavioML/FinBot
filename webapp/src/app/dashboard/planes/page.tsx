@@ -448,7 +448,7 @@ export default function MetasPage() {
                       <button onClick={() => toggleComplete(goal)} className="p-1 rounded text-muted-foreground hover:text-primary">
                         <Check className="h-3.5 w-3.5" />
                       </button>
-                      <button onClick={() => setDeleteId(goal.id)} className="p-1 rounded text-muted-foreground hover:text-negative">
+                      <button onClick={() => setDeleteId(goal.id)} className="p-1 rounded text-muted-foreground hover:text-destructive">
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
                       {goal.status === 'active' && !goal.completada && (
@@ -533,7 +533,7 @@ export default function MetasPage() {
 
                   {/* Pace indicator */}
                   {ritmo && (
-                    <div className={`flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg ${ritmo.enRitmo ? 'bg-primary/8 text-primary' : 'bg-warning/8 text-warning'}`}>
+                    <div className={`flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg ${ritmo.enRitmo ? 'bg-primary/8 text-primary-ink' : 'bg-warning/8 text-warning-ink'}`}>
                       <TrendingUp className="h-3 w-3" />
                       <span>S/ {ritmo.montoMensual.toFixed(0)}/mes necesarios</span>
                       <span className="ml-auto">{ritmo.enRitmo ? '✅ En ritmo' : '⚠️ Acelerar'}</span>
@@ -596,7 +596,7 @@ export default function MetasPage() {
                     <button onClick={() => toggleComplete(goal)} className="p-1 rounded text-muted-foreground hover:text-warning" title="Reabrir">
                       <X className="h-3.5 w-3.5" />
                     </button>
-                    <button onClick={() => setDeleteId(goal.id)} className="p-1 rounded text-muted-foreground hover:text-negative">
+                    <button onClick={() => setDeleteId(goal.id)} className="p-1 rounded text-muted-foreground hover:text-destructive">
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   </div>
@@ -623,7 +623,7 @@ export default function MetasPage() {
                     <span>{goal.icono}</span>
                     <span className="text-sm text-muted-foreground line-through">{goal.nombre}</span>
                   </div>
-                  <button onClick={() => setDeleteId(goal.id)} className="p-1 rounded text-muted-foreground hover:text-negative opacity-0 group-hover:opacity-100 max-sm:opacity-100 transition-opacity">
+                  <button onClick={() => setDeleteId(goal.id)} className="p-1 rounded text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 max-sm:opacity-100 transition-opacity">
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 </div>
@@ -730,7 +730,7 @@ export default function MetasPage() {
             {/* Savings hint */}
             {totalAhorro > 0 && !editGoal && (
               <p className="text-xs text-muted-foreground bg-primary/6 rounded-lg px-3 py-2">
-                Tu ahorro historico total es <span className="text-positive font-medium">{formatCurrency(totalAhorro)}</span>
+                Tu ahorro historico total es <span className="text-positive-ink font-medium">{formatCurrency(totalAhorro)}</span>
               </p>
             )}
 
@@ -769,13 +769,13 @@ export default function MetasPage() {
             <div className="flex gap-2">
               <button
                 onClick={() => setContribTipo('aporte')}
-                className={`flex-1 py-2 rounded-lg text-xs font-medium transition-colors ${contribTipo === 'aporte' ? 'bg-primary/15 text-primary ring-1 ring-primary/30' : 'bg-foreground/4 text-muted-foreground'}`}
+                className={`flex-1 py-2 rounded-lg text-xs font-medium transition-colors ${contribTipo === 'aporte' ? 'bg-primary/15 text-primary-ink ring-1 ring-primary/30' : 'bg-foreground/4 text-muted-foreground'}`}
               >
                 Aportar
               </button>
               <button
                 onClick={() => setContribTipo('retiro')}
-                className={`flex-1 py-2 rounded-lg text-xs font-medium transition-colors ${contribTipo === 'retiro' ? 'bg-negative/15 text-negative ring-1 ring-negative/30' : 'bg-foreground/4 text-muted-foreground'}`}
+                className={`flex-1 py-2 rounded-lg text-xs font-medium transition-colors ${contribTipo === 'retiro' ? 'bg-negative/15 text-negative-ink ring-1 ring-negative/30' : 'bg-foreground/4 text-muted-foreground'}`}
               >
                 Retirar
               </button>
@@ -787,7 +787,7 @@ export default function MetasPage() {
                 <button
                   key={amt}
                   onClick={() => setContribMonto(String(amt))}
-                  className={`flex-1 py-2 rounded-lg text-xs font-medium transition-colors ${contribMonto === String(amt) ? 'bg-primary/15 text-primary ring-1 ring-primary/30' : 'bg-foreground/4 text-foreground-soft hover:bg-foreground/8'}`}
+                  className={`flex-1 py-2 rounded-lg text-xs font-medium transition-colors ${contribMonto === String(amt) ? 'bg-primary/15 text-primary-ink ring-1 ring-primary/30' : 'bg-foreground/4 text-foreground-soft hover:bg-foreground/8'}`}
                 >
                   S/ {amt}
                 </button>
@@ -861,7 +861,7 @@ export default function MetasPage() {
           <div className="flex gap-2 pt-2">
             <Button
               onClick={handleDelete}
-              className="flex-1 bg-negative text-negative-foreground hover:bg-negative/90"
+              className="flex-1 bg-destructive text-destructive-foreground hover:bg-destructive/90"
               disabled={remove.isPending}
             >
               {remove.isPending ? 'Eliminando...' : 'Eliminar'}

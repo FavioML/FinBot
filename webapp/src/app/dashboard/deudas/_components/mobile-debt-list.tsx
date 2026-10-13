@@ -34,7 +34,7 @@ export function MobileDebtList({
               <div className="flex items-center justify-between px-1">
                 <div className="flex items-center gap-2 min-w-0">
                   <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                    <Users className="h-3.5 w-3.5 text-primary" />
+                    <Users className="h-3.5 w-3.5 text-primary-ink" />
                   </div>
                   <div className="min-w-0">
                     <p className="font-semibold text-sm text-foreground truncate">{group.contraparte}</p>

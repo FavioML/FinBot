@@ -25,7 +25,7 @@ export function DebtActions({
     return (
       <button
         onClick={() => handlers.onDelete(debt)}
-        className={`${btnCls} rounded-lg text-muted-foreground hover:text-negative hover:bg-negative/8 transition-colors`}
+        className={`${btnCls} rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/8 transition-colors`}
         title="Eliminar"
       >
         <Trash2 className={iconCls} />
@@ -71,7 +71,7 @@ export function DebtActions({
       </button>
       <button
         onClick={() => handlers.onDelete(debt)}
-        className={`${btnCls} rounded-lg text-muted-foreground hover:text-negative hover:bg-negative/8 transition-colors`}
+        className={`${btnCls} rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/8 transition-colors`}
         title="Eliminar"
       >
         <Trash2 className={iconCls} />

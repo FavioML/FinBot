@@ -21,7 +21,7 @@ export function UpgradePrompt({ message, variant = 'inline', className = '' }: U
       <div className={`absolute inset-0 z-10 flex items-center justify-center backdrop-blur-sm bg-background/60 rounded-2xl ${className}`}>
         <div className="text-center px-6 max-w-sm glass-card-glow rounded-2xl py-6">
           <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/15">
-            <Lock className="h-5 w-5 text-primary" />
+            <Lock className="h-5 w-5 text-primary-ink" />
           </div>
           <p className="text-sm text-foreground-soft mb-4">{message}</p>
           <a href={WA_CONTACT_LINK} target="_blank" rel="noopener noreferrer">
@@ -40,7 +40,7 @@ export function UpgradePrompt({ message, variant = 'inline', className = '' }: U
   return (
     <div className={`flex flex-col items-center justify-center rounded-2xl border border-border bg-surface-elevated p-8 text-center glass-card-glow ${className}`}>
       <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary/15">
-        <Lock className="h-6 w-6 text-primary" />
+        <Lock className="h-6 w-6 text-primary-ink" />
       </div>
       <h3 className="mb-2 text-lg font-semibold text-foreground">Función incluida</h3>
       <p className="mb-6 text-sm text-muted-foreground max-w-xs">{message}</p>

@@ -41,7 +41,7 @@ export default function ConfirmarActivacion() {
     <div className="flex flex-col gap-3">
       {error && (
         <div className="rounded-xl border border-negative/20 bg-negative/8 px-4 py-3">
-          <p className="text-sm text-negative">{error}</p>
+          <p className="text-sm text-negative-ink">{error}</p>
         </div>
       )}
       <button

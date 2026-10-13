@@ -103,7 +103,7 @@ export function SplitCreateDialog({
 
           {monto && numPersonas && (
             <p className="text-xs text-muted-foreground bg-warning/6 rounded-lg px-3 py-2">
-              Cada persona: <span className="text-accent-pro font-medium">S/ {(parseFloat(monto) / (parseInt(numPersonas) || 2)).toFixed(2)}</span>
+              Cada persona: <span className="text-accent-pro-ink font-medium">S/ {(parseFloat(monto) / (parseInt(numPersonas) || 2)).toFixed(2)}</span>
             </p>
           )}
 

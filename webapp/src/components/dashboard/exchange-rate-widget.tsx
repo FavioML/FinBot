@@ -43,7 +43,7 @@ export function ExchangeRateWidget() {
       transition={{ duration: 0.4, delay: 0.2 }}
     >
       <div className="rounded-lg bg-warning/12 p-2 shrink-0">
-        <DollarSign className="h-4 w-4 text-warning" />
+        <DollarSign className="h-4 w-4 text-warning-ink" />
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-[10px] text-muted-foreground uppercase tracking-wider">USD / PEN</p>
