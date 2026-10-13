@@ -115,7 +115,7 @@ function RetentionSection({ retention }: { retention: AdminRetention }) {
                     key={c.cohort}
                     className="border-b border-border last:border-0"
                   >
-                    <td className="px-4 py-2.5 font-medium text-foreground">{c.cohort}</td>
+                    <td className="whitespace-nowrap px-4 py-2.5 font-medium text-foreground">{c.cohort}</td>
                     <td className="px-4 py-2.5 text-right tabular-nums text-foreground-soft">
                       {c.size}
                     </td>
@@ -125,7 +125,7 @@ function RetentionSection({ retention }: { retention: AdminRetention }) {
                       return (
                         <td key={p} className="px-1.5 py-1.5 text-center">
                           <div
-                            className="rounded-md px-2 py-1.5 text-xs font-medium tabular-nums"
+                            className="whitespace-nowrap rounded-md px-2 py-1.5 text-xs font-medium tabular-nums"
                             style={retentionCellStyle(rate)}
                             title={
                               cell && rate !== null
