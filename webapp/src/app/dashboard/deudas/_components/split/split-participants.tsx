@@ -31,11 +31,11 @@ export function SplitParticipants({ gasto, handlers }: { gasto: GastoCompartido;
                 <div className="min-w-0">
                   <span className={`text-xs ${p.pagado ? 'text-muted-foreground line-through' : 'text-foreground-soft'}`}>{p.nombre}</span>
                   {montoPagado > 0 && !p.pagado && (
-                    <div className="flex items-center gap-1.5 mt-0.5">
+                    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 mt-0.5">
                       <div className="w-16 h-1 rounded-full bg-foreground/6 overflow-hidden">
                         <div className="h-full rounded-full bg-primary" style={{ width: `${pctPagado}%` }} />
                       </div>
-                      <span className="text-xs text-muted-foreground">{fmtMoneda(gasto.moneda, montoPagado)} de {fmtMoneda(gasto.moneda, montoDebe)}</span>
+                      <span className="text-xs text-muted-foreground"><span className="whitespace-nowrap">{fmtMoneda(gasto.moneda, montoPagado)}</span> de <span className="whitespace-nowrap">{fmtMoneda(gasto.moneda, montoDebe)}</span></span>
                     </div>
                   )}
                 </div>
