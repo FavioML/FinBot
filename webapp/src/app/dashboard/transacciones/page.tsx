@@ -1242,14 +1242,14 @@ function TransactionCard({
           <p className="text-sm text-foreground truncate">
             {tx.comercio || tx.descripcion_original || tx.subcategoria}
           </p>
-          <div className="flex items-center gap-2 mt-1">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1">
             {tx.subcategoria && (
-              <span className="text-xs text-muted-foreground capitalize">
+              <span className="whitespace-nowrap text-xs text-muted-foreground capitalize">
                 {tx.subcategoria.replace(/_/g, ' ')}
               </span>
             )}
             {tx.metodo_pago && (
-              <span className="text-xs text-muted-foreground">&middot; {getMetodoIcon(normalizeMetodoPago(tx.metodo_pago, tx.banco))} {normalizeMetodoPago(tx.metodo_pago, tx.banco)}{formatLast4(tx.tarjeta_last4)}</span>
+              <span className="whitespace-nowrap text-xs text-muted-foreground">&middot; {getMetodoIcon(normalizeMetodoPago(tx.metodo_pago, tx.banco))} {normalizeMetodoPago(tx.metodo_pago, tx.banco)}{formatLast4(tx.tarjeta_last4)}</span>
             )}
           </div>
         </div>
@@ -1257,7 +1257,7 @@ function TransactionCard({
           <TxMonto
             tx={tx}
             signo={isIngreso ? '+' : '-'}
-            className="text-sm font-semibold"
+            className="text-sm font-semibold whitespace-nowrap"
             style={{ color: isIngreso ? 'var(--positive-ink)' : 'var(--negative-ink)' }}
           />
           <div className="flex gap-1">

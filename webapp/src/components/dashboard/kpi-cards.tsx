@@ -169,7 +169,7 @@ function MobileCompactKPI({
   invertColor?: boolean;
 }) {
   return (
-    <div className="glass-card p-4">
+    <div className="@container glass-card p-4">
       <div className="flex items-center justify-between mb-2">
         <Icon className="h-4 w-4" style={{ color: 'var(--muted-foreground)' }} />
         {prev != null && prev > 0 && (
@@ -179,7 +179,9 @@ function MobileCompactKPI({
       <p className="text-xs font-medium mb-1" style={{ color: 'var(--muted-foreground)' }}>
         {label}
       </p>
-      <p className="text-xl font-bold tracking-tight leading-none" style={{ color }}>
+      {/* A 360 px la tarjeta mide 126 por dentro y "S/ 10,400.00" a 20 px pide ~135: se partía en "S/" y
+          "10,400.00". En una línea, y la letra baja con el ancho de la tarjeta (14cqi = 17.6 px a 126). */}
+      <p className="text-[length:min(1.25rem,14cqi)] font-bold tracking-tight leading-none whitespace-nowrap" style={{ color }}>
         S/{' '}
         <NumberTicker value={value} decimalPlaces={2} className="!text-inherit" />
       </p>
