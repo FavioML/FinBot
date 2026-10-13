@@ -19,14 +19,16 @@ export function AdminHeaderNav() {
           className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground-soft transition-colors hover:text-foreground"
         >
           <ArrowLeft className="h-4 w-4" />
-          Volver al panel
+          <span className="hidden sm:inline">Volver al panel</span>
+          <span className="sm:hidden">Panel</span>
         </Link>
       )}
       <Link
         href="/dashboard"
         className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground-soft transition-colors hover:text-foreground"
       >
-        Volver al dashboard
+        <span className="hidden sm:inline">Volver al dashboard</span>
+        <span className="sm:hidden">Dashboard</span>
       </Link>
     </div>
   );
