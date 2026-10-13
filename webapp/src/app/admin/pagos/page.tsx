@@ -472,7 +472,7 @@ function HistorialMeses({
       <div className="mt-4 overflow-x-auto">
         {/* Una columna por dato, números alineados a la derecha con cifras de ancho fijo, y
             aire en los dos bordes para que la fila resaltada no toque el borde de la tarjeta. */}
-        <table className="w-full min-w-[560px] text-sm tabular-nums">
+        <table className="w-full min-w-[560px] whitespace-nowrap text-sm tabular-nums">
           <thead>
             <tr className="text-left text-xs uppercase tracking-wider text-muted-foreground">
               <th className="pb-2 pl-3 pr-4 font-medium">Mes</th>
