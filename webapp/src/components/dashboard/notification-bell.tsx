@@ -160,7 +160,7 @@ export function NotificationBell() {
                 {unreadCount > 0 && (
                   <button
                     onClick={handleMarkAllRead}
-                    className="text-[10px] text-primary hover:text-primary/80 transition-colors flex items-center gap-1"
+                    className="text-[10px] text-primary-ink hover:text-primary-ink/80 transition-colors flex items-center gap-1"
                   >
                     <Check className="h-3 w-3" />
                     Marcar todas

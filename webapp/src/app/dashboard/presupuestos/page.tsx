@@ -537,7 +537,7 @@ export default function PresupuestosPage() {
                                   <p className="text-xs text-muted-foreground">{formatFecha(tx.fecha)}</p>
                                 </div>
                                 <div className="flex items-center gap-2 shrink-0 ml-3">
-                                  <TxMonto tx={tx} signo="-" className="text-sm font-medium text-negative" />
+                                  <TxMonto tx={tx} signo="-" className="text-sm font-medium text-negative-ink" />
                                   <Pencil className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 max-sm:opacity-100 transition-opacity" />
                                 </div>
                               </div>

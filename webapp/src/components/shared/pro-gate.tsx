@@ -80,8 +80,8 @@ export function ProBadge({ size = 'md' }: ProBadgeProps) {
       rel="noopener noreferrer"
       className={`inline-flex items-center gap-1 rounded-full bg-primary/15 border border-primary/40 hover:bg-primary/25 transition-colors duration-200 ${sizeClasses[size]}`}
     >
-      <Crown className={size === 'sm' ? 'w-3 h-3' : 'w-4 h-4'} style={{ color: 'var(--primary)' }} />
-      <span style={{ color: 'var(--primary)' }} className="font-semibold">
+      <Crown className={size === 'sm' ? 'w-3 h-3' : 'w-4 h-4'} style={{ color: 'var(--primary-ink)' }} />
+      <span style={{ color: 'var(--primary-ink)' }} className="font-semibold">
         Pro
       </span>
     </a>

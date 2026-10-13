@@ -471,7 +471,7 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
               return (
                 <button
                   type="button"
-                  className="text-xs text-primary hover:underline text-left"
+                  className="text-xs text-primary-ink hover:underline text-left"
                   onClick={() => setMontoLimite(String(suggested))}
                 >
                   Sugerido: S/{suggested} (promedio mensual: S/{Math.round(avg)})
@@ -479,14 +479,14 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
               );
             })()}
             {catDuplicate && !isEditing && (
-              <p className="text-xs text-warning">Ya existe un presupuesto general para {effectiveCategoria}. Se omitirá este campo.</p>
+              <p className="text-xs text-warning-ink">Ya existe un presupuesto general para {effectiveCategoria}. Se omitirá este campo.</p>
             )}
             {limitBelowSubs && (
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-warning">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-warning-ink">
                 <span>El límite es menor que la suma de subcategorías (S/{subsTotalRounded.toFixed(2)}).</span>
                 <button
                   type="button"
-                  className="text-primary hover:underline font-medium"
+                  className="text-primary-ink hover:underline font-medium"
                   onClick={() => setMontoLimite(String(subsTotalRounded))}
                 >
                   Igualar a S/{subsTotalRounded.toFixed(2)}
@@ -502,7 +502,7 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
                 <label className="text-sm font-medium text-foreground-soft">Presupuestos por subcategoría</label>
                 <Button
                   variant="ghost" size="sm"
-                  className="text-primary text-xs h-7 px-2"
+                  className="text-primary-ink text-xs h-7 px-2"
                   onClick={addSubRow}
                 >
                   <Plus className="h-3.5 w-3.5 mr-1" /> Agregar

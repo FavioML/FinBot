@@ -163,7 +163,7 @@ export function NuevaDeudaDialog({
               <input type="checkbox" checked={esRecurrente} onChange={(e) => setEsRecurrente(e.target.checked)} className="mt-0.5 h-4 w-4 accent-primary" />
               <span className="flex-1">
                 <span className="text-sm text-foreground font-medium flex items-center gap-1.5">
-                  <Repeat className="h-3.5 w-3.5 text-primary" /> Compromiso recurrente
+                  <Repeat className="h-3.5 w-3.5 text-primary-ink" /> Compromiso recurrente
                 </span>
                 <span className="text-xs text-muted-foreground block mt-0.5">
                   {tipo === 'debo' ? 'Pagas un monto fijo cada periodo (ej: alquiler).' : 'Te pagan un monto fijo cada periodo (ej: mensualidad).'}
@@ -194,7 +194,7 @@ export function NuevaDeudaDialog({
                   <label className="text-xs text-muted-foreground mb-1.5 block flex items-center justify-between">
                     <span>Hasta</span>
                     {!fechaFin && (
-                      <span className="text-[10px] text-primary flex items-center gap-1">
+                      <span className="text-[10px] text-primary-ink flex items-center gap-1">
                         <InfinityIcon className="h-3 w-3" /> indefinido
                       </span>
                     )}

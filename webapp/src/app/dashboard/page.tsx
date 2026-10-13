@@ -884,7 +884,7 @@ export default function DashboardPage() {
                   {detailSubcategoria && (
                     <button
                       onClick={() => setDetailSubcategoria(null)}
-                      className="text-xs text-primary hover:underline"
+                      className="text-xs text-primary-ink hover:underline"
                     >
                       &larr; {getCategoriaEmoji(detailCategoria)} {capitalizeDisplay(detailCategoria)}
                     </button>
@@ -930,7 +930,7 @@ export default function DashboardPage() {
               <div className="glass-card-depth space-y-3">
                 <p className="text-sm text-muted-foreground">
                   Total{detailSubcategoria ? ' subcategoría' : ''}:{' '}
-                  <span className="text-negative font-medium">
+                  <span className="text-negative-ink font-medium">
                     {formatCurrency(detailSubcategoria
                       ? (subMap.get(detailSubcategoria)?.reduce((s, t) => s + montoPen(t), 0) || 0)
                       : catTotal)}
@@ -953,7 +953,7 @@ export default function DashboardPage() {
                             : 'bg-foreground/3 hover:bg-primary/10'
                         }`}
                       >
-                        <span className={name === '(General)' ? 'text-muted-foreground' : 'text-primary'}>
+                        <span className={name === '(General)' ? 'text-muted-foreground' : 'text-primary-ink'}>
                           {capitalizeDisplay(name)}
                         </span>
                         <span className="text-muted-foreground">· {txs.length}</span>
@@ -979,7 +979,7 @@ export default function DashboardPage() {
                           </p>
                         </div>
                         <div className="flex items-center gap-2 shrink-0 ml-3">
-                          <TxMonto tx={tx} signo="-" className="text-sm font-medium text-negative" />
+                          <TxMonto tx={tx} signo="-" className="text-sm font-medium text-negative-ink" />
                           <button
                             onClick={() => setEditTransaction(tx)}
                             className="p-1 rounded hover:bg-foreground/6 text-muted-foreground hover:text-foreground-soft transition-colors"
@@ -1050,7 +1050,7 @@ export default function DashboardPage() {
             return (
             <div className="glass-card-depth space-y-3">
               <p className="text-sm text-muted-foreground">
-                Total: <span className="text-negative font-medium">{formatCurrency(metodoTotal)}</span>
+                Total: <span className="text-negative-ink font-medium">{formatCurrency(metodoTotal)}</span>
                 {' '}&mdash; {detailMetodoTransactions.length} {detailMetodoTransactions.length === 1 ? 'transaccion' : 'transacciones'}
               </p>
 
@@ -1090,7 +1090,7 @@ export default function DashboardPage() {
                       </p>
                     </div>
                     <div className="flex items-center gap-2 ml-3">
-                      <TxMonto tx={tx} className="text-sm font-medium text-negative" />
+                      <TxMonto tx={tx} className="text-sm font-medium text-negative-ink" />
                       <button
                         onClick={() => setEditTransaction(tx)}
                         className="p-1 rounded hover:bg-foreground/6 text-muted-foreground hover:text-foreground-soft transition-colors"
@@ -1118,7 +1118,7 @@ export default function DashboardPage() {
           {detailComercio && (
             <div className="glass-card-depth space-y-3">
               <p className="text-sm text-muted-foreground">
-                Total: <span className="text-negative font-medium">{formatCurrency(detailComercioTransactions.reduce((s, t) => s + montoPen(t), 0))}</span>
+                Total: <span className="text-negative-ink font-medium">{formatCurrency(detailComercioTransactions.reduce((s, t) => s + montoPen(t), 0))}</span>
                 {' '}&mdash; {detailComercioTransactions.length} {detailComercioTransactions.length === 1 ? 'transaccion' : 'transacciones'}
               </p>
               <div className="space-y-2">
@@ -1134,7 +1134,7 @@ export default function DashboardPage() {
                       </p>
                     </div>
                     <div className="flex items-center gap-2 ml-3">
-                      <TxMonto tx={tx} className="text-sm font-medium text-negative" />
+                      <TxMonto tx={tx} className="text-sm font-medium text-negative-ink" />
                       <button
                         onClick={() => setEditTransaction(tx)}
                         className="p-1 rounded hover:bg-foreground/6 text-muted-foreground hover:text-foreground-soft transition-colors"

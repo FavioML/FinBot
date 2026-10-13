@@ -88,7 +88,7 @@ export function QuickAddButton() {
                 <span className="text-base">💸</span>
               </motion.button>
               <motion.button
-                className="flex items-center gap-2 rounded-full bg-surface-elevated border border-primary/30 pl-4 pr-3 py-2.5 text-sm font-medium text-primary shadow-lg"
+                className="flex items-center gap-2 rounded-full bg-surface-elevated border border-primary/30 pl-4 pr-3 py-2.5 text-sm font-medium text-primary-ink shadow-lg"
                 initial={{ opacity: 0, y: 16, scale: 0.8 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 8, scale: 0.9 }}

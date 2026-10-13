@@ -413,7 +413,7 @@ function UserActions({
                 disabled={busy}
                 className={itemClass}
               >
-                <span className="text-primary">&#9733;</span> Activar Pro (30 dias)
+                <span className="text-primary-ink">&#9733;</span> Activar Pro (30 dias)
               </DropdownMenuItem>
             )}
             {isPro && (
@@ -423,14 +423,14 @@ function UserActions({
                   disabled={busy}
                   className={itemClass}
                 >
-                  <span className="text-positive">&#128172;</span> Notificar Pro por WhatsApp
+                  <span className="text-positive-ink">&#128172;</span> Notificar Pro por WhatsApp
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => exec('extend_premium', { days: 30 })}
                   disabled={busy}
                   className={itemClass}
                 >
-                  <span className="text-primary">+</span> Extender +30 dias
+                  <span className="text-primary-ink">+</span> Extender +30 dias
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => exec('set_plan', { plan: 'free' })}
@@ -448,7 +448,7 @@ function UserActions({
               closeOnClick={false}
               onClick={() => setConfirming('deactivate')}
               disabled={busy}
-              className={`${itemClass} text-warning/80 focus:text-warning`}
+              className={`${itemClass} text-warning-ink/80 focus:text-warning`}
             >
               <span>&#9888;</span> Desactivar cuenta
             </DropdownMenuItem>
@@ -457,7 +457,7 @@ function UserActions({
               closeOnClick={false}
               onClick={() => setConfirming('delete')}
               disabled={busy}
-              className={`${itemClass} text-destructive/80 focus:text-destructive`}
+              className={`${itemClass} text-destructive-ink/80 focus:text-destructive`}
             >
               <span>&#10005;</span> Eliminar usuario
             </DropdownMenuItem>
@@ -620,7 +620,7 @@ function PaymentsModal({
         {loading ? (
           <div className="py-8 text-center text-sm text-foreground/40">Cargando...</div>
         ) : errorCarga ? (
-          <div className="py-8 text-center text-sm font-medium text-warning">
+          <div className="py-8 text-center text-sm font-medium text-warning-ink">
             {'\u26A0\uFE0F '}No se pudo leer el historial de pagos. No es que no haya: reintenta antes de aprobar.
           </div>
         ) : pagos.length === 0 ? (

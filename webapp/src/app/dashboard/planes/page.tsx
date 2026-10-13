@@ -768,7 +768,7 @@ export default function MetasPage() {
         <DialogContent className="glass-card-elevated text-foreground max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              {contribTipo === 'retiro' ? <ArrowDown className="h-5 w-5 text-negative" /> : <TrendingUp className="h-5 w-5 text-primary" />}
+              {contribTipo === 'retiro' ? <ArrowDown className="h-5 w-5 text-negative-ink" /> : <TrendingUp className="h-5 w-5 text-primary-ink" />}
               {contribTipo === 'retiro' ? 'Retirar de' : 'Aportar a'} {contributeGoal?.nombre}
             </DialogTitle>
           </DialogHeader>

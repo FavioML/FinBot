@@ -385,7 +385,7 @@ export function RecurringPayments({ transactions }: RecurringPaymentsProps) {
                   <p className="text-sm text-foreground truncate">{cand.label}</p>
                   <p className="text-[10px] text-muted-foreground">{cand.count} veces</p>
                 </div>
-                <Plus className="h-4 w-4 text-primary shrink-0 ml-2" />
+                <Plus className="h-4 w-4 text-primary-ink shrink-0 ml-2" />
               </button>
             ))}
           </div>

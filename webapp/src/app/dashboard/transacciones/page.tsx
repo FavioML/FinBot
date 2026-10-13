@@ -1147,7 +1147,7 @@ function TransactionTableRow({
           signo={isIngreso ? '+' : '-'}
           align="start"
           className={`text-sm font-semibold ${isIngreso ? 'shadow-[0_0_8px_color-mix(in_srgb,var(--positive)_20%,transparent)]' : 'shadow-[0_0_8px_color-mix(in_srgb,var(--warning)_15%,transparent)]'}`}
-          style={{ color: isIngreso ? 'var(--positive)' : 'var(--negative)' }}
+          style={{ color: isIngreso ? 'var(--positive-ink)' : 'var(--negative-ink)' }}
         />
       </TableCell>
       <TableCell>
@@ -1233,7 +1233,7 @@ function TransactionCard({
             tx={tx}
             signo={isIngreso ? '+' : '-'}
             className="text-sm font-semibold"
-            style={{ color: isIngreso ? 'var(--positive)' : 'var(--negative)' }}
+            style={{ color: isIngreso ? 'var(--positive-ink)' : 'var(--negative-ink)' }}
           />
           <div className="flex gap-1">
             <Button

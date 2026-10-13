@@ -130,7 +130,7 @@ export function GlobalSearch() {
                       onClick={() => navigate(page.path)}
                       className="w-full flex items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-foreground/4 transition-colors group"
                     >
-                      <Icon className="h-4 w-4 text-muted-foreground group-hover:text-primary" />
+                      <Icon className="h-4 w-4 text-muted-foreground group-hover:text-primary-ink" />
                       <span className="text-sm text-foreground-soft group-hover:text-foreground flex-1">{page.name}</span>
                       <ArrowRight className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100" />
                     </button>
@@ -158,7 +158,7 @@ export function GlobalSearch() {
                       tx={tx}
                       signo={tx.tipo === 'ingreso' ? '+' : '-'}
                       className="text-xs font-medium shrink-0"
-                      style={{ color: tx.tipo === 'ingreso' ? 'var(--positive)' : 'var(--negative)' }}
+                      style={{ color: tx.tipo === 'ingreso' ? 'var(--positive-ink)' : 'var(--negative-ink)' }}
                     />
                   </button>
                 ))}

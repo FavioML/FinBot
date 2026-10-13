@@ -280,7 +280,7 @@ export function SplitAbonoDialog({
         {target && (
           <div className="space-y-4">
             <p className="text-xs text-muted-foreground">
-              {target.participante.nombre} — pendiente: <span className="text-accent-pro">S/ {pendiente.toFixed(2)}</span>
+              {target.participante.nombre} — pendiente: <span className="text-accent-pro-ink">S/ {pendiente.toFixed(2)}</span>
             </p>
             <div>
               <label className={LABEL_CLS}>Monto del abono</label>

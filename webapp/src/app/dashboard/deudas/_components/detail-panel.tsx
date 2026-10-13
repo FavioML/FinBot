@@ -44,7 +44,7 @@ function DebtDetailBlock({ debt, handlers, titleMode }: { debt: Deuda; handlers:
           )}
         </div>
         <div className="text-right shrink-0">
-          <p className={`text-lg font-bold tabular-nums ${isPagada ? 'text-muted-foreground' : esDebo ? 'text-negative' : 'text-primary'}`}>
+          <p className={`text-lg font-bold tabular-nums ${isPagada ? 'text-muted-foreground' : esDebo ? 'text-negative-ink' : 'text-primary-ink'}`}>
             {fmtMoneda(debt.moneda, debt.monto_pendiente)}
           </p>
           <p className="text-[10px] text-muted-foreground tabular-nums">de {fmtMoneda(debt.moneda, debt.monto_original)}</p>

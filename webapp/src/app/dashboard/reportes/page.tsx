@@ -551,7 +551,7 @@ if (!isLoading && transactions.length === 0) {
           {detailCat && (
             <div className="space-y-3">
               <p className="text-sm text-muted-foreground">
-                Total: <span className="text-negative font-medium">{formatCurrency(detailCatTransactions.reduce((s, t) => s + montoPen(t), 0))}</span>
+                Total: <span className="text-negative-ink font-medium">{formatCurrency(detailCatTransactions.reduce((s, t) => s + montoPen(t), 0))}</span>
                 {' '}— {detailCatTransactions.length} {detailCatTransactions.length === 1 ? 'transaccion' : 'transacciones'}
               </p>
 
@@ -593,7 +593,7 @@ if (!isLoading && transactions.length === 0) {
                       </p>
                     </div>
                     <div className="flex items-center gap-2 ml-3">
-                      <TxMonto tx={tx} className="text-sm font-medium text-negative" />
+                      <TxMonto tx={tx} className="text-sm font-medium text-negative-ink" />
                       <button
                         onClick={() => setEditTransaction(tx)}
                         className="p-1 rounded hover:bg-foreground/6 text-muted-foreground hover:text-foreground-soft transition-colors"
@@ -643,7 +643,7 @@ if (!isLoading && transactions.length === 0) {
             return (
             <div className="space-y-3">
               <p className="text-sm text-muted-foreground">
-                Total: <span className="text-negative font-medium">{formatCurrency(detailMetodoTransactions.reduce((s, t) => s + montoPen(t), 0))}</span>
+                Total: <span className="text-negative-ink font-medium">{formatCurrency(detailMetodoTransactions.reduce((s, t) => s + montoPen(t), 0))}</span>
                 {' '}— {detailMetodoTransactions.length} {detailMetodoTransactions.length === 1 ? 'transaccion' : 'transacciones'}
               </p>
 
@@ -684,7 +684,7 @@ if (!isLoading && transactions.length === 0) {
                       </p>
                     </div>
                     <div className="flex items-center gap-2 ml-3">
-                      <TxMonto tx={tx} className="text-sm font-medium text-negative" />
+                      <TxMonto tx={tx} className="text-sm font-medium text-negative-ink" />
                       <button
                         onClick={() => setEditTransaction(tx)}
                         className="p-1 rounded hover:bg-foreground/6 text-muted-foreground hover:text-foreground-soft transition-colors"
@@ -712,7 +712,7 @@ if (!isLoading && transactions.length === 0) {
           {detailComercio && (
             <div className="space-y-3">
               <p className="text-sm text-muted-foreground">
-                Total: <span className="text-negative font-medium">{formatCurrency(detailComercioTransactions.reduce((s, t) => s + montoPen(t), 0))}</span>
+                Total: <span className="text-negative-ink font-medium">{formatCurrency(detailComercioTransactions.reduce((s, t) => s + montoPen(t), 0))}</span>
                 {' '}— {detailComercioTransactions.length} {detailComercioTransactions.length === 1 ? 'transaccion' : 'transacciones'}
               </p>
               <div className="space-y-2">
@@ -728,7 +728,7 @@ if (!isLoading && transactions.length === 0) {
                       </p>
                     </div>
                     <div className="flex items-center gap-2 ml-3">
-                      <TxMonto tx={tx} className="text-sm font-medium text-negative" />
+                      <TxMonto tx={tx} className="text-sm font-medium text-negative-ink" />
                       <button
                         onClick={() => setEditTransaction(tx)}
                         className="p-1 rounded hover:bg-foreground/6 text-muted-foreground hover:text-foreground-soft transition-colors"
@@ -755,7 +755,7 @@ if (!isLoading && transactions.length === 0) {
           {detailDayTransactions.length > 0 ? (
             <div>
               <p className="text-sm text-muted-foreground mb-3">
-                <span className="text-negative font-semibold">{formatCurrency(detailDayTransactions.reduce((s, t) => s + montoPen(t), 0))}</span>
+                <span className="text-negative-ink font-semibold">{formatCurrency(detailDayTransactions.reduce((s, t) => s + montoPen(t), 0))}</span>
                 {' '}— {detailDayTransactions.length} {detailDayTransactions.length === 1 ? 'transacción' : 'transacciones'}
               </p>
               <div className="space-y-2">
@@ -769,8 +769,8 @@ if (!isLoading && transactions.length === 0) {
                       </p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      <TxMonto tx={t} className="text-sm text-negative font-medium" />
-                      <button onClick={() => setEditTransaction(t)} className="text-muted-foreground hover:text-primary">
+                      <TxMonto tx={t} className="text-sm text-negative-ink font-medium" />
+                      <button onClick={() => setEditTransaction(t)} className="text-muted-foreground hover:text-primary-ink">
                         <Pencil size={14} />
                       </button>
                     </div>
@@ -845,7 +845,7 @@ if (!isLoading && transactions.length === 0) {
                   <div className="flex-1 h-1.5 rounded-full bg-track">
                     <div className="h-full rounded-full" style={{ width: `${value}%`, backgroundColor: value >= 70 ? 'var(--positive)' : value >= 50 ? 'var(--warning)' : 'var(--negative)' }} />
                   </div>
-                  <span className="text-xs tabular-nums w-8 text-right" style={{ color: value >= 70 ? 'var(--positive)' : value >= 50 ? 'var(--warning)' : 'var(--negative)' }}>{value}</span>
+                  <span className="text-xs tabular-nums w-8 text-right" style={{ color: value >= 70 ? 'var(--positive-ink)' : value >= 50 ? 'var(--warning-ink)' : 'var(--negative-ink)' }}>{value}</span>
                   <span className="text-xs text-muted-foreground w-12 text-right">{weight}% peso</span>
                 </div>
               ))}

@@ -793,7 +793,7 @@ export default function SpaceDetailPage() {
               const isValid = total === 100;
               return (
                 <>
-                  <p className={`text-xs ${isValid ? 'text-primary' : 'text-negative'}`}>
+                  <p className={`text-xs ${isValid ? 'text-primary-ink' : 'text-negative-ink'}`}>
                     Total: {total}% {isValid ? '✓' : '(debe sumar 100%)'}
                   </p>
                   <Button
@@ -915,7 +915,7 @@ export default function SpaceDetailPage() {
               const isValid = total === 100;
               return (
                 <>
-                  <p className={`text-xs ${isValid ? 'text-primary' : 'text-negative'}`}>
+                  <p className={`text-xs ${isValid ? 'text-primary-ink' : 'text-negative-ink'}`}>
                     Total: {total}% {isValid ? '✓' : '(debe sumar 100%)'}
                   </p>
                   <Button
@@ -984,14 +984,14 @@ export default function SpaceDetailPage() {
             <div className="rounded-lg bg-foreground/2 p-3 border border-border space-y-1">
               <p className="text-xs text-muted-foreground">Tipo: <span className="text-foreground-soft capitalize">{space.type}</span></p>
               <p className="text-xs text-muted-foreground">Límite: <span className="text-foreground-soft">{memberLimit} miembros</span></p>
-              <p className="text-xs text-muted-foreground">Código: <span className="text-primary font-mono">{space.invite_code}</span></p>
+              <p className="text-xs text-muted-foreground">Código: <span className="text-primary-ink font-mono">{space.invite_code}</span></p>
             </div>
 
             {/* Delete space */}
             <div className="pt-3 border-t border-border">
               {showDeleteConfirm ? (
                 <div className="space-y-2">
-                  <p className="text-xs text-destructive">¿Estás seguro? Se eliminarán todos los gastos, pagos y miembros de este espacio.</p>
+                  <p className="text-xs text-destructive-ink">¿Estás seguro? Se eliminarán todos los gastos, pagos y miembros de este espacio.</p>
                   <div className="flex gap-2">
                     <Button
                       variant="outline"
@@ -1018,7 +1018,7 @@ export default function SpaceDetailPage() {
               ) : (
                 <button
                   onClick={() => setShowDeleteConfirm(true)}
-                  className="flex items-center gap-2 text-xs text-destructive hover:underline"
+                  className="flex items-center gap-2 text-xs text-destructive-ink hover:underline"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                   Eliminar espacio

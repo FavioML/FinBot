@@ -73,7 +73,7 @@ export function ImportDialog({ open, onOpenChange, onSuccess }: ImportDialogProp
       <DialogContent className="glass-card-elevated text-foreground max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <FileSpreadsheet className="h-5 w-5 text-primary" />
+            <FileSpreadsheet className="h-5 w-5 text-primary-ink" />
             Importar Excel / CSV
           </DialogTitle>
           <DialogDescription className="text-muted-foreground">
@@ -85,7 +85,7 @@ export function ImportDialog({ open, onOpenChange, onSuccess }: ImportDialogProp
         {result ? (
           <div className="space-y-4 py-2">
             <div className="flex flex-col items-center gap-2 text-center">
-              <CheckCircle2 className="h-10 w-10 text-primary" />
+              <CheckCircle2 className="h-10 w-10 text-primary-ink" />
               <p className="text-lg font-semibold text-foreground">
                 {result.insertados} movimientos importados
               </p>
@@ -94,13 +94,13 @@ export function ImportDialog({ open, onOpenChange, onSuccess }: ImportDialogProp
               {result.gastos > 0 && (
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Gastos ({result.gastos})</span>
-                  <span className="font-medium text-negative">{formatCurrency(result.totalGastos)}</span>
+                  <span className="font-medium text-negative-ink">{formatCurrency(result.totalGastos)}</span>
                 </div>
               )}
               {result.ingresos > 0 && (
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Ingresos ({result.ingresos})</span>
-                  <span className="font-medium text-positive">{formatCurrency(result.totalIngresos)}</span>
+                  <span className="font-medium text-positive-ink">{formatCurrency(result.totalIngresos)}</span>
                 </div>
               )}
               {result.descartadas > 0 && (
@@ -127,7 +127,7 @@ export function ImportDialog({ open, onOpenChange, onSuccess }: ImportDialogProp
             >
               {uploading ? (
                 <>
-                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  <Loader2 className="h-8 w-8 animate-spin text-primary-ink" />
                   <span className="text-sm text-muted-foreground">Procesando tu archivo…</span>
                 </>
               ) : (
@@ -152,7 +152,7 @@ export function ImportDialog({ open, onOpenChange, onSuccess }: ImportDialogProp
               href="https://neto.pe/plantilla_gastos.xlsx"
               target="_blank"
               rel="noopener noreferrer"
-              className="block text-center text-xs text-primary hover:underline"
+              className="block text-center text-xs text-primary-ink hover:underline"
             >
               Descargar plantilla de gastos
             </a>
