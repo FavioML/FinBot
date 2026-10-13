@@ -60,7 +60,7 @@ export function UserMenu() {
       <DropdownMenuContent align="end" className="bg-card border-border min-w-[200px]">
         <div className="px-2 py-2">
           <p className="text-sm font-semibold text-foreground">{user?.nombre || 'Mi cuenta'}</p>
-          <p className="text-xs text-muted-foreground">{user?.email || user?.whatsapp || ''}</p>
+          <p className="truncate text-xs text-muted-foreground" title={user?.email || user?.whatsapp || ''}>{user?.email || user?.whatsapp || ''}</p>
         </div>
         <DropdownMenuSeparator className="bg-foreground/6" />
         <button

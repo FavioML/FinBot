@@ -940,7 +940,9 @@ function KPICard({
 }) {
   return (
     <div className="glass-card glass-card-glow p-4">
-      <div className="flex items-center justify-between mb-2">
+      {/* flex-wrap: en la grilla de dos columnas a 360 px, una etiqueta larga más el % no entran en
+          un renglón y el % se salía de la tarjeta. Así baja al siguiente. */}
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 mb-2">
         <div className="flex items-center gap-2">
           <span style={{ color }}>{icon}</span>
           <span className="text-xs text-muted-foreground">{label}</span>

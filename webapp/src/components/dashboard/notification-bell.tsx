@@ -147,7 +147,7 @@ export function NotificationBell() {
       <AnimatePresence>
         {open && (
           <motion.div
-            className="absolute right-0 top-full mt-2 w-80 max-h-[400px] overflow-y-auto rounded-xl border border-border bg-surface-elevated shadow-2xl shadow-scrim/60 z-50"
+            className="absolute right-0 top-full mt-2 w-80 max-md:fixed max-md:inset-x-4 max-md:top-14 max-md:mt-0 max-md:w-auto max-h-[400px] overflow-y-auto rounded-xl border border-border bg-surface-elevated shadow-2xl shadow-scrim/60 z-50"
             initial={{ opacity: 0, y: -8, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -8, scale: 0.95 }}
@@ -219,10 +219,10 @@ export function NotificationBell() {
                         <Icon className="h-4 w-4" style={{ color: config.color }} />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className={`text-xs font-medium ${!notif.leida ? 'text-foreground' : 'text-foreground-soft'}`}>
+                        <p className={`text-xs font-medium break-words ${!notif.leida ? 'text-foreground' : 'text-foreground-soft'}`}>
                           {notif.titulo}
                         </p>
-                        <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
+                        <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2 break-words">
                           {notif.mensaje}
                         </p>
                       </div>
