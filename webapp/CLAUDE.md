@@ -326,7 +326,8 @@ Claro y oscuro; por defecto sigue al sistema. Porqué de B: `products/neto/docs/
 - **Letra en celular:** piso 12px (`text-xs`) en todo `src/`; `text-sm` es 15px bajo `md` (variable
   `--text-sm` en `globals.css`), 14px en desktop; `text-badge` (11px) sólo para el número de un
   contador. Lo hace cumplir `src/app/letra-minima.test.ts`. Un tamaño nuevo se mide a 360 y 390 px
-  con `paleta-neto-capturas.mjs` (`NETO_ANCHO`): ningún test ve un desborde.
+  con `paleta-neto-capturas.mjs` (`NETO_ANCHO`): ningún test ve un desborde; el script sí (gutter 16 px).
+- `DialogContent` lleva el margen de celular en el ANCHO (`w-[calc(100%-2rem)]`): un `max-w-*` del consumidor borraba el tope base.
 
 ## Deploy
 - Vercel: **el auto-deploy de `main` esta APAGADO** (`webapp/vercel.json`,
