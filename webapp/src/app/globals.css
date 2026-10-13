@@ -405,6 +405,18 @@
   summary:not(.touch-exempt) {
     min-height: 44px;
   }
+  /* Un enlace hijo de un flex (el "Ver todas →" de la cabecera de una tarjeta) queda bloque, crece a
+   * 44px y dejaba su texto arriba, ~11px por encima del h3 centrado. `align-content` centra el
+   * contenido sin cambiar el `display`: un enlace-tarjeta o un flex/grid de una línea no se mueve.
+   * `button` no va: el navegador ya centra su contenido. Caso y medición: docs/DEFECTOS.md 13-oct. */
+  a:not(.touch-exempt),
+  [role="button"]:not(button):not(.touch-exempt),
+  [role="tab"]:not(button):not(.touch-exempt),
+  [role="menuitem"]:not(button):not(.touch-exempt),
+  [role="option"]:not(button):not(.touch-exempt),
+  summary:not(.touch-exempt) {
+    align-content: center;
+  }
   /* La barra crece con sus pestañas de 44px. Con su `h-8` fijo, la pestaña activa se salía de la
    * caja y el selector se veía cortado (Mensual/Total anual, Mes/Semana/Rango/Año). */
   [data-slot="tabs-list"]:not(.touch-exempt) {
