@@ -328,6 +328,7 @@ Claro y oscuro; por defecto sigue al sistema. Porqué de B: `products/neto/docs/
   contador. Lo hace cumplir `src/app/letra-minima.test.ts`. Un tamaño nuevo se mide a 360 y 390 px
   con `paleta-neto-capturas.mjs` (`NETO_ANCHO`): ningún test ve un desborde; el script sí (gutter 16 px).
 - `DialogContent` lleva el margen de celular en el ANCHO (`w-[calc(100%-2rem)]`): un `max-w-*` del consumidor borraba el tope base.
+- Monto, fecha o pastilla partidos en dos líneas (el script los lista como `PARTIDO`): `whitespace-nowrap`, y si no entra, su tabla scrollea.
 
 ## Deploy
 - Vercel: **el auto-deploy de `main` esta APAGADO** (`webapp/vercel.json`,
