@@ -228,7 +228,7 @@ export default function LoginPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleMagicLink()}
-                  className="flex-1 rounded-xl bg-foreground/[0.04] border border-border px-3 py-3 text-sm text-foreground placeholder-muted-foreground outline-none focus:border-primary/50 transition-colors"
+                  className="min-w-0 flex-1 rounded-xl bg-foreground/[0.04] border border-border px-3 py-3 text-sm text-foreground placeholder-muted-foreground outline-none focus:border-primary/50 transition-colors"
                 />
                 <button
                   onClick={handleMagicLink}
@@ -293,9 +293,9 @@ export default function LoginPage() {
             <a href="https://neto.pe" target="_blank" rel="noopener noreferrer" className="transition-colors hover:text-foreground-soft">
               neto.pe
             </a>
-            <span className="text-foreground/15">|</span>
+            <span aria-hidden="true" className="h-3 w-px bg-border" />
             <a href="/privacidad" className="transition-colors hover:text-foreground-soft">Privacidad</a>
-            <span className="text-foreground/15">|</span>
+            <span aria-hidden="true" className="h-3 w-px bg-border" />
             <a href="/terminos" className="transition-colors hover:text-foreground-soft">Términos</a>
           </footer>
         </div>

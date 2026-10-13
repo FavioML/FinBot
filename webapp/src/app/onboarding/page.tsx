@@ -279,11 +279,11 @@ function Onboarding() {
           >
             neto.pe
           </a>
-          <span className="text-foreground/15">|</span>
+          <span aria-hidden="true" className="h-3 w-px bg-border" />
           <a href="/privacidad" className="transition-colors hover:text-foreground-soft">
             Privacidad
           </a>
-          <span className="text-foreground/15">|</span>
+          <span aria-hidden="true" className="h-3 w-px bg-border" />
           <a href="/terminos" className="transition-colors hover:text-foreground-soft">
             Terminos
           </a>
