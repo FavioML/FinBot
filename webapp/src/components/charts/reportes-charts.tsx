@@ -62,7 +62,7 @@ export function PaymentMethodsPieChart({ data, onSelect }: { data: PaymentDatum[
             <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
           ))}
         </Pie>
-        <Tooltip
+        <Tooltip itemStyle={{ color: 'var(--foreground)' }}
           contentStyle={{ background: 'var(--popover)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--foreground)', fontSize: 12 }}
           formatter={(v) => formatCurrency(Number(v))}
         />
@@ -83,7 +83,7 @@ export function DailySpendingChart({ data, dailyAverage, onSelect }: { data: Dai
           axisLine={false} tickLine={false}
         />
         <YAxis hide />
-        <Tooltip
+        <Tooltip itemStyle={{ color: 'var(--foreground)' }}
           contentStyle={{ background: 'var(--popover)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--foreground)', fontSize: 12 }}
           formatter={(v) => formatCurrency(Number(v))}
           labelFormatter={(_, payload) => {

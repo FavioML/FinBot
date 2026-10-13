@@ -77,7 +77,7 @@ const ESPERAN_RESPUESTA = new Set(['feedback', 'queja']);
  * como no entregado seria inventar un fallo; pintarlo como entregado seria el bug B23 otra vez.
  */
 function EstadoEntrega({ entrega }: { entrega: TicketMensaje['entrega'] }) {
-  if (!entrega) return <span className="text-foreground/25">sin dato de entrega</span>;
+  if (!entrega) return <span className="text-muted-foreground">sin dato de entrega</span>;
   if (entrega.delivered_at) return <span className="text-primary">entregado</span>;
   if (entrega.failed_at) {
     // 131047 es la ventana de 24h de Meta, y es el 98% de los fallos. Nombrarla evita que el
@@ -90,13 +90,13 @@ function EstadoEntrega({ entrega }: { entrega: TicketMensaje['entrega'] }) {
       </span>
     );
   }
-  return <span className="text-foreground/40">enviado, sin confirmacion aun</span>;
+  return <span className="text-muted-foreground">enviado, sin confirmacion aun</span>;
 }
 
 function HiloTicket({ ticketId }: { ticketId: string }) {
   const { data, isLoading, isError, refetch } = useAdminTicketThread(ticketId);
 
-  if (isLoading) return <div className="py-2 text-xs text-foreground/30">Cargando conversación…</div>;
+  if (isLoading) return <div className="py-2 text-xs text-muted-foreground">Cargando conversación…</div>;
 
   // "Falló la lectura" NO se pinta como "no hay mensajes": eso le diría al admin que la
   // persona nunca escribió, que es la conclusión opuesta a la verdadera.
@@ -117,7 +117,7 @@ function HiloTicket({ ticketId }: { ticketId: string }) {
 
   if (!data || data.length === 0) {
     return (
-      <div className="py-2 text-xs text-foreground/30">
+      <div className="py-2 text-xs text-muted-foreground">
         Sin mensajes en el hilo. Las conversaciones anteriores al 28-ago-2026 no se guardaron turno a turno.
       </div>
     );
@@ -131,11 +131,11 @@ function HiloTicket({ ticketId }: { ticketId: string }) {
           className={`max-w-[85%] rounded-lg px-3 py-2 text-xs ${
             m.rol === 'admin'
               ? 'ml-auto bg-primary/15 text-foreground'
-              : 'mr-auto bg-foreground/[0.04] text-foreground/80'
+              : 'mr-auto bg-foreground/[0.04] text-foreground-soft'
           }`}
         >
           <div className="whitespace-pre-wrap break-words">{m.mensaje}</div>
-          <div className="mt-1 text-[10px] text-foreground/30">
+          <div className="mt-1 text-[10px] text-muted-foreground">
             {m.rol === 'admin' ? 'Neto' : 'Usuario'} · {formatDateTime(m.created_at)}
             {m.rol === 'admin' && <> · <EstadoEntrega entrega={m.entrega} /></>}
           </div>
@@ -211,9 +211,9 @@ const ESTADO_COLOR: Record<EstadoComercial, string> = {
   pro_cortesia: 'bg-chart-5/15 text-chart-5',
   pago_pendiente: 'bg-warning/15 text-warning-ink',
   trial: 'bg-info/15 text-info-ink',
-  muro_vencido: 'bg-foreground/5 text-foreground/60',
-  muro_ex_pagador: 'bg-foreground/5 text-foreground/60',
-  sin_estrenar: 'bg-foreground/5 text-foreground/40',
+  muro_vencido: 'bg-foreground/5 text-muted-foreground',
+  muro_ex_pagador: 'bg-foreground/5 text-muted-foreground',
+  sin_estrenar: 'bg-foreground/5 text-muted-foreground',
 };
 
 function PlanBadge({ estado, bajaAt }: { estado: EstadoComercial; bajaAt?: string | null }) {
@@ -325,7 +325,7 @@ function UserActions({
   const isPro = user.plan === 'premium';
 
   const itemClass =
-    'flex w-full cursor-pointer items-center gap-2 rounded-none px-4 py-2.5 text-left text-sm text-foreground/80 focus:bg-foreground/5 focus:text-foreground';
+    'flex w-full cursor-pointer items-center gap-2 rounded-none px-4 py-2.5 text-left text-sm text-foreground-soft focus:bg-foreground/5 focus:text-foreground';
 
   return (
     <DropdownMenu
@@ -338,7 +338,7 @@ function UserActions({
       }}
     >
       <DropdownMenuTrigger
-        className="rounded-md p-1.5 text-foreground/40 transition-colors hover:bg-foreground/5 hover:text-foreground"
+        className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
         title="Acciones"
       >
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
@@ -355,7 +355,7 @@ function UserActions({
       >
         {confirming && (
           <div className="p-3">
-            <p className="mb-3 text-xs text-foreground/70">
+            <p className="mb-3 text-xs text-foreground-soft">
               {confirming === 'delete'
                 ? `Eliminar a ${etiquetaUsuario(user)}? Se borran TODOS sus datos. Irreversible.`
                 : confirming === 'deactivate'
@@ -367,7 +367,7 @@ function UserActions({
                 closeOnClick={false}
                 onClick={() => setConfirming(null)}
                 disabled={busy}
-                className="flex-1 justify-center rounded-lg border border-border px-3 py-1.5 text-xs text-foreground/60 focus:bg-foreground/5"
+                className="flex-1 justify-center rounded-lg border border-border px-3 py-1.5 text-xs text-muted-foreground focus:bg-foreground/5"
               >
                 Cancelar
               </DropdownMenuItem>
@@ -401,7 +401,7 @@ function UserActions({
               disabled={busy}
               className={itemClass}
             >
-              <span className="text-foreground/40">&#128179;</span> Ver pagos / comprobante
+              <span className="text-muted-foreground">&#128179;</span> Ver pagos / comprobante
               {user.pago_pendiente && <span className="ml-auto rounded-full bg-warning/15 px-1.5 py-0.5 text-[10px] text-warning-ink">pendiente</span>}
             </DropdownMenuItem>
 
@@ -437,7 +437,7 @@ function UserActions({
                   disabled={busy}
                   className={itemClass}
                 >
-                  <span className="text-foreground/40">&#9744;</span> Pasar a Free
+                  <span className="text-muted-foreground">&#9744;</span> Pasar a Free
                 </DropdownMenuItem>
               </>
             )}
@@ -448,7 +448,7 @@ function UserActions({
               closeOnClick={false}
               onClick={() => setConfirming('deactivate')}
               disabled={busy}
-              className={`${itemClass} text-warning-ink/80 focus:text-warning`}
+              className={`${itemClass} text-warning-ink/80 focus:text-warning-ink`}
             >
               <span>&#9888;</span> Desactivar cuenta
             </DropdownMenuItem>
@@ -457,7 +457,7 @@ function UserActions({
               closeOnClick={false}
               onClick={() => setConfirming('delete')}
               disabled={busy}
-              className={`${itemClass} text-destructive-ink/80 focus:text-destructive`}
+              className={`${itemClass} text-destructive-ink/80 focus:text-destructive-ink`}
             >
               <span>&#10005;</span> Eliminar usuario
             </DropdownMenuItem>
@@ -475,7 +475,7 @@ function PagoEstadoBadge({ estado }: { estado: string }) {
     rechazado: 'bg-negative/15 text-negative-ink',
   };
   return (
-    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${styles[estado] || 'bg-foreground/5 text-foreground/50'}`}>
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${styles[estado] || 'bg-foreground/5 text-muted-foreground'}`}>
       {estado}
     </span>
   );
@@ -558,7 +558,7 @@ function PaymentsModal({
         <div className="mb-4 flex items-start justify-between">
           <div>
             <h3 className="text-base font-semibold text-foreground">Pagos de {etiquetaUsuario(user)}</h3>
-            <p className="text-xs text-foreground/40">
+            <p className="text-xs text-muted-foreground">
               {ESTADO_LABEL[estadoComercial(user)]}
               {estadoComercial(user) === 'pro_pagado' && user.premium_vence
                 ? ` · vence ${formatDate(user.premium_vence)}`
@@ -568,7 +568,7 @@ function PaymentsModal({
                 : ''}
             </p>
           </div>
-          <button onClick={onClose} className="rounded-md p-1 text-foreground/40 hover:bg-foreground/5 hover:text-foreground">
+          <button onClick={onClose} className="rounded-md p-1 text-muted-foreground hover:bg-foreground/5 hover:text-foreground">
             &#10005;
           </button>
         </div>
@@ -584,7 +584,7 @@ function PaymentsModal({
           se muestra cuando algo falla.
         */}
         {avisos.length > 0 && (
-          <div className="mb-4 space-y-1 rounded-xl border border-primary/20 bg-primary/[0.06] p-3 text-xs text-foreground/80">
+          <div className="mb-4 space-y-1 rounded-xl border border-primary/20 bg-primary/[0.06] p-3 text-xs text-foreground-soft">
             {avisos.map((a, i) => (
               <div key={i} className={a.tono === 'advertencia' ? 'font-medium text-warning-ink' : undefined}>
                 {a.tono === 'advertencia' ? '\u26A0\uFE0F ' : '\u2022 '}{a.texto}
@@ -613,18 +613,18 @@ function PaymentsModal({
                 {busy ? 'Activando...' : 'Aprobar y notificar'}
               </button>
             </div>
-            <p className="mt-2 text-xs text-foreground/40">Activa Pro y le manda el WhatsApp de confirmación + link de Gmail.</p>
+            <p className="mt-2 text-xs text-muted-foreground">Activa Pro y le manda el WhatsApp de confirmación + link de Gmail.</p>
           </div>
         )}
 
         {loading ? (
-          <div className="py-8 text-center text-sm text-foreground/40">Cargando...</div>
+          <div className="py-8 text-center text-sm text-muted-foreground">Cargando...</div>
         ) : errorCarga ? (
           <div className="py-8 text-center text-sm font-medium text-warning-ink">
             {'\u26A0\uFE0F '}No se pudo leer el historial de pagos. No es que no haya: reintenta antes de aprobar.
           </div>
         ) : pagos.length === 0 ? (
-          <div className="py-8 text-center text-sm text-foreground/40">Sin pagos registrados todavía.</div>
+          <div className="py-8 text-center text-sm text-muted-foreground">Sin pagos registrados todavía.</div>
         ) : (
           <div className="space-y-3">
             {pagos.map((p) => (
@@ -635,17 +635,17 @@ function PaymentsModal({
                     <span className="text-sm font-medium">
                       {p.monto != null ? `S/ ${Number(p.monto).toFixed(2)}` : '—'}
                     </span>
-                    <span className="text-xs text-foreground/40">{p.tipo_plan || '—'} · {p.metodo_pago || '—'}</span>
+                    <span className="text-xs text-muted-foreground">{p.tipo_plan || '—'} · {p.metodo_pago || '—'}</span>
                     {p.origen && (
                       <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${p.origen === 'webapp' ? 'bg-primary/15 text-primary-ink' : 'bg-warning/15 text-warning-ink'}`}>
                         {p.origen === 'webapp' ? 'webapp' : 'whatsapp'}
                       </span>
                     )}
                   </div>
-                  <span className="text-xs text-foreground/30">{formatDateTime(p.created_at)}</span>
+                  <span className="text-xs text-muted-foreground">{formatDateTime(p.created_at)}</span>
                 </div>
                 {(p.premium_desde || p.premium_vence) && (
-                  <div className="mt-1 text-xs text-foreground/40">
+                  <div className="mt-1 text-xs text-muted-foreground">
                     {p.premium_desde ? `Desde ${formatDate(p.premium_desde)}` : ''}
                     {p.premium_vence ? ` · Vence ${formatDate(p.premium_vence)}` : ''}
                   </div>
@@ -665,7 +665,7 @@ function PaymentsModal({
                     />
                   </a>
                 ) : (
-                  <div className="mt-2 text-xs text-foreground/30">Sin comprobante adjunto</div>
+                  <div className="mt-2 text-xs text-muted-foreground">Sin comprobante adjunto</div>
                 )}
               </div>
             ))}
@@ -1159,7 +1159,7 @@ export default function AdminOperacionPage() {
                   <CartesianGrid strokeDasharray="3 3" stroke="color-mix(in srgb, var(--foreground) 5%, transparent)" />
                   <XAxis dataKey="week" tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }} axisLine={false} tickLine={false} allowDecimals={false} />
-                  <Tooltip
+                  <Tooltip itemStyle={{ color: 'var(--foreground)' }}
                     contentStyle={{ background: 'var(--surface-elevated)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }}
                     labelStyle={{ color: 'var(--foreground)' }}
                   />
@@ -1183,8 +1183,8 @@ export default function AdminOperacionPage() {
                 return (
                   <div key={step.label}>
                     <div className="mb-1 flex items-center justify-between text-xs">
-                      <span className="text-foreground/60">{step.label}</span>
-                      <span className="font-mono text-foreground/80">{step.value} <span className="text-foreground/30">({pct}%)</span></span>
+                      <span className="text-muted-foreground">{step.label}</span>
+                      <span className="font-mono text-foreground-soft">{step.value} <span className="text-muted-foreground">({pct}%)</span></span>
                     </div>
                     <div className="h-2 w-full overflow-hidden rounded-full bg-foreground/5">
                       <div
@@ -1198,10 +1198,10 @@ export default function AdminOperacionPage() {
             </div>
             {/* Webapp: métrica transversal (no downstream de 1a tx), fuera del embudo. */}
             <div className="mt-3 flex items-center justify-between border-t border-border pt-3 text-xs">
-              <span className="text-foreground/40">Cobertura webapp (Google + ML)</span>
+              <span className="text-muted-foreground">Cobertura webapp (Google + ML)</span>
               <span className="font-mono text-chart-5">
                 {stats.webappCoverage}
-                <span className="text-foreground/30">
+                <span className="text-muted-foreground">
                   {' '}({stats.funnel.registered > 0 ? Math.round((stats.webappCoverage / stats.funnel.registered) * 100) : 0}%)
                 </span>
               </span>
@@ -1222,7 +1222,7 @@ export default function AdminOperacionPage() {
                     interval={6}
                   />
                   <YAxis tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }} axisLine={false} tickLine={false} allowDecimals={false} />
-                  <Tooltip
+                  <Tooltip itemStyle={{ color: 'var(--foreground)' }}
                     contentStyle={{ background: 'var(--surface-elevated)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }}
                     labelStyle={{ color: 'var(--foreground)' }}
                   />
@@ -1243,7 +1243,7 @@ export default function AdminOperacionPage() {
           className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
             tab === 'users'
               ? 'bg-primary/20 text-primary-ink'
-              : 'text-foreground/50 hover:text-foreground'
+              : 'text-muted-foreground hover:text-foreground'
           }`}
         >
           Usuarios ({usersFallo ? '—' : users.length})
@@ -1253,7 +1253,7 @@ export default function AdminOperacionPage() {
           className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
             tab === 'feedback'
               ? 'bg-primary/20 text-primary-ink'
-              : 'text-foreground/50 hover:text-foreground'
+              : 'text-muted-foreground hover:text-foreground'
           }`}
         >
           Feedback ({nlpFallo ? '—' : nlpDeGente.length})
@@ -1263,7 +1263,7 @@ export default function AdminOperacionPage() {
           className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
             tab === 'nlp'
               ? 'bg-primary/20 text-primary-ink'
-              : 'text-foreground/50 hover:text-foreground'
+              : 'text-muted-foreground hover:text-foreground'
           }`}
         >
           {/* El contador del tab también miente en el fallo: "NLP Errors (0)" se lee como
@@ -1275,7 +1275,7 @@ export default function AdminOperacionPage() {
           className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
             tab === 'tickets'
               ? 'bg-primary/20 text-primary-ink'
-              : 'text-foreground/50 hover:text-foreground'
+              : 'text-muted-foreground hover:text-foreground'
           }`}
         >
           Tickets (
@@ -1309,7 +1309,7 @@ export default function AdminOperacionPage() {
               />
               <button
                 onClick={handleExportCSV}
-                className="rounded-lg border border-border bg-foreground/[0.03] px-4 py-2.5 text-sm text-foreground/70 hover:bg-foreground/5 hover:text-foreground transition-colors"
+                className="rounded-lg border border-border bg-foreground/[0.03] px-4 py-2.5 text-sm text-foreground-soft hover:bg-foreground/5 hover:text-foreground transition-colors"
               >
                 Exportar CSV
               </button>
@@ -1366,7 +1366,7 @@ export default function AdminOperacionPage() {
               {(userPlanFilter !== 'todos' || userOnboardingFilter !== 'todos' || userGmailFilter !== 'todos' || userWebappFilter !== 'todos' || userCanalFilter !== 'todos') && (
                 <button
                   onClick={() => { setUserPlanFilter('todos'); setUserOnboardingFilter('todos'); setUserGmailFilter('todos'); setUserWebappFilter('todos'); setUserCanalFilter('todos'); }}
-                  className="rounded-lg border border-border px-3 py-2 text-xs text-foreground/50 hover:bg-foreground/5 hover:text-foreground"
+                  className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
                 >
                   Limpiar filtros
                 </button>
@@ -1390,15 +1390,15 @@ export default function AdminOperacionPage() {
             <table className="w-full text-sm">
               <thead className="sticky top-0 z-10 bg-card">
                 <tr className="border-b border-border">
-                  <th className="px-4 py-3 text-left text-xs font-medium text-foreground/40">Usuario</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-foreground/40">WhatsApp</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-foreground/40">Plan</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-foreground/40">Pago</th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-foreground/40">Gmail</th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-foreground/40">Webapp</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-foreground/40">Txs</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-foreground/40">Canal</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-foreground/40">Registro</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Usuario</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">WhatsApp</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Plan</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Pago</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-muted-foreground">Gmail</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-muted-foreground">Webapp</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-muted-foreground">Txs</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Canal</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Registro</th>
                   <th className="w-10 px-2 py-3" />
                 </tr>
               </thead>
@@ -1415,26 +1415,26 @@ export default function AdminOperacionPage() {
                   <tr key={u.id} className="hover:bg-foreground/[0.02] transition-colors">
                     <td className="px-4 py-3">
                       <div className="font-medium">{u.nombre || 'Sin nombre'}</div>
-                      <div className="text-xs text-foreground/40">{u.email || '—'}</div>
+                      <div className="text-xs text-muted-foreground">{u.email || '—'}</div>
                     </td>
                     <td className="px-4 py-3 font-mono text-xs">{u.whatsapp}</td>
                     <td className="px-4 py-3">
                       <PlanBadge estado={estadoComercial(u)} bajaAt={u.cuenta_borrada_at} />
                       {/* El tipo de plan es del que PAGA: "Anual" sobre una prueba no significa nada. */}
                       {estadoComercial(u) === 'pro_pagado' && (
-                        <div className="mt-1 text-[10px] uppercase tracking-wide text-foreground/40">
+                        <div className="mt-1 text-[10px] uppercase tracking-wide text-muted-foreground">
                           {u.tipo_plan === 'anual' ? 'Anual' : 'Mensual'}
                         </div>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-xs text-foreground/50">
+                    <td className="px-4 py-3 text-xs text-muted-foreground">
                       {estadoComercial(u) === 'pro_pagado' ? (
                         <div>
                           <div>{u.fecha_pago ? `Pagó ${formatDate(u.fecha_pago)}` : (u.estado_pago || '—')}</div>
                           {u.premium_vence && (() => {
                             const daysLeft = Math.ceil((new Date(u.premium_vence).getTime() - Date.now()) / 86400000);
                             return (
-                              <div className={daysLeft <= 7 ? 'text-negative font-medium' : 'text-foreground/30'}>
+                              <div className={daysLeft <= 7 ? 'text-negative font-medium' : 'text-muted-foreground'}>
                                 {daysLeft <= 0 ? 'Vencido' : daysLeft <= 7 ? `Vence en ${daysLeft}d` : `Vence: ${formatDate(u.premium_vence)}`}
                               </div>
                             );
@@ -1450,7 +1450,7 @@ export default function AdminOperacionPage() {
                     <td className="px-4 py-3 text-center"><StatusDot active={u.tiene_webapp} /></td>
                     <td className="px-4 py-3 text-right font-mono text-xs">{u.transacciones}</td>
                     <td className="px-4 py-3"><CanalBadge canal={u.canal} /></td>
-                    <td className="px-4 py-3 text-xs text-foreground/40">{formatDateTime(u.created_at)}</td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">{formatDateTime(u.created_at)}</td>
                     <td className="px-2 py-3"><UserActions user={u} onAction={handleUserAction} /></td>
                   </tr>
                 ))}
@@ -1467,7 +1467,7 @@ export default function AdminOperacionPage() {
                 <div className="flex items-start justify-between">
                   <div>
                     <div className="font-medium">{u.nombre || 'Sin nombre'}</div>
-                    <div className="text-xs text-foreground/40">{u.email || '—'}</div>
+                    <div className="text-xs text-muted-foreground">{u.email || '—'}</div>
                   </div>
                   <div className="flex items-center gap-2">
                     <PlanBadge estado={estadoComercial(u)} bajaAt={u.cuenta_borrada_at} />
@@ -1475,21 +1475,21 @@ export default function AdminOperacionPage() {
                   </div>
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                  <div><span className="text-foreground/40">WhatsApp:</span> <span className="font-mono">{u.whatsapp}</span></div>
-                  <div><span className="text-foreground/40">Txs:</span> {u.transacciones}</div>
-                  <div className="flex items-center gap-1.5"><StatusDot active={u.tiene_gmail} warn={u.gmail_caido} title={gmailTitle(u)} /><span className="text-foreground/40">Gmail</span></div>
-                  <div className="flex items-center gap-1.5"><StatusDot active={u.tiene_webapp} /><span className="text-foreground/40">Webapp</span></div>
+                  <div><span className="text-muted-foreground">WhatsApp:</span> <span className="font-mono">{u.whatsapp}</span></div>
+                  <div><span className="text-muted-foreground">Txs:</span> {u.transacciones}</div>
+                  <div className="flex items-center gap-1.5"><StatusDot active={u.tiene_gmail} warn={u.gmail_caido} title={gmailTitle(u)} /><span className="text-muted-foreground">Gmail</span></div>
+                  <div className="flex items-center gap-1.5"><StatusDot active={u.tiene_webapp} /><span className="text-muted-foreground">Webapp</span></div>
                   <div className="flex items-center gap-1.5"><CanalBadge canal={u.canal} /></div>
                   {estadoComercial(u) === 'pro_pagado' && u.premium_vence && (() => {
                     const daysLeft = Math.ceil((new Date(u.premium_vence).getTime() - Date.now()) / 86400000);
                     return (
                       <div className={`col-span-2 ${daysLeft <= 7 ? 'text-negative font-medium' : ''}`}>
-                        <span className="text-foreground/40">Vence:</span>{' '}
+                        <span className="text-muted-foreground">Vence:</span>{' '}
                         {daysLeft <= 0 ? 'Vencido' : daysLeft <= 7 ? `en ${daysLeft} dias` : formatDate(u.premium_vence)}
                       </div>
                     );
                   })()}
-                  <div className="col-span-2 text-foreground/30">Registro: {formatDateTime(u.created_at)}</div>
+                  <div className="col-span-2 text-muted-foreground">Registro: {formatDateTime(u.created_at)}</div>
                 </div>
               </div>
             ))}
@@ -1581,7 +1581,7 @@ export default function AdminOperacionPage() {
               {(nlpSearch || nlpTipoFilter !== 'all' || nlpUserFilter !== 'all') && (
                 <button
                   onClick={() => { setNlpSearch(''); setNlpTipoFilter('all'); setNlpUserFilter('all'); }}
-                  className="rounded-lg border border-border px-3 py-2 text-xs text-foreground/50 hover:bg-foreground/5 hover:text-foreground"
+                  className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
                 >
                   Limpiar filtros
                 </button>
@@ -1591,7 +1591,7 @@ export default function AdminOperacionPage() {
             {/* Este contador quedaba FUERA del ternario de abajo, así que con la lectura
                 caída imprimía "0 de 0 errores NLP reales" justo encima del ErrorState que
                 dice que falló: la página se contradecía en dos líneas seguidas. */}
-            <div className="flex flex-wrap items-center gap-2 text-xs text-foreground/40">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
               {nlpFallo ? (
                 <span>No se pudo leer el conteo de {esFeedback ? 'los mensajes' : 'errores NLP'}</span>
               ) : (
@@ -1599,7 +1599,7 @@ export default function AdminOperacionPage() {
               )}
               {/* El rate-limit es infra del parser: no tiene nada que hacer en Feedback. */}
               {!nlpFallo && !esFeedback && nlpRateLimit > 0 && (
-                <span className="rounded-full bg-foreground/5 px-2 py-0.5 text-foreground/50" title="Errores 429 de OpenAI (saturación de tokens). Es infra, no NLP. Se muestran aparte.">
+                <span className="rounded-full bg-foreground/5 px-2 py-0.5 text-muted-foreground" title="Errores 429 de OpenAI (saturación de tokens). Es infra, no NLP. Se muestran aparte.">
                   + {nlpRateLimit} rate-limit (infra, oculto)
                 </span>
               )}
@@ -1610,7 +1610,7 @@ export default function AdminOperacionPage() {
             {!esFeedback && origen.length > 0 && nlpTipoFilter === 'all' && nlpUserFilter === 'all' && !nlpSearch && (
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="glass-card rounded-xl p-4">
-                  <h4 className="mb-2 text-xs font-medium text-foreground/50">Top 5 mensajes que fallan</h4>
+                  <h4 className="mb-2 text-xs font-medium text-muted-foreground">Top 5 mensajes que fallan</h4>
                   {(() => {
                     const msgCounts: Record<string, number> = {};
                     for (const err of nlpErrors) {
@@ -1624,8 +1624,8 @@ export default function AdminOperacionPage() {
                         {sorted.map(([msg, count]) => (
                           <div key={msg}>
                             <div className="flex items-center justify-between text-xs">
-                              <span className="max-w-[200px] truncate text-foreground/60">&ldquo;{msg}&rdquo;</span>
-                              <span className="font-mono text-foreground/40">{count}x</span>
+                              <span className="max-w-[200px] truncate text-muted-foreground">&ldquo;{msg}&rdquo;</span>
+                              <span className="font-mono text-muted-foreground">{count}x</span>
                             </div>
                             <div className="mt-0.5 h-1 w-full overflow-hidden rounded-full bg-foreground/5">
                               <div className="h-full rounded-full bg-negative/60" style={{ width: `${(count / maxCount) * 100}%` }} />
@@ -1638,7 +1638,7 @@ export default function AdminOperacionPage() {
                 </div>
 
                 <div className="glass-card rounded-xl p-4">
-                  <h4 className="mb-2 text-xs font-medium text-foreground/50">Errores por tipo</h4>
+                  <h4 className="mb-2 text-xs font-medium text-muted-foreground">Errores por tipo</h4>
                   {(() => {
                     const tipoCounts: Record<string, number> = {};
                     for (const err of nlpErrors) {
@@ -1651,7 +1651,7 @@ export default function AdminOperacionPage() {
                             <span className={`rounded-full px-2 py-0.5 ${
                               tipo === 'error' ? 'bg-negative/10 text-negative-ink' : 'bg-warning/10 text-warning-ink'
                             }`}>{tipo}</span>
-                            <span className="font-mono text-foreground/40">{count}</span>
+                            <span className="font-mono text-muted-foreground">{count}</span>
                           </div>
                         ))}
                       </div>
@@ -1693,12 +1693,12 @@ export default function AdminOperacionPage() {
                           err.error_tipo === 'error' ? 'bg-negative/10 text-negative-ink' : 'bg-warning/10 text-warning-ink'
                         }`}>{err.error_tipo}</span>
                         {err.intencion && (
-                          <span className="rounded-full bg-foreground/5 px-2 py-0.5 text-foreground/50">Intento: {err.intencion}</span>
+                          <span className="rounded-full bg-foreground/5 px-2 py-0.5 text-muted-foreground">Intento: {err.intencion}</span>
                         )}
                         {err.whatsapp && (
                           <button
                             onClick={() => setNlpUserFilter(err.whatsapp!)}
-                            className="font-mono text-foreground/30 hover:text-primary transition-colors"
+                            className="font-mono text-muted-foreground hover:text-primary transition-colors"
                             title="Filtrar por este usuario"
                           >
                             {whatsappToName[err.whatsapp] || err.whatsapp}
@@ -1706,7 +1706,7 @@ export default function AdminOperacionPage() {
                         )}
                       </div>
                       {err.error_detalle && (
-                        <div className="mt-1 text-xs text-foreground/30">{err.error_detalle}</div>
+                        <div className="mt-1 text-xs text-muted-foreground">{err.error_detalle}</div>
                       )}
 
                       {/* Solo lo que ESPERA respuesta. Un rate-limit o un "desconocido" son
@@ -1726,7 +1726,7 @@ export default function AdminOperacionPage() {
                               />
                               {/* El checkbox murió: el ticket se crea siempre (es el registro),
                                   y la escucha se cierra sola por inactividad. */}
-                              <p className="text-xs text-foreground/40">
+                              <p className="text-xs text-muted-foreground">
                                 Le llega por WhatsApp como Neto y queda guardado en el hilo. Lo que conteste en las
                                 próximas 2 horas te vuelve acá; después su asistente sigue normal.
                               </p>
@@ -1740,7 +1740,7 @@ export default function AdminOperacionPage() {
                                 </button>
                                 <button
                                   onClick={() => setNlpReplyTo(null)}
-                                  className="rounded-lg bg-foreground/5 px-3 py-1.5 text-xs text-foreground/60 hover:bg-foreground/10 transition-colors"
+                                  className="rounded-lg bg-foreground/5 px-3 py-1.5 text-xs text-muted-foreground hover:bg-foreground/10 transition-colors"
                                 >
                                   Cancelar
                                 </button>
@@ -1749,7 +1749,7 @@ export default function AdminOperacionPage() {
                           ) : (
                             <button
                               onClick={() => { setNlpReplyTo(err.id); setNlpReplyText(''); }}
-                              className="rounded-lg bg-foreground/5 px-3 py-1.5 text-xs text-foreground/70 hover:bg-foreground/10 transition-colors"
+                              className="rounded-lg bg-foreground/5 px-3 py-1.5 text-xs text-foreground-soft hover:bg-foreground/10 transition-colors"
                             >
                               Responder como Neto
                             </button>
@@ -1757,7 +1757,7 @@ export default function AdminOperacionPage() {
                         </div>
                       )}
                     </div>
-                    <div className="ml-3 whitespace-nowrap text-xs text-foreground/30">{formatDateTime(err.created_at)}</div>
+                    <div className="ml-3 whitespace-nowrap text-xs text-muted-foreground">{formatDateTime(err.created_at)}</div>
                   </div>
                 </div>
               ))
@@ -1776,7 +1776,7 @@ export default function AdminOperacionPage() {
             esperando_mensaje: 'bg-warning/10 text-warning-ink',
             pendiente: 'bg-warning/10 text-warning-ink',
             respondido: 'bg-primary/10 text-primary-ink',
-            cerrado: 'bg-foreground/5 text-foreground/40',
+            cerrado: 'bg-foreground/5 text-muted-foreground',
           };
           const labels: Record<string, string> = {
             esperando_mensaje: 'Esperando',
@@ -1785,7 +1785,7 @@ export default function AdminOperacionPage() {
             cerrado: 'Cerrado',
           };
           return (
-            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${styles[estado] || 'bg-foreground/5 text-foreground/40'}`}>
+            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${styles[estado] || 'bg-foreground/5 text-muted-foreground'}`}>
               {labels[estado] || estado}
             </span>
           );
@@ -1820,14 +1820,14 @@ export default function AdminOperacionPage() {
               {(ticketSearch || ticketEstadoFilter !== 'todos') && (
                 <button
                   onClick={() => { setTicketSearch(''); setTicketEstadoFilter('todos'); setTicketPage(0); }}
-                  className="rounded-lg border border-border px-3 py-2 text-xs text-foreground/50 hover:bg-foreground/5 hover:text-foreground"
+                  className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
                 >
                   Limpiar filtros
                 </button>
               )}
             </div>
 
-            <div className="text-xs text-foreground/40">
+            <div className="text-xs text-muted-foreground">
               {ticketsFallo ? (
                 'No se pudo leer el conteo de tickets'
               ) : (
@@ -1857,12 +1857,12 @@ export default function AdminOperacionPage() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-border bg-foreground/[0.02]">
-                        <th className="px-4 py-3 text-left text-xs font-medium text-foreground/40">Usuario</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-foreground/40">WhatsApp</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-foreground/40">Mensaje</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-foreground/40">Estado</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-foreground/40">Fecha</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-foreground/40">Acciones</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Usuario</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">WhatsApp</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Mensaje</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Estado</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Fecha</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Acciones</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
@@ -1873,13 +1873,13 @@ export default function AdminOperacionPage() {
                           </td>
                           <td className="px-4 py-3 font-mono text-xs">{t.whatsapp || '—'}</td>
                           <td className="max-w-xs px-4 py-3">
-                            <div className="truncate text-sm">{t.mensaje_usuario || <span className="text-foreground/30">(sin mensaje aún)</span>}</div>
+                            <div className="truncate text-sm">{t.mensaje_usuario || <span className="text-muted-foreground">(sin mensaje aún)</span>}</div>
                             {t.mensaje_admin && (
                               <div className="mt-1 truncate text-xs text-primary/70">Respuesta: {t.mensaje_admin}</div>
                             )}
                           </td>
                           <td className="px-4 py-3">{estadoBadge(t.estado)}</td>
-                          <td className="px-4 py-3 text-xs text-foreground/40 whitespace-nowrap">{formatDateTime(t.created_at)}</td>
+                          <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{formatDateTime(t.created_at)}</td>
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-2">
                               {t.estado !== 'cerrado' && (
@@ -1893,7 +1893,7 @@ export default function AdminOperacionPage() {
                               {t.estado !== 'cerrado' && (
                                 <button
                                   onClick={() => handleTicketEstado(t.id, 'cerrado')}
-                                  className="rounded-md px-2 py-1 text-xs text-foreground/40 hover:bg-foreground/5 transition-colors"
+                                  className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-foreground/5 transition-colors"
                                 >
                                   Cerrar
                                 </button>
@@ -1937,14 +1937,14 @@ export default function AdminOperacionPage() {
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
                           <div className="text-sm font-medium">{t.whatsapp ? (whatsappToName[t.whatsapp] || t.whatsapp) : 'Sin usuario'}</div>
-                          <div className="mt-1 text-sm text-foreground/70">{t.mensaje_usuario || <span className="text-foreground/30">(sin mensaje aún)</span>}</div>
+                          <div className="mt-1 text-sm text-foreground-soft">{t.mensaje_usuario || <span className="text-muted-foreground">(sin mensaje aún)</span>}</div>
                           {t.mensaje_admin && (
                             <div className="mt-1 text-xs text-primary/70">Respuesta: {t.mensaje_admin}</div>
                           )}
                         </div>
                         <div className="ml-2">{estadoBadge(t.estado)}</div>
                       </div>
-                      <div className="mt-2 flex items-center justify-between text-xs text-foreground/30">
+                      <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
                         <span>{formatDateTime(t.created_at)}</span>
                         <div className="flex gap-2">
                           {t.estado !== 'cerrado' && (
@@ -1958,7 +1958,7 @@ export default function AdminOperacionPage() {
                           {t.estado !== 'cerrado' && (
                             <button
                               onClick={() => handleTicketEstado(t.id, 'cerrado')}
-                              className="text-foreground/40 hover:text-foreground"
+                              className="text-muted-foreground hover:text-foreground"
                             >
                               Cerrar
                             </button>
@@ -1999,17 +1999,17 @@ export default function AdminOperacionPage() {
                     <button
                       onClick={() => setTicketPage(Math.max(0, ticketPage - 1))}
                       disabled={ticketPage === 0}
-                      className="rounded-lg border border-border px-3 py-1.5 text-xs text-foreground/50 hover:bg-foreground/5 disabled:opacity-30"
+                      className="rounded-lg border border-border px-3 py-1.5 text-xs text-muted-foreground hover:bg-foreground/5 disabled:opacity-30"
                     >
                       Anterior
                     </button>
-                    <span className="text-xs text-foreground/40">
+                    <span className="text-xs text-muted-foreground">
                       Pagina {ticketPage + 1} de {totalPages}
                     </span>
                     <button
                       onClick={() => setTicketPage(Math.min(totalPages - 1, ticketPage + 1))}
                       disabled={ticketPage >= totalPages - 1}
-                      className="rounded-lg border border-border px-3 py-1.5 text-xs text-foreground/50 hover:bg-foreground/5 disabled:opacity-30"
+                      className="rounded-lg border border-border px-3 py-1.5 text-xs text-muted-foreground hover:bg-foreground/5 disabled:opacity-30"
                     >
                       Siguiente
                     </button>

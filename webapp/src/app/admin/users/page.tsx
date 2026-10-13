@@ -80,7 +80,7 @@ const ESTADO_TONE: Record<EstadoComercial, string> = {
   pago_pendiente: 'var(--primary)',
   trial: 'var(--warning)',
   muro_vencido: 'var(--negative)',
-  muro_ex_pagador: 'var(--chart-8)',
+  muro_ex_pagador: 'var(--foreground-soft)',
   sin_estrenar: 'var(--muted-foreground)',
 };
 

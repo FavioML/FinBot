@@ -387,7 +387,7 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
               inputMode="decimal"
               className="min-w-0 bg-transparent border-0 outline-none text-[40px] font-bold tracking-tight leading-none text-foreground placeholder:text-muted-foreground focus:outline-none focus-visible:outline-none focus:ring-0"
               style={{
-                color: isIngreso ? 'var(--positive)' : 'var(--foreground)',
+                color: isIngreso ? 'var(--positive-ink)' : 'var(--foreground)',
                 width: '100%',
                 minWidth: 0,
                 maxWidth: '100%',

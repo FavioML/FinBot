@@ -11,6 +11,7 @@ import {
 } from 'recharts';
 import { motion } from 'motion/react';
 import { formatCurrency } from '@/lib/utils';
+import { tinta } from '@/lib/colores';
 import type { TendenciaMensual } from '@/lib/types';
 import type { ChartTooltipProps } from './chart-types';
 
@@ -24,7 +25,7 @@ function CustomTooltip({ active, payload, label }: ChartTooltipProps<TendenciaMe
     <div className="px-3 py-2.5 text-[12px] shadow-xl rounded-lg border border-border" style={{ background: 'var(--surface-elevated)', backdropFilter: 'blur(12px)' }}>
       <p className="font-medium text-foreground mb-1">{label}</p>
       {payload.map((entry) => (
-        <p key={entry.dataKey} style={{ color: entry.color }}>
+        <p key={entry.dataKey} style={{ color: tinta(entry.color ?? 'var(--foreground)') }}>
           {entry.dataKey === 'ingresos' ? 'Ingresos' : 'Gastos'}:{' '}
           {formatCurrency(entry.value ?? 0)}
         </p>

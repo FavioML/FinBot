@@ -55,7 +55,7 @@ export function QuickActions() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3, delay: i * 0.05 }}
           >
-            <Icon className="h-3.5 w-3.5" style={{ color: isPrimary ? 'white' : action.color }} />
+            <Icon className="h-3.5 w-3.5" style={{ color: isPrimary ? 'var(--primary-foreground)' : action.color }} />
             {action.label}
           </motion.div>
         );

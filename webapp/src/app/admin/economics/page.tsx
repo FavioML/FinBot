@@ -278,7 +278,7 @@ export default function AdminEconomicsPage() {
                   tickLine={false}
                   tickFormatter={(v) => formatPenShort(v)}
                 />
-                <Tooltip
+                <Tooltip itemStyle={{ color: 'var(--foreground)' }}
                   contentStyle={{
                     background: 'var(--surface-elevated)',
                     border: '1px solid var(--border)',
@@ -325,7 +325,7 @@ export default function AdminEconomicsPage() {
                   tickLine={false}
                   allowDecimals={false}
                 />
-                <Tooltip
+                <Tooltip itemStyle={{ color: 'var(--foreground)' }}
                   contentStyle={{
                     background: 'var(--surface-elevated)',
                     border: '1px solid var(--border)',

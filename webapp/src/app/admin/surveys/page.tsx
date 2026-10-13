@@ -791,7 +791,7 @@ function NpsTab({
               <CartesianGrid strokeDasharray="3 3" stroke="color-mix(in srgb, var(--foreground) 5%, transparent)" />
               <XAxis dataKey="score" stroke="var(--muted-foreground)" fontSize={12} />
               <YAxis stroke="var(--muted-foreground)" fontSize={12} allowDecimals={false} />
-              <Tooltip
+              <Tooltip itemStyle={{ color: 'var(--foreground)' }}
                 contentStyle={{
                   background: 'var(--surface-elevated)',
                   border: '1px solid var(--border)',

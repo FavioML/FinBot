@@ -72,10 +72,14 @@ function SectionHeader({ title, subtitle }: { title: string; subtitle: string })
 // ===================================================================
 function retentionCellStyle(rate: number | null): React.CSSProperties {
   if (rate === null) return { background: 'transparent', color: 'var(--muted-foreground)' };
-  const alpha = Math.min(0.9, 0.06 + (rate / 100) * 0.7);
+  // El texto va siempre en `foreground` y el tinte se topa en 45%. Con el corte viejo (texto en
+  // `background` desde 45%) las celdas medias quedaban a 1.8:1 en claro, y en oscuro hay una franja
+  // (tinte 50-60%) donde ni el texto claro ni el oscuro llegan a 4.5:1. Con el tope: >= 5:1 en oscuro
+  // y >= 9:1 en claro, medido el 12-oct-2026.
+  const alpha = 0.06 + (Math.min(100, Math.max(0, rate)) / 100) * 0.39;
   return {
     background: `color-mix(in srgb, var(--primary) ${(alpha * 100).toFixed(1)}%, transparent)`,
-    color: rate >= 45 ? 'var(--background)' : 'var(--foreground)',
+    color: 'var(--foreground)',
   };
 }
 
@@ -182,7 +186,7 @@ function EngagementSection({ engagement }: { engagement: AdminEngagement }) {
               <CartesianGrid strokeDasharray="3 3" stroke="color-mix(in srgb, var(--foreground) 5%, transparent)" />
               <XAxis dataKey="bucket" stroke="var(--muted-foreground)" fontSize={12} />
               <YAxis stroke="var(--muted-foreground)" fontSize={12} allowDecimals={false} />
-              <Tooltip
+              <Tooltip itemStyle={{ color: 'var(--foreground)' }}
                 cursor={{ fill: 'color-mix(in srgb, var(--foreground) 3%, transparent)' }}
                 contentStyle={{
                   background: 'var(--surface-elevated)',
