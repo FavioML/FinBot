@@ -543,10 +543,10 @@ export default function DashboardPage() {
                   style={{ backgroundColor: 'color-mix(in srgb, var(--warning) 6%, transparent)', border: '1px solid color-mix(in srgb, var(--warning) 12%, transparent)' }}
                 >
                   <AlertTriangle className="h-4 w-4 shrink-0 text-warning" />
-                  <span className="text-sm text-warning-ink">
+                  <span className="min-w-0 text-sm text-warning-ink">
                     {recentAlerts.length} fuga{recentAlerts.length > 1 ? 's' : ''} detectada{recentAlerts.length > 1 ? 's' : ''} recientemente
                   </span>
-                  <span className="ml-auto text-xs text-muted-foreground">Ver →</span>
+                  <span className="ml-auto shrink-0 whitespace-nowrap text-xs text-muted-foreground">Ver →</span>
                 </Link>
               </FadeIn>
             );

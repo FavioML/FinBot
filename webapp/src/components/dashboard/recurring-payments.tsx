@@ -180,12 +180,16 @@ export function RecurringPayments({ transactions }: RecurringPaymentsProps) {
       transition={{ duration: 0.5, delay: 0.35 }}
     >
       <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <Repeat className="h-4 w-4 text-muted-foreground" />
-          <h3 className="text-sm font-medium md:text-base md:font-semibold text-foreground-soft">Pagos recurrentes</h3>
+        {/* En celular el total va debajo del título: al lado no entran los dos sin partirse. */}
+        <div className="flex min-w-0 items-center gap-2">
+          <Repeat className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <div className="min-w-0">
+            <h3 className="text-sm font-medium md:text-base md:font-semibold text-foreground-soft">Pagos recurrentes</h3>
+            <p className="whitespace-nowrap text-xs text-muted-foreground md:hidden">~{formatCurrency(totalMonthly)}/mes</p>
+          </div>
         </div>
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-muted-foreground">~{formatCurrency(totalMonthly)}/mes</span>
+        <div className="flex shrink-0 items-center gap-3">
+          <span className="hidden whitespace-nowrap text-xs text-muted-foreground md:inline">~{formatCurrency(totalMonthly)}/mes</span>
           <button
             onClick={() => setAddOpen(true)}
             aria-label="Marcar un pago como recurrente"
