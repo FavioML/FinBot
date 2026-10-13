@@ -25,7 +25,7 @@ export function AdminHeaderNav() {
       )}
       <Link
         href="/dashboard"
-        className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground-soft transition-colors hover:text-foreground"
+        className="inline-flex items-center rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground-soft transition-colors hover:text-foreground"
       >
         <span className="hidden sm:inline">Volver al dashboard</span>
         <span className="sm:hidden">Dashboard</span>
