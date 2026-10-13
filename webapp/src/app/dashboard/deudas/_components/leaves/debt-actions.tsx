@@ -25,7 +25,7 @@ export function DebtActions({
     return (
       <button
         onClick={() => handlers.onDelete(debt)}
-        className={`${btnCls} rounded-lg text-[#8A877D] hover:text-[#D85A30] hover:bg-[rgba(216,90,48,0.08)] transition-colors`}
+        className={`${btnCls} rounded-lg text-muted-foreground hover:text-negative hover:bg-negative/8 transition-colors`}
         title="Eliminar"
       >
         <Trash2 className={iconCls} />
@@ -37,7 +37,7 @@ export function DebtActions({
     <div className="flex items-center gap-1">
       <button
         onClick={() => handlers.onAbonar(debt)}
-        className="px-2.5 py-1 rounded-lg text-xs font-medium bg-[rgba(29,158,117,0.12)] text-[#1D9E75] hover:bg-[rgba(29,158,117,0.2)] transition-colors"
+        className="px-2.5 py-1 rounded-lg text-xs font-medium bg-primary/12 text-primary-ink hover:bg-primary/20 transition-colors"
         title="Registrar abono"
       >
         Abonar
@@ -47,8 +47,8 @@ export function DebtActions({
           onClick={() => handlers.onShare(debt)}
           className={`${btnCls} rounded-lg transition-colors ${
             debt.invite_code
-              ? 'text-[#1D9E75] hover:bg-[rgba(29,158,117,0.08)]'
-              : 'text-[#8A877D] hover:text-[#1D9E75] hover:bg-[rgba(29,158,117,0.08)]'
+              ? 'text-primary-ink hover:bg-primary/8'
+              : 'text-muted-foreground hover:text-primary hover:bg-primary/8'
           }`}
           title={debt.invite_code ? 'Copiar link de cobro' : 'Generar link de cobro'}
         >
@@ -57,21 +57,21 @@ export function DebtActions({
       )}
       <button
         onClick={() => handlers.onEdit(debt)}
-        className={`${btnCls} rounded-lg text-[#8A877D] hover:text-[#EF9F27] hover:bg-[rgba(239,159,39,0.08)] transition-colors`}
+        className={`${btnCls} rounded-lg text-muted-foreground hover:text-warning hover:bg-warning/8 transition-colors`}
         title="Editar"
       >
         <Pencil className={iconCls} />
       </button>
       <button
         onClick={() => handlers.onMarkPaid(debt)}
-        className={`${btnCls} rounded-lg text-[#8A877D] hover:text-[#1D9E75] hover:bg-[rgba(29,158,117,0.08)] transition-colors`}
+        className={`${btnCls} rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/8 transition-colors`}
         title="Marcar como saldada"
       >
         <Check className={iconCls} />
       </button>
       <button
         onClick={() => handlers.onDelete(debt)}
-        className={`${btnCls} rounded-lg text-[#8A877D] hover:text-[#D85A30] hover:bg-[rgba(216,90,48,0.08)] transition-colors`}
+        className={`${btnCls} rounded-lg text-muted-foreground hover:text-negative hover:bg-negative/8 transition-colors`}
         title="Eliminar"
       >
         <Trash2 className={iconCls} />

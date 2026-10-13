@@ -27,10 +27,10 @@ export function diasHastaVencimiento(debt: Deuda): number | null {
 export function getVencimientoBadge(debt: Deuda): VencBadge | null {
   const diffDays = diasHastaVencimiento(debt);
   if (diffDays === null) return null;
-  if (diffDays < 0) return { label: `Vencida hace ${Math.abs(diffDays)}d`, color: '#D85A30', bgColor: 'rgba(216,90,48,0.12)', priority: 0 };
-  if (diffDays === 0) return { label: 'Vence hoy', color: '#D85A30', bgColor: 'rgba(216,90,48,0.12)', priority: 1 };
-  if (diffDays <= 3) return { label: `Vence en ${diffDays}d`, color: '#EF9F27', bgColor: 'rgba(239,159,39,0.12)', priority: 2 };
-  if (diffDays <= 7) return { label: `Vence en ${diffDays}d`, color: '#8A877D', bgColor: 'rgba(138,135,125,0.1)', priority: 3 };
+  if (diffDays < 0) return { label: `Vencida hace ${Math.abs(diffDays)}d`, color: 'var(--negative)', bgColor: 'color-mix(in srgb, var(--negative) 12%, transparent)', priority: 0 };
+  if (diffDays === 0) return { label: 'Vence hoy', color: 'var(--negative)', bgColor: 'color-mix(in srgb, var(--negative) 12%, transparent)', priority: 1 };
+  if (diffDays <= 3) return { label: `Vence en ${diffDays}d`, color: 'var(--warning)', bgColor: 'color-mix(in srgb, var(--warning) 12%, transparent)', priority: 2 };
+  if (diffDays <= 7) return { label: `Vence en ${diffDays}d`, color: 'var(--muted-foreground)', bgColor: 'color-mix(in srgb, var(--muted-foreground) 10%, transparent)', priority: 3 };
   return null;
 }
 

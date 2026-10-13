@@ -8,8 +8,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import type { Deuda, Frecuencia } from '@/lib/hooks/use-debts';
 import { monedaSym } from '../../_lib/debt-helpers';
 
-const INPUT_CLS = 'w-full rounded-lg bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.08)] px-3 py-2 text-sm text-[#F0EFE8] placeholder:text-[#8A877D] outline-none focus:border-[#1D9E75]';
-const LABEL_CLS = 'text-xs text-[#8A877D] mb-1.5 block';
+const INPUT_CLS = 'w-full rounded-lg bg-foreground/4 border border-border px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary';
+const LABEL_CLS = 'text-xs text-muted-foreground mb-1.5 block';
 
 export interface NuevaDeudaPayload {
   tipo: 'debo' | 'me_deben';
@@ -91,7 +91,7 @@ export function NuevaDeudaDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="glass-card-elevated text-[#F0EFE8] max-w-md">
+      <DialogContent className="glass-card-elevated text-foreground max-w-md">
         <DialogHeader>
           <DialogTitle>Nueva deuda</DialogTitle>
         </DialogHeader>
@@ -106,9 +106,9 @@ export function NuevaDeudaDialog({
                   className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${
                     tipo === t
                       ? t === 'debo'
-                        ? 'bg-[rgba(216,90,48,0.15)] text-[#D85A30] ring-1 ring-[#D85A30]/40'
-                        : 'bg-[rgba(29,158,117,0.15)] text-[#1D9E75] ring-1 ring-[#1D9E75]/40'
-                      : 'bg-[rgba(255,255,255,0.04)] text-[#8A877D] hover:text-[#C8C6BC]'
+                        ? 'bg-negative/15 text-negative-ink ring-1 ring-negative/40'
+                        : 'bg-primary/15 text-primary-ink ring-1 ring-primary/40'
+                      : 'bg-foreground/4 text-muted-foreground hover:text-foreground-soft'
                   }`}
                 >
                   {t === 'debo' ? '📤 Yo debo' : '📥 Me deben'}
@@ -158,14 +158,14 @@ export function NuevaDeudaDialog({
             <input type="date" value={fechaVencimiento} onChange={(e) => setFechaVencimiento(e.target.value)} className={INPUT_CLS} />
           </div>
 
-          <div className="rounded-lg border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.02)] p-3 space-y-3">
+          <div className="rounded-lg border border-border bg-foreground/2 p-3 space-y-3">
             <label className="flex items-start gap-2 cursor-pointer">
-              <input type="checkbox" checked={esRecurrente} onChange={(e) => setEsRecurrente(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[#1D9E75]" />
+              <input type="checkbox" checked={esRecurrente} onChange={(e) => setEsRecurrente(e.target.checked)} className="mt-0.5 h-4 w-4 accent-primary" />
               <span className="flex-1">
-                <span className="text-sm text-[#F0EFE8] font-medium flex items-center gap-1.5">
-                  <Repeat className="h-3.5 w-3.5 text-[#1D9E75]" /> Compromiso recurrente
+                <span className="text-sm text-foreground font-medium flex items-center gap-1.5">
+                  <Repeat className="h-3.5 w-3.5 text-primary" /> Compromiso recurrente
                 </span>
-                <span className="text-xs text-[#8A877D] block mt-0.5">
+                <span className="text-xs text-muted-foreground block mt-0.5">
                   {tipo === 'debo' ? 'Pagas un monto fijo cada periodo (ej: alquiler).' : 'Te pagan un monto fijo cada periodo (ej: mensualidad).'}
                 </span>
               </span>
@@ -182,7 +182,7 @@ export function NuevaDeudaDialog({
                         type="button"
                         onClick={() => setFrecuencia(f)}
                         className={`py-1.5 rounded-md text-xs font-medium transition-all ${
-                          frecuencia === f ? 'bg-[#1D9E75] text-white' : 'bg-[rgba(255,255,255,0.04)] text-[#8A877D] hover:text-[#C8C6BC]'
+                          frecuencia === f ? 'bg-primary text-primary-foreground' : 'bg-foreground/4 text-muted-foreground hover:text-foreground-soft'
                         }`}
                       >
                         {f === 'semanal' ? 'Semanal' : f === 'quincenal' ? 'Quincenal' : f === 'mensual' ? 'Mensual' : 'Anual'}
@@ -191,10 +191,10 @@ export function NuevaDeudaDialog({
                   </div>
                 </div>
                 <div>
-                  <label className="text-xs text-[#8A877D] mb-1.5 block flex items-center justify-between">
+                  <label className="text-xs text-muted-foreground mb-1.5 block flex items-center justify-between">
                     <span>Hasta</span>
                     {!fechaFin && (
-                      <span className="text-[10px] text-[#1D9E75] flex items-center gap-1">
+                      <span className="text-[10px] text-primary flex items-center gap-1">
                         <InfinityIcon className="h-3 w-3" /> indefinido
                       </span>
                     )}
@@ -202,7 +202,7 @@ export function NuevaDeudaDialog({
                   <div className="flex gap-1.5">
                     <input type="date" value={fechaFin} onChange={(e) => setFechaFin(e.target.value)} className={`flex-1 ${INPUT_CLS}`} />
                     {fechaFin && (
-                      <button type="button" onClick={() => setFechaFin('')} className="px-2 rounded-lg text-xs text-[#8A877D] hover:text-[#C8C6BC] bg-[rgba(255,255,255,0.04)]">
+                      <button type="button" onClick={() => setFechaFin('')} className="px-2 rounded-lg text-xs text-muted-foreground hover:text-foreground-soft bg-foreground/4">
                         Limpiar
                       </button>
                     )}
@@ -213,10 +213,10 @@ export function NuevaDeudaDialog({
           </div>
 
           <div className="flex gap-2 pt-1">
-            <Button onClick={handleSave} className="flex-1 bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90" disabled={isPending}>
+            <Button onClick={handleSave} className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90" disabled={isPending}>
               {isPending ? 'Guardando...' : esRecurrente ? 'Crear compromiso' : 'Registrar deuda'}
             </Button>
-            <Button variant="outline" onClick={() => onOpenChange(false)} className="border-[rgba(255,255,255,0.1)] bg-transparent text-[#C8C6BC]">
+            <Button variant="outline" onClick={() => onOpenChange(false)} className="border-border bg-transparent text-foreground-soft">
               Cancelar
             </Button>
           </div>
@@ -261,14 +261,14 @@ export function AbonoDialog({
 
   return (
     <Dialog open={!!debt} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="glass-card-elevated text-[#F0EFE8] max-w-sm">
+      <DialogContent className="glass-card-elevated text-foreground max-w-sm">
         <DialogHeader>
           <DialogTitle>Registrar abono · {debt?.contraparte}</DialogTitle>
         </DialogHeader>
         {debt && (
           <div className="space-y-4">
-            <p className="text-sm text-[#8A877D]">
-              Pendiente: <span className="text-[#F0EFE8] font-medium">{sym} {Number(debt.monto_pendiente).toFixed(2)}</span>
+            <p className="text-sm text-muted-foreground">
+              Pendiente: <span className="text-foreground font-medium">{sym} {Number(debt.monto_pendiente).toFixed(2)}</span>
             </p>
             <div>
               <label className={LABEL_CLS}>Abono rápido</label>
@@ -281,12 +281,12 @@ export function AbonoDialog({
                       onClick={() => setMontoAbono(val.toFixed(2))}
                       className={`py-2 rounded-lg text-xs font-medium transition-all ${
                         montoAbono === val.toFixed(2)
-                          ? 'bg-[rgba(29,158,117,0.2)] text-[#1D9E75] ring-1 ring-[#1D9E75]/40'
-                          : 'bg-[rgba(255,255,255,0.04)] text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.08)]'
+                          ? 'bg-primary/20 text-primary-ink ring-1 ring-primary/40'
+                          : 'bg-foreground/4 text-foreground-soft hover:bg-foreground/8'
                       }`}
                     >
                       <span className="block text-sm font-bold">{pct}%</span>
-                      <span className="block text-[10px] text-[#8A877D] tabular-nums">{sym} {val.toFixed(2)}</span>
+                      <span className="block text-[10px] text-muted-foreground tabular-nums">{sym} {val.toFixed(2)}</span>
                     </button>
                   );
                 })}
@@ -309,10 +309,10 @@ export function AbonoDialog({
               <input type="text" value={notaAbono} onChange={(e) => setNotaAbono(e.target.value)} placeholder="Ej: transferencia BCP" className={INPUT_CLS} />
             </div>
             <div className="flex gap-2">
-              <Button onClick={handlePay} className="flex-1 bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90" disabled={isPending}>
+              <Button onClick={handlePay} className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90" disabled={isPending}>
                 {isPending ? 'Registrando...' : 'Registrar abono'}
               </Button>
-              <Button variant="outline" onClick={onClose} className="border-[rgba(255,255,255,0.1)] bg-transparent text-[#C8C6BC]">
+              <Button variant="outline" onClick={onClose} className="border-border bg-transparent text-foreground-soft">
                 Cancelar
               </Button>
             </div>
@@ -337,16 +337,16 @@ export function EliminarDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="glass-card-elevated text-[#F0EFE8] max-w-sm">
+      <DialogContent className="glass-card-elevated text-foreground max-w-sm">
         <DialogHeader>
           <DialogTitle>Eliminar deuda</DialogTitle>
         </DialogHeader>
-        <p className="text-sm text-[#8A877D]">Esta acción no se puede deshacer.</p>
+        <p className="text-sm text-muted-foreground">Esta acción no se puede deshacer.</p>
         <div className="flex gap-2 pt-2">
-          <Button onClick={onConfirm} className="flex-1 bg-[#D85A30] text-white hover:bg-[#D85A30]/90" disabled={isPending}>
+          <Button onClick={onConfirm} className="flex-1 bg-negative text-negative-foreground hover:bg-negative/90" disabled={isPending}>
             {isPending ? 'Eliminando...' : 'Eliminar'}
           </Button>
-          <Button variant="outline" onClick={onClose} className="border-[rgba(255,255,255,0.1)] bg-transparent text-[#C8C6BC]">
+          <Button variant="outline" onClick={onClose} className="border-border bg-transparent text-foreground-soft">
             Cancelar
           </Button>
         </div>
@@ -381,7 +381,7 @@ export function EditarDeudaDialog({
 
   return (
     <Dialog open={!!debt} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="glass-card-elevated text-[#F0EFE8] max-w-md">
+      <DialogContent className="glass-card-elevated text-foreground max-w-md">
         <DialogHeader>
           <DialogTitle>Editar deuda</DialogTitle>
         </DialogHeader>
@@ -402,12 +402,12 @@ export function EditarDeudaDialog({
             <div className="flex gap-2 pt-1">
               <Button
                 onClick={() => onSave({ contraparte: contraparte.trim(), descripcion: descripcion.trim() || null, fecha_vencimiento: fechaVencimiento || null })}
-                className="flex-1 bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90"
+                className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90"
                 disabled={isPending || !contraparte.trim()}
               >
                 {isPending ? 'Guardando...' : 'Guardar cambios'}
               </Button>
-              <Button variant="outline" onClick={onClose} className="border-[rgba(255,255,255,0.1)] bg-transparent text-[#C8C6BC]">
+              <Button variant="outline" onClick={onClose} className="border-border bg-transparent text-foreground-soft">
                 Cancelar
               </Button>
             </div>

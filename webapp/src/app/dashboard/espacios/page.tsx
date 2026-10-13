@@ -85,13 +85,13 @@ export default function EspaciosPage() {
       <FadeIn>
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-[#F0EFE8]">Espacios Compartidos</h1>
-            <p className="text-[#8A877D] text-sm mt-1">Divide gastos con tu pareja, roommates o amigos</p>
+            <h1 className="text-2xl font-bold text-foreground">Espacios Compartidos</h1>
+            <p className="text-muted-foreground text-sm mt-1">Divide gastos con tu pareja, roommates o amigos</p>
           </div>
           <HeaderActions>
             <Button
               onClick={() => spaceLimitReached ? setShowSpaceProGate(true) : setShowCreate(!showCreate)}
-              className="bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 gap-2 shrink-0"
+              className="bg-primary text-primary-foreground hover:bg-primary/90 gap-2 shrink-0"
             >
               <Plus className="w-4 h-4" />
               Nuevo
@@ -110,7 +110,7 @@ export default function EspaciosPage() {
             />
             <button
               onClick={() => setShowSpaceProGate(false)}
-              className="mt-2 text-xs text-[#8A877D] hover:text-[#C8C6BC] transition-colors w-full text-center"
+              className="mt-2 text-xs text-muted-foreground hover:text-foreground-soft transition-colors w-full text-center"
             >
               Cerrar
             </button>
@@ -122,12 +122,12 @@ export default function EspaciosPage() {
       {showCreate && (
         <FadeIn>
           <div className="glass-card p-5 space-y-4">
-            <h2 className="text-sm font-semibold text-[#F0EFE8]">Crear espacio</h2>
+            <h2 className="text-sm font-semibold text-foreground">Crear espacio</h2>
             <Input
               placeholder="Nombre del espacio (ej: Depa 2025)"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
-              className="bg-[rgba(255,255,255,0.04)] border-[rgba(255,255,255,0.08)] text-[#F0EFE8]"
+              className="bg-foreground/4 border-border text-foreground"
             />
             <div className="flex gap-2">
               {(['pareja', 'roommates', 'custom'] as const).map((t) => (
@@ -136,8 +136,8 @@ export default function EspaciosPage() {
                   onClick={() => setNewType(t)}
                   className={`flex-1 py-2 rounded-lg text-xs font-medium transition-colors border ${
                     newType === t
-                      ? 'border-[#1D9E75] bg-[rgba(29,158,117,0.12)] text-[#1D9E75]'
-                      : 'border-[rgba(255,255,255,0.08)] text-[#8A877D]'
+                      ? 'border-primary bg-primary/12 text-primary-ink'
+                      : 'border-border text-muted-foreground'
                   }`}
                 >
                   {TYPE_ICON[t]} {TYPE_LABEL[t]}
@@ -148,11 +148,11 @@ export default function EspaciosPage() {
               <Button
                 onClick={handleCreate}
                 disabled={!newName.trim() || createSpace.isPending}
-                className="bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 flex-1"
+                className="bg-primary text-primary-foreground hover:bg-primary/90 flex-1"
               >
                 {createSpace.isPending ? 'Creando...' : 'Crear'}
               </Button>
-              <Button variant="ghost" onClick={() => setShowCreate(false)} className="text-[#8A877D]">
+              <Button variant="ghost" onClick={() => setShowCreate(false)} className="text-muted-foreground">
                 Cancelar
               </Button>
             </div>
@@ -170,14 +170,14 @@ export default function EspaciosPage() {
       ) : spaces.length === 0 ? (
         <FadeIn delay={0.05}>
           <div className="glass-card p-8 flex flex-col items-center text-center gap-3">
-            <Users className="w-10 h-10 text-[#8A877D]/50" />
-            <h2 className="text-base font-semibold text-[#F0EFE8]">Aún no tienes espacios compartidos</h2>
-            <p className="text-sm text-[#8A877D] max-w-xs">
-              Créalo aquí en la app o por WhatsApp: <span className="text-[#C8C6BC]">"crear espacio Depa"</span>
+            <Users className="w-10 h-10 text-muted-foreground/50" />
+            <h2 className="text-base font-semibold text-foreground">Aún no tienes espacios compartidos</h2>
+            <p className="text-sm text-muted-foreground max-w-xs">
+              Créalo aquí en la app o por WhatsApp: <span className="text-foreground-soft">"crear espacio Depa"</span>
             </p>
             <button
               onClick={() => setShowCreate(true)}
-              className="inline-flex items-center gap-2 rounded-xl bg-[#1D9E75] px-5 py-2.5 text-sm font-medium text-white shadow-lg shadow-[#1D9E75]/20 transition-all hover:bg-[#1D9E75]/90 active:scale-[0.98]"
+              className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground shadow-lg shadow-primary/20 transition-all hover:bg-primary/90 active:scale-[0.98]"
             >
               <Plus className="w-4 h-4" />
               Crear espacio
@@ -189,17 +189,17 @@ export default function EspaciosPage() {
           {spaces.map((space) => (
             <StaggerItem key={space.id}>
               <Link href={`/dashboard/espacios/${space.id}`}>
-                <div className="glass-card p-5 flex items-center justify-between gap-4 hover:bg-[rgba(255,255,255,0.03)] transition-colors cursor-pointer">
+                <div className="glass-card p-5 flex items-center justify-between gap-4 hover:bg-foreground/3 transition-colors cursor-pointer">
                   <div className="flex items-center gap-3">
                     <span className="text-3xl">{TYPE_ICON[space.type] ?? '👥'}</span>
                     <div>
-                      <p className="text-sm font-semibold text-[#F0EFE8]">{space.name}</p>
-                      <p className="text-xs text-[#8A877D]">
+                      <p className="text-sm font-semibold text-foreground">{space.name}</p>
+                      <p className="text-xs text-muted-foreground">
                         {TYPE_LABEL[space.type]} · {space.role === 'owner' ? 'Propietario' : 'Miembro'}
                       </p>
                     </div>
                   </div>
-                  <ArrowRight className="w-4 h-4 text-[#8A877D] shrink-0" />
+                  <ArrowRight className="w-4 h-4 text-muted-foreground shrink-0" />
                 </div>
               </Link>
             </StaggerItem>
@@ -210,8 +210,8 @@ export default function EspaciosPage() {
       {/* Join via code */}
       <FadeIn delay={0.1}>
         <div className="glass-card p-5 space-y-3">
-          <h2 className="text-sm font-semibold text-[#F0EFE8] flex items-center gap-2">
-            <UserPlus className="w-4 h-4 text-[#1D9E75]" />
+          <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <UserPlus className="w-4 h-4 text-primary" />
             Unirse con código
           </h2>
           <div className="flex gap-2">
@@ -219,13 +219,13 @@ export default function EspaciosPage() {
               placeholder="Código de invitación (ej: ABC1234)"
               value={joinCode}
               onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-              className="bg-[rgba(255,255,255,0.04)] border-[rgba(255,255,255,0.08)] text-[#F0EFE8] uppercase"
+              className="bg-foreground/4 border-border text-foreground uppercase"
               onKeyDown={(e) => e.key === 'Enter' && handleJoin()}
             />
             <Button
               onClick={handleJoin}
               disabled={!joinCode.trim() || joinSpace.isPending}
-              className="bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90"
+              className="bg-primary text-primary-foreground hover:bg-primary/90"
             >
               {joinSpace.isPending ? '...' : 'Unirse'}
             </Button>
@@ -236,23 +236,23 @@ export default function EspaciosPage() {
       {/* Pro feature hints */}
       {!isPro && spaces.length > 0 && (
         <FadeIn delay={0.15}>
-          <div className="glass-card p-4 border border-[rgba(29,158,117,0.2)] space-y-2">
-            <p className="text-xs font-semibold text-[#C8C6BC]">Funciones Pro para espacios</p>
+          <div className="glass-card p-4 border border-primary/20 space-y-2">
+            <p className="text-xs font-semibold text-foreground-soft">Funciones Pro para espacios</p>
             <div className="flex flex-wrap gap-x-4 gap-y-2">
               {!canCustomSplit && (
-                <div className="flex items-center gap-1.5 text-xs text-[#8A877D]">
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <span>Split personalizado</span>
                   <ProBadge />
                 </div>
               )}
               {!canSharedBudget && (
-                <div className="flex items-center gap-1.5 text-xs text-[#8A877D]">
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <span>Presupuesto conjunto</span>
                   <ProBadge />
                 </div>
               )}
               {!canFullHistory && (
-                <div className="flex items-center gap-1.5 text-xs text-[#8A877D]">
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <span>Historial completo</span>
                   <ProBadge />
                 </div>

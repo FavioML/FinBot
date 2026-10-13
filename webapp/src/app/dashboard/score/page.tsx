@@ -17,6 +17,7 @@ import { ErrorState } from '@/components/shared/error-state';
 import { FadeIn } from '@/components/shared/motion-wrapper';
 import { ScoreSkeleton } from '@/components/dashboard/skeletons';
 import { HeaderActions } from '@/components/dashboard/topbar';
+import { conAlfa } from '@/lib/colores';
 
 const FACTORS = [
   { key: 'consistency', label: 'Consistencia de registro', description: 'Registras tus gastos con regularidad' },
@@ -28,20 +29,20 @@ const FACTORS = [
 ] as const;
 
 function FactorBar({ label, description, value }: { label: string; description: string; value: number }) {
-  const color = value >= 80 ? '#1D9E75' : value >= 60 ? '#378ADD' : value >= 40 ? '#EF9F27' : '#D85A30';
+  const color = value >= 80 ? 'var(--primary)' : value >= 60 ? 'var(--info)' : value >= 40 ? 'var(--warning)' : 'var(--negative)';
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-sm font-medium text-[#F0EFE8]">{label}</p>
-          <p className="text-xs text-[#8A877D]">{description}</p>
+          <p className="text-sm font-medium text-foreground">{label}</p>
+          <p className="text-xs text-muted-foreground">{description}</p>
         </div>
         <span className="text-sm font-semibold tabular-nums" style={{ color }}>{value}</span>
       </div>
-      <div className="h-2 rounded-full bg-[rgba(255,255,255,0.06)] overflow-hidden">
+      <div className="h-2 rounded-full bg-foreground/6 overflow-hidden">
         <div
           className="h-full rounded-full transition-all duration-700 ease-out"
-          style={{ width: `${value}%`, background: color, boxShadow: `0 0 8px ${color}66` }}
+          style={{ width: `${value}%`, background: color, boxShadow: `0 0 8px ${conAlfa(color, 40)}` }}
         />
       </div>
     </div>
@@ -67,7 +68,7 @@ const FACTOR_LABELS: Record<string, string> = {
 };
 
 function TipsSection({ factors }: { factors?: NetoScoreFactors }) {
-  if (!factors) return <p className="text-[#8A877D] text-sm">Sin datos de factores aún.</p>;
+  if (!factors) return <p className="text-muted-foreground text-sm">Sin datos de factores aún.</p>;
 
   const weak = (Object.entries(factors) as [string, number][])
     .filter(([, v]) => v < 70)
@@ -77,8 +78,8 @@ function TipsSection({ factors }: { factors?: NetoScoreFactors }) {
   if (weak.length === 0) {
     return (
       <div className="flex items-center gap-3 py-2">
-        <PartyPopper className="w-5 h-5 text-[#1D9E75] shrink-0" />
-        <p className="text-sm text-[#C8C6BC]">
+        <PartyPopper className="w-5 h-5 text-primary shrink-0" />
+        <p className="text-sm text-foreground-soft">
           Todos tus factores están por encima de 70. ¡Excelente trabajo! Sigue así para mantener tu score alto.
         </p>
       </div>
@@ -88,16 +89,16 @@ function TipsSection({ factors }: { factors?: NetoScoreFactors }) {
   return (
     <div className="space-y-3">
       {weak.map(([key, value]) => {
-        const color = value >= 60 ? '#378ADD' : value >= 40 ? '#EF9F27' : '#D85A30';
+        const color = value >= 60 ? 'var(--info)' : value >= 40 ? 'var(--warning)' : 'var(--negative)';
         return (
-          <div key={key} className="flex items-start gap-3 p-3 rounded-lg bg-[rgba(255,255,255,0.02)]">
+          <div key={key} className="flex items-start gap-3 p-3 rounded-lg bg-foreground/2">
             <Lightbulb className="w-4 h-4 mt-0.5 shrink-0" style={{ color }} />
             <div className="min-w-0">
               <div className="flex items-center gap-2 mb-0.5">
-                <span className="text-xs font-medium text-[#C8C6BC]">{FACTOR_LABELS[key]}</span>
+                <span className="text-xs font-medium text-foreground-soft">{FACTOR_LABELS[key]}</span>
                 <span className="text-xs font-bold tabular-nums" style={{ color }}>{value}</span>
               </div>
-              <p className="text-xs text-[#8A877D]">{TIPS_MAP[key]}</p>
+              <p className="text-xs text-muted-foreground">{TIPS_MAP[key]}</p>
             </div>
           </div>
         );
@@ -152,8 +153,8 @@ export default function ScorePage() {
       <FadeIn>
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-[#F0EFE8]">Neto Score</h1>
-            <p className="text-[#8A877D] text-sm mt-1">Tu puntuación de salud financiera este mes</p>
+            <h1 className="text-2xl font-bold text-foreground">Neto Score</h1>
+            <p className="text-muted-foreground text-sm mt-1">Tu puntuación de salud financiera este mes</p>
           </div>
           <HeaderActions />
         </div>
@@ -163,14 +164,14 @@ export default function ScorePage() {
       <FadeIn delay={0.05}>
         <div className="glass-card p-8 flex flex-col items-center max-w-md mx-auto">
           <ScoreGauge score={data.score} size="lg" />
-          <p className="text-xs text-[#8A877D] mt-2">Periodo: {data.period?.slice(0, 7)}</p>
+          <p className="text-xs text-muted-foreground mt-2">Periodo: {data.period?.slice(0, 7)}</p>
         </div>
       </FadeIn>
 
       {/* Desglose por factor */}
       <FadeIn delay={0.1}>
         <div className="glass-card p-6">
-          <h2 className="text-section font-semibold text-[#F0EFE8] mb-4">Desglose por factor</h2>
+          <h2 className="text-section font-semibold text-foreground mb-4">Desglose por factor</h2>
 
           {canBreakdown ? (
             <div className="space-y-4">
@@ -192,12 +193,12 @@ export default function ScorePage() {
               </div>
               <div className="absolute inset-0 flex items-center justify-center">
                 <div className="glass-card p-5 text-center max-w-xs">
-                  <Lock className="w-6 h-6 mx-auto mb-2 text-[#8A877D]" />
-                  <p className="text-sm font-medium text-[#F0EFE8] mb-1">Desbloquea con Pro</p>
-                  <p className="text-xs text-[#8A877D] mb-3">Ve qué factores mejorar para subir tu score</p>
+                  <Lock className="w-6 h-6 mx-auto mb-2 text-muted-foreground" />
+                  <p className="text-sm font-medium text-foreground mb-1">Desbloquea con Pro</p>
+                  <p className="text-xs text-muted-foreground mb-3">Ve qué factores mejorar para subir tu score</p>
                   <Link
                     href="/dashboard/configuracion"
-                    className="inline-block rounded-lg bg-[#1D9E75] px-4 py-1.5 text-sm font-medium text-white hover:bg-[#1D9E75]/90 transition-colors"
+                    className="inline-block rounded-lg bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
                   >
                     Ver planes →
                   </Link>
@@ -212,9 +213,9 @@ export default function ScorePage() {
       <FadeIn delay={0.15}>
         <div className="glass-card p-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-section font-semibold text-[#F0EFE8]">Evolución</h2>
+            <h2 className="text-section font-semibold text-foreground">Evolución</h2>
             {!canHistory && (
-              <span className="flex items-center gap-1 text-xs text-[#8A877D]">
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
                 <Lock className="w-3 h-3" /> Últimos 6 meses con Pro
               </span>
             )}
@@ -224,7 +225,7 @@ export default function ScorePage() {
               <ScoreEvolutionChart data={canHistory ? chartData : chartData.slice(-1)} />
             </Suspense>
           ) : (
-            <p className="text-[#8A877D] text-sm text-center py-8">Sin historial aún</p>
+            <p className="text-muted-foreground text-sm text-center py-8">Sin historial aún</p>
           )}
           {!canHistory && chartData.length > 0 && (
             <div className="mt-4">
@@ -240,7 +241,7 @@ export default function ScorePage() {
       {/* Tips section */}
       <FadeIn delay={0.2}>
         <div className="glass-card p-6">
-          <h2 className="text-section font-semibold text-[#F0EFE8] mb-3">Tips personalizados</h2>
+          <h2 className="text-section font-semibold text-foreground mb-3">Tips personalizados</h2>
           {canTips ? (
             <TipsSection factors={data.factors} />
           ) : (

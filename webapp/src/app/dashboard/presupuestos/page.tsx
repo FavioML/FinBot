@@ -277,13 +277,13 @@ export default function PresupuestosPage() {
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-[#F0EFE8]">Presupuestos</h1>
+          <h1 className="text-2xl font-bold text-foreground">Presupuestos</h1>
         </div>
         <HeaderActions>
           <MonthSelector />
           <Button
             size="sm"
-            className="bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 gap-1.5"
+            className="bg-primary text-primary-foreground hover:bg-primary/90 gap-1.5"
             onClick={() => setCreateOpen(true)}
             disabled={budgetsLimitReached && !isPremium}
           >
@@ -301,31 +301,31 @@ export default function PresupuestosPage() {
             <StaggerItem>
             <div className="glass-card glass-card-glow p-4">
               <div className="flex items-center gap-2 mb-1.5">
-                <Target className="h-4 w-4 text-[#8A877D]" />
-                <span className="text-label text-[#8A877D]">Total presupuestado</span>
+                <Target className="h-4 w-4 text-muted-foreground" />
+                <span className="text-label text-muted-foreground">Total presupuestado</span>
               </div>
-              <CurrencyDisplay amount={summary.totalPresupuestado} size="md" className="text-[#F0EFE8]" />
+              <CurrencyDisplay amount={summary.totalPresupuestado} size="md" className="text-foreground" />
             </div>
             </StaggerItem>
             <StaggerItem>
             <div className="glass-card glass-card-glow p-4">
               <div className="flex items-center gap-2 mb-1.5">
-                <TrendingDown className="h-4 w-4 text-[#8A877D]" />
-                <span className="text-label text-[#8A877D]">Gastado en presupuestos</span>
+                <TrendingDown className="h-4 w-4 text-muted-foreground" />
+                <span className="text-label text-muted-foreground">Gastado en presupuestos</span>
               </div>
-              <CurrencyDisplay amount={summary.totalGastado} size="md" className="text-[#D85A30]" />
+              <CurrencyDisplay amount={summary.totalGastado} size="md" className="text-negative" />
             </div>
             </StaggerItem>
             <StaggerItem>
             <div className="glass-card glass-card-glow p-4">
               <div className="flex items-center gap-2 mb-1.5">
-                <Wallet className="h-4 w-4 text-[#8A877D]" />
-                <span className="text-label text-[#8A877D]">Restante</span>
+                <Wallet className="h-4 w-4 text-muted-foreground" />
+                <span className="text-label text-muted-foreground">Restante</span>
               </div>
               <CurrencyDisplay
                 amount={summary.restante}
                 size="md"
-                className={summary.restante >= 0 ? 'text-[#1D9E75]' : 'text-[#D85A30]'}
+                className={summary.restante >= 0 ? 'text-positive' : 'text-negative'}
               />
             </div>
             </StaggerItem>
@@ -337,18 +337,18 @@ export default function PresupuestosPage() {
             return (
             <div className="glass-card p-4">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs text-[#8A877D]">Uso total del presupuesto</span>
+                <span className="text-xs text-muted-foreground">Uso total del presupuesto</span>
                 <span className="text-xs font-medium" style={{ color: globalStatus.color }}>
                   {Math.round(globalStatus.pct)}%
                 </span>
               </div>
-              <div className="h-3 rounded-full bg-[rgba(255,255,255,0.06)] overflow-hidden">
+              <div className="h-3 rounded-full bg-foreground/6 overflow-hidden">
                 <div
                   className="h-full rounded-full transition-all duration-700"
                   style={{ width: `${globalStatus.clampedPct}%`, backgroundColor: globalStatus.color }}
                 />
               </div>
-              <div className="flex items-center justify-between mt-1.5 text-[10px] text-[#8A877D]">
+              <div className="flex items-center justify-between mt-1.5 text-[10px] text-muted-foreground">
                 <span>{formatCurrency(summary.totalGastado)} gastado</span>
                 <span>{formatCurrency(summary.totalPresupuestado)} presupuestado</span>
               </div>
@@ -421,7 +421,7 @@ export default function PresupuestosPage() {
       <Dialog open={!!detailCategoria} onOpenChange={(open) => { if (!open) setDetailCategoria(null); }}>
         <DialogContent className="glass-card-elevated sm:max-w-lg max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-[#F0EFE8]">
+            <DialogTitle className="text-foreground">
               {detailCategoria && `${getCategoriaEmoji(detailCategoria)} ${capitalizeDisplay(detailCategoria)}`}
             </DialogTitle>
           </DialogHeader>
@@ -429,13 +429,13 @@ export default function PresupuestosPage() {
             <div className="space-y-4">
               {/* Summary */}
               <div className="flex items-center justify-between text-sm">
-                <span className="text-[#8A877D]">Gastado / Límite</span>
+                <span className="text-muted-foreground">Gastado / Límite</span>
                 <span className="font-semibold" style={{ color: detailStatus.color }}>
                   {formatCurrency(detailTotalSpent)} / {formatCurrency(detailTotalLimit)} ({detailPct}%)
                 </span>
               </div>
               {/* Progress bar */}
-              <div className="h-2 rounded-full bg-[rgba(255,255,255,0.06)] overflow-hidden">
+              <div className="h-2 rounded-full bg-foreground/6 overflow-hidden">
                 <div
                   className="h-full rounded-full transition-all duration-700"
                   style={{
@@ -448,7 +448,7 @@ export default function PresupuestosPage() {
               {/* Sub-budget breakdown */}
               {detailGroup?.subs && detailGroup.subs.length > 0 && (
                 <div className="space-y-3">
-                  <h4 className="text-sm font-medium text-[#C8C6BC]">Presupuestos por subcategoría</h4>
+                  <h4 className="text-sm font-medium text-foreground-soft">Presupuestos por subcategoría</h4>
                   {detailGroup.subs.map(sub => {
                     const subKey = `${detailCatKey}::${(sub.subcategoria || '').toLowerCase()}`;
                     const subSpent = spendingByKey.get(subKey) || 0;
@@ -459,12 +459,12 @@ export default function PresupuestosPage() {
                     return (
                       <div key={sub.id} className="space-y-1">
                         <div className="flex justify-between text-sm">
-                          <span className="text-[#F0EFE8]">{capitalizeDisplay(sub.subcategoria || '')}</span>
+                          <span className="text-foreground">{capitalizeDisplay(sub.subcategoria || '')}</span>
                           <span style={{ color: subColor }}>
                             S/ {subSpent.toFixed(2)} / S/ {subLimit.toFixed(2)} ({subPct}%)
                           </span>
                         </div>
-                        <div className="h-1.5 bg-[#2A2A28] rounded-full overflow-hidden">
+                        <div className="h-1.5 bg-track rounded-full overflow-hidden">
                           <div
                             className="h-full rounded-full transition-all duration-700"
                             style={{ width: `${subStatus.clampedPct}%`, backgroundColor: subColor }}
@@ -493,18 +493,18 @@ export default function PresupuestosPage() {
                 if (unbudgeted.length === 0) return null;
                 const unbudgetedTotal = unbudgeted.reduce((s, u) => s + u.total, 0);
                 return (
-                  <div className="space-y-2 rounded-xl border border-[rgba(239,159,39,0.18)] bg-[rgba(239,159,39,0.05)] p-3">
+                  <div className="space-y-2 rounded-xl border border-warning/18 bg-warning/5 p-3">
                     <div className="flex items-center justify-between">
-                      <h4 className="text-sm font-medium text-[#EF9F27]">Gastos no presupuestados</h4>
-                      <span className="text-sm font-semibold tabular-nums text-[#EF9F27]">
+                      <h4 className="text-sm font-medium text-warning">Gastos no presupuestados</h4>
+                      <span className="text-sm font-semibold tabular-nums text-warning">
                         {formatCurrency(unbudgetedTotal)}
                       </span>
                     </div>
                     {unbudgeted.map((u) => (
                       <div key={u.subName} className="flex items-center gap-2 text-sm">
-                        <span className="text-[#F0EFE8]">{capitalizeDisplay(u.subName)}</span>
-                        <span className="text-xs text-[#8A877D]">· {u.count}</span>
-                        <span className="ml-auto tabular-nums text-[#C8C6BC]">{formatCurrency(u.total)}</span>
+                        <span className="text-foreground">{capitalizeDisplay(u.subName)}</span>
+                        <span className="text-xs text-muted-foreground">· {u.count}</span>
+                        <span className="ml-auto tabular-nums text-foreground-soft">{formatCurrency(u.total)}</span>
                       </div>
                     ))}
                   </div>
@@ -513,32 +513,32 @@ export default function PresupuestosPage() {
 
               {/* Transactions grouped by subcategory */}
               <div className="space-y-3">
-                <p className="text-xs text-[#8A877D] font-medium">{detailTxs.length} transacciones</p>
+                <p className="text-xs text-muted-foreground font-medium">{detailTxs.length} transacciones</p>
                 {detailTxs.length === 0 ? (
-                  <p className="text-sm text-[#8A877D] py-4 text-center">Sin gastos en esta categoría este mes</p>
+                  <p className="text-sm text-muted-foreground py-4 text-center">Sin gastos en esta categoría este mes</p>
                 ) : (
                   <div className="space-y-4 max-h-[400px] overflow-y-auto">
                     {Array.from(detailTxsBySubcat.entries())
                       .sort(([a], [b]) => a.localeCompare(b))
                       .map(([subName, txs]) => (
                         <div key={subName}>
-                          <p className="text-xs font-medium text-[#C8C6BC] mb-1.5">
+                          <p className="text-xs font-medium text-foreground-soft mb-1.5">
                             {subName === '(General)' ? subName : capitalizeDisplay(subName)}
                           </p>
                           <div className="space-y-1">
                             {txs.map((tx) => (
                               <div
                                 key={tx.id}
-                                className="flex items-center justify-between py-2 border-b border-[rgba(255,255,255,0.04)] cursor-pointer hover:bg-[rgba(255,255,255,0.03)] rounded px-1 -mx-1 transition-colors group"
+                                className="flex items-center justify-between py-2 border-b border-border cursor-pointer hover:bg-foreground/3 rounded px-1 -mx-1 transition-colors group"
                                 onClick={() => setEditTransaction(tx)}
                               >
                                 <div className="min-w-0">
-                                  <p className="text-sm text-[#F0EFE8] truncate">{tx.comercio || 'Sin comercio'}</p>
-                                  <p className="text-xs text-[#8A877D]">{formatFecha(tx.fecha)}</p>
+                                  <p className="text-sm text-foreground truncate">{tx.comercio || 'Sin comercio'}</p>
+                                  <p className="text-xs text-muted-foreground">{formatFecha(tx.fecha)}</p>
                                 </div>
                                 <div className="flex items-center gap-2 shrink-0 ml-3">
-                                  <TxMonto tx={tx} signo="-" className="text-sm font-medium text-[#D85A30]" />
-                                  <Pencil className="h-3 w-3 text-[#8A877D] opacity-0 group-hover:opacity-100 max-sm:opacity-100 transition-opacity" />
+                                  <TxMonto tx={tx} signo="-" className="text-sm font-medium text-negative" />
+                                  <Pencil className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 max-sm:opacity-100 transition-opacity" />
                                 </div>
                               </div>
                             ))}

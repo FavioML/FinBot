@@ -21,6 +21,7 @@ import {
   Bell,
   Moon,
   Sun,
+  Monitor,
   Palette,
   Download,
   Pencil,
@@ -48,6 +49,8 @@ import { capitalizeDisplay } from '@/lib/format';
 import { enTrial } from '@/lib/plan';
 import { tieneWhatsapp, etiquetaWhatsapp } from '@/lib/whatsapp-vinculo';
 import { cn } from '@/lib/utils';
+import { useTema } from '@/lib/hooks/use-tema';
+import type { PreferenciaTema } from '@/lib/tema';
 import { HeaderActions } from '@/components/dashboard/topbar';
 import { optOutTracking, optInTracking, hasOptedOut } from '@/lib/analytics';
 
@@ -115,7 +118,7 @@ function getInitial(email?: string) {
 /* ------------------------------------------------------------------ */
 function GroupHeading({ children }: { children: ReactNode }) {
   return (
-    <h2 className="px-1 pt-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/70">
+    <h2 className="px-1 pt-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
       {children}
     </h2>
   );
@@ -198,21 +201,35 @@ function ToggleRow({
   );
 }
 
-/* ---- Apariencia: preview visual del tema ---- */
-function ThemePreview({ variant }: { variant: 'dark' | 'light' }) {
-  const isDark = variant === 'dark';
+/* ---- Apariencia ----
+ * La preview pinta con los tokens del tema que muestra: `data-theme` en el contenedor hace que
+ * `bg-background`, `bg-card`, etc. resuelvan a ese tema aunque la app esté en el otro. */
+type VarianteTema = 'light' | 'dark';
+
+function ThemePreview({ variant }: { variant: PreferenciaTema }) {
+  if (variant === 'system') {
+    return (
+      <div className="flex h-14 w-full overflow-hidden rounded-lg border border-border">
+        <ThemePreviewMitad variant="light" />
+        <ThemePreviewMitad variant="dark" />
+      </div>
+    );
+  }
   return (
-    <div
-      className={cn(
-        'flex h-14 w-full overflow-hidden rounded-lg border',
-        isDark ? 'border-white/10 bg-[#0E0E0C]' : 'border-black/10 bg-[#F4F3EE]'
-      )}
-    >
-      <div className={cn('w-1/4 border-r', isDark ? 'border-white/10 bg-[#131311]' : 'border-black/10 bg-white')} />
+    <div className="h-14 w-full overflow-hidden rounded-lg border border-border">
+      <ThemePreviewMitad variant={variant} />
+    </div>
+  );
+}
+
+function ThemePreviewMitad({ variant }: { variant: VarianteTema }) {
+  return (
+    <div data-theme={variant} className="flex h-full flex-1 bg-background">
+      <div className="w-1/4 border-r border-border bg-card" />
       <div className="flex-1 space-y-1.5 p-2">
-        <div className={cn('h-1.5 w-2/3 rounded-full', isDark ? 'bg-white/20' : 'bg-black/15')} />
-        <div className="h-2.5 w-1/2 rounded-full bg-primary/70" />
-        <div className={cn('h-1.5 w-3/4 rounded-full', isDark ? 'bg-white/10' : 'bg-black/10')} />
+        <div className="h-1.5 w-2/3 rounded-full bg-foreground/20" />
+        <div className="h-2.5 w-1/2 rounded-full bg-linear-135 from-hero-from to-hero-to" />
+        <div className="h-1.5 w-3/4 rounded-full bg-foreground/10" />
       </div>
     </div>
   );
@@ -221,14 +238,14 @@ function ThemePreview({ variant }: { variant: 'dark' | 'light' }) {
 function ThemeOption({
   variant,
   active,
-  disabled,
+  onSelect,
   icon: Icon,
   label,
   caption,
 }: {
-  variant: 'dark' | 'light';
-  active?: boolean;
-  disabled?: boolean;
+  variant: PreferenciaTema;
+  active: boolean;
+  onSelect: () => void;
   icon: ComponentType<{ className?: string }>;
   label: string;
   caption: string;
@@ -236,14 +253,11 @@ function ThemeOption({
   return (
     <button
       type="button"
-      disabled={disabled}
       aria-pressed={active}
+      onClick={onSelect}
       className={cn(
-        'group relative flex flex-col gap-3 rounded-xl border p-3 text-left transition-all',
-        active
-          ? 'border-primary bg-primary/[0.06]'
-          : 'border-border bg-muted/30',
-        disabled ? 'cursor-not-allowed opacity-70' : 'cursor-pointer hover:border-border/80'
+        'group relative flex cursor-pointer flex-col gap-3 rounded-xl border p-3 text-left transition-all',
+        active ? 'border-primary bg-primary/[0.06]' : 'border-border bg-muted/30 hover:border-foreground/20'
       )}
     >
       <ThemePreview variant={variant} />
@@ -251,14 +265,21 @@ function ThemeOption({
         <Icon className={cn('h-4 w-4', active ? 'text-primary' : 'text-muted-foreground')} />
         <span className={cn('text-sm font-medium', active ? 'text-foreground' : 'text-secondary-foreground')}>{label}</span>
         {active && <span className="ml-auto h-2 w-2 rounded-full bg-primary" />}
-        {disabled && (
-          <Badge className="ml-auto border-border bg-muted/60 px-1.5 py-0 text-[9px] text-muted-foreground">
-            Pronto
-          </Badge>
-        )}
       </div>
       <span className="text-[11px] text-muted-foreground">{caption}</span>
     </button>
+  );
+}
+
+/** Componente aparte para que su hook no quede debajo de los `return` tempranos de la página. */
+function AparienciaSelector() {
+  const { preferencia, setPreferencia } = useTema();
+  return (
+    <div className="grid max-w-lg grid-cols-3 gap-3">
+      <ThemeOption variant="light" active={preferencia === 'light'} onSelect={() => setPreferencia('light')} icon={Sun} label="Claro" caption="Fondo claro" />
+      <ThemeOption variant="dark" active={preferencia === 'dark'} onSelect={() => setPreferencia('dark')} icon={Moon} label="Oscuro" caption="Fondo oscuro" />
+      <ThemeOption variant="system" active={preferencia === 'system'} onSelect={() => setPreferencia('system')} icon={Monitor} label="Sistema" caption="Sigue a tu celular" />
+    </div>
   );
 }
 
@@ -313,7 +334,7 @@ function DeleteConfirmPanel({
             ¿Eliminar esta {isRoot ? 'categoría' : 'subcategoría'}? Se borran también sus presupuestos
             {isRoot ? ', reglas y alertas' : ''}.
           </p>
-          <Button size="sm" className="h-6 bg-destructive px-2 text-xs text-white hover:bg-destructive/80" onClick={onConfirm}>
+          <Button size="sm" className="h-6 bg-destructive px-2 text-xs text-destructive-foreground hover:bg-destructive/80" onClick={onConfirm}>
             Eliminar
           </Button>
           <Button size="sm" variant="ghost" className="h-6 px-2 text-xs text-muted-foreground" onClick={onCancel}>
@@ -879,7 +900,7 @@ export default function ConfiguracionPage() {
         </div>
         <h3 className="mb-2 text-lg font-semibold text-foreground">Inicia sesión para ver tu configuración</h3>
         <p className="mb-6 max-w-md text-sm text-muted-foreground">Conecta tu cuenta para administrar tu perfil y plan.</p>
-        <Button className="bg-primary text-white hover:bg-primary/90" onClick={() => router.push('/login')}>
+        <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={() => router.push('/login')}>
           Iniciar sesión
         </Button>
       </div>
@@ -950,7 +971,7 @@ export default function ConfiguracionPage() {
                       className="h-14 w-14 shrink-0 rounded-full object-cover ring-1 ring-primary/20"
                     />
                   ) : (
-                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-primary text-xl font-bold text-white">
+                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-primary text-xl font-bold text-primary-foreground">
                       {getInitial(user.email)}
                     </div>
                   )}
@@ -973,7 +994,7 @@ export default function ConfiguracionPage() {
                           />
                           <Button
                             size="sm"
-                            className="h-7 bg-primary px-2 text-white hover:bg-primary/90"
+                            className="h-7 bg-primary px-2 text-primary-foreground hover:bg-primary/90"
                             onClick={handleSaveName}
                             disabled={savingName}
                           >
@@ -994,7 +1015,7 @@ export default function ConfiguracionPage() {
                             {user.nombre || (user.email ? user.email.split('@')[0] : 'Usuario')}
                           </h3>
                           <button
-                            className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-white/[0.05] hover:text-foreground"
+                            className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-foreground/[0.05] hover:text-foreground"
                             onClick={() => {
                               setNameInput(user.nombre || '');
                               setEditingName(true);
@@ -1011,12 +1032,12 @@ export default function ConfiguracionPage() {
                           que el trial vino a evitar. */}
                       {!editingName &&
                         (enPrueba ? (
-                          <Badge className="shrink-0 gap-1 border-primary/30 bg-primary/15 text-primary">
+                          <Badge className="shrink-0 gap-1 border-primary/30 bg-primary/15 text-primary-ink">
                             <Sparkles className="h-3 w-3" />
                             Prueba Pro
                           </Badge>
                         ) : isPremium ? (
-                          <Badge className="shrink-0 gap-1 border-primary/30 bg-primary/20 text-primary">
+                          <Badge className="shrink-0 gap-1 border-primary/30 bg-primary/20 text-primary-ink">
                             <Crown className="h-3 w-3" />
                             Neto Pro
                           </Badge>
@@ -1041,7 +1062,7 @@ export default function ConfiguracionPage() {
                       {tieneWhatsapp(user) ? (
                         <span className="text-secondary-foreground">{etiquetaWhatsapp(user)}</span>
                       ) : (
-                        <NextLink href="/onboarding" className="text-[#1D9E75] hover:underline">
+                        <NextLink href="/onboarding" className="text-primary hover:underline">
                           Conectar WhatsApp (opcional)
                         </NextLink>
                       )}
@@ -1072,13 +1093,13 @@ export default function ConfiguracionPage() {
                   {enPrueba && user.trial_vence && (
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-secondary-foreground">Termina el</span>
-                      <span className="text-sm font-medium text-[var(--color-neto-amber)]">{formatDate(user.trial_vence)}</span>
+                      <span className="text-sm font-medium text-warning">{formatDate(user.trial_vence)}</span>
                     </div>
                   )}
                   {!enPrueba && isPremium && user.plan_expiry && (
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-secondary-foreground">Vence el</span>
-                      <span className="text-sm font-medium text-[var(--color-neto-amber)]">{formatDate(user.plan_expiry)}</span>
+                      <span className="text-sm font-medium text-warning">{formatDate(user.plan_expiry)}</span>
                     </div>
                   )}
                   {enPrueba && (
@@ -1114,7 +1135,7 @@ export default function ConfiguracionPage() {
                     <div className="flex flex-wrap items-center gap-3">
                       <NextLink
                         href="/dashboard/pro"
-                        className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-primary/90"
+                        className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
                       >
                         Pasar a Pro — S/{PRO_PRICE_MONTHLY_PEN}/mes
                       </NextLink>
@@ -1145,7 +1166,7 @@ export default function ConfiguracionPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      className="shrink-0 border-border bg-transparent transition-all duration-200 hover:bg-white/[0.05] active:scale-95"
+                      className="shrink-0 border-border bg-transparent transition-all duration-200 hover:bg-foreground/[0.05] active:scale-95"
                       onClick={() => refetchReferrals()}
                       disabled={referralsFetching}
                     >
@@ -1155,7 +1176,7 @@ export default function ConfiguracionPage() {
                     <Button
                       variant="outline"
                       size="icon"
-                      className="shrink-0 border-border bg-transparent transition-all duration-200 hover:bg-white/[0.05] active:scale-95"
+                      className="shrink-0 border-border bg-transparent transition-all duration-200 hover:bg-foreground/[0.05] active:scale-95"
                       onClick={handleCopy}
                       disabled={!referralFullLink}
                     >
@@ -1187,7 +1208,7 @@ export default function ConfiguracionPage() {
                         <Mail className="h-4 w-4 shrink-0 text-muted-foreground" />
                         <span className="truncate text-sm text-secondary-foreground">{user.email}</span>
                       </div>
-                      <Badge className="shrink-0 border-primary/30 bg-primary/20 text-xs text-primary">Activa</Badge>
+                      <Badge className="shrink-0 border-primary/30 bg-primary/20 text-xs text-primary-ink">Activa</Badge>
                     </div>
                   )}
 
@@ -1199,7 +1220,7 @@ export default function ConfiguracionPage() {
                           <MessageCircle className="h-4 w-4 shrink-0 text-muted-foreground" />
                           <span className="truncate text-sm text-secondary-foreground">{etiquetaWhatsapp(user)}</span>
                         </div>
-                        <Badge className="shrink-0 border-primary/30 bg-primary/20 text-xs text-primary">Conectado</Badge>
+                        <Badge className="shrink-0 border-primary/30 bg-primary/20 text-xs text-primary-ink">Conectado</Badge>
                       </div>
 
                       {/* Acción alineada a la izquierda: lejos de los FAB flotantes
@@ -1217,7 +1238,7 @@ export default function ConfiguracionPage() {
 
                       {/* Confirmación de desvinculación (cambiar número) */}
                       {changingNumber && (
-                        <div className="space-y-2.5 rounded-lg border border-[var(--color-neto-amber)]/25 bg-[var(--color-neto-amber)]/[0.06] px-4 py-3">
+                        <div className="space-y-2.5 rounded-lg border border-warning/25 bg-warning/[0.06] px-4 py-3">
                           <p className="text-xs text-secondary-foreground">
                             Vas a desvincular{' '}
                             <span className="font-semibold text-foreground">{etiquetaWhatsapp(user)}</span>. Perderás el registro por
@@ -1226,7 +1247,7 @@ export default function ConfiguracionPage() {
                           <div className="flex items-center gap-2">
                             <Button
                               size="sm"
-                              className="h-7 bg-primary px-3 text-xs text-white hover:bg-primary/90"
+                              className="h-7 bg-primary px-3 text-xs text-primary-foreground hover:bg-primary/90"
                               disabled={unlinking}
                               onClick={handleUnlinkWhatsapp}
                             >
@@ -1280,12 +1301,9 @@ export default function ConfiguracionPage() {
 
               {/* Apariencia */}
               <Section id="apariencia" icon={Palette} title="Apariencia" description="Elige cómo se ve tu Neto.">
-                <div className="grid max-w-md grid-cols-2 gap-3">
-                  <ThemeOption variant="dark" active icon={Moon} label="Oscuro" caption="Nocturnal Precision" />
-                  <ThemeOption variant="light" disabled icon={Sun} label="Claro" caption="Muy pronto" />
-                </div>
+                <AparienciaSelector />
                 <p className="text-xs text-muted-foreground">
-                  El tema oscuro está diseñado para reducir la fatiga visual. El modo claro llega pronto.
+                  Con Sistema, Neto cambia solo cuando tu celular pasa a modo claro u oscuro.
                 </p>
               </Section>
 
@@ -1330,7 +1348,7 @@ export default function ConfiguracionPage() {
                   loading={manosLibresLoading}
                   badge={
                     !isPremium ? (
-                      <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary">Pro</span>
+                      <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary-ink">Pro</span>
                     ) : undefined
                   }
                   onToggle={(v) => {
@@ -1355,7 +1373,7 @@ export default function ConfiguracionPage() {
                       <p className="text-sm font-medium text-secondary-foreground">{pref.label}</p>
                       <p className="mt-0.5 text-xs text-muted-foreground">{pref.desc}</p>
                     </div>
-                    <Badge className="mt-0.5 shrink-0 border-primary/25 bg-primary/10 text-[10px] text-primary">Automático</Badge>
+                    <Badge className="mt-0.5 shrink-0 border-primary/25 bg-primary/10 text-[10px] text-primary-ink">Automático</Badge>
                   </div>
                 ))}
 
@@ -1392,7 +1410,7 @@ export default function ConfiguracionPage() {
                     />
                     <Button
                       size="sm"
-                      className="h-7 bg-primary px-2 text-white hover:bg-primary/90"
+                      className="h-7 bg-primary px-2 text-primary-foreground hover:bg-primary/90"
                       onClick={handleCreateRoot}
                       disabled={savingRoot}
                     >
@@ -1410,7 +1428,7 @@ export default function ConfiguracionPage() {
                 ) : (
                   <Button
                     variant="outline"
-                    className="w-full gap-2 border-dashed border-border bg-transparent text-secondary-foreground hover:bg-white/[0.05]"
+                    className="w-full gap-2 border-dashed border-border bg-transparent text-secondary-foreground hover:bg-foreground/[0.05]"
                     onClick={() => { setCreatingRoot(true); setNewRootInput(''); }}
                   >
                     <Plus className="h-4 w-4" />
@@ -1466,7 +1484,7 @@ export default function ConfiguracionPage() {
                               />
                               <Button
                                 size="sm"
-                                className="h-6 bg-primary px-1.5 text-white hover:bg-primary/90"
+                                className="h-6 bg-primary px-1.5 text-primary-foreground hover:bg-primary/90"
                                 onClick={() => handleRenameCategory(cat.id)}
                               >
                                 <Check className="h-3 w-3" />
@@ -1489,7 +1507,7 @@ export default function ConfiguracionPage() {
                           {renamingCat !== cat.id && (
                             <div className="flex shrink-0 items-center gap-1">
                               <button
-                                className="rounded p-1 text-muted-foreground hover:bg-white/[0.05] hover:text-foreground"
+                                className="rounded p-1 text-muted-foreground hover:bg-foreground/[0.05] hover:text-foreground"
                                 onClick={() => {
                                   setAddingSubTo(cat.id);
                                   setNewSubInput('');
@@ -1500,7 +1518,7 @@ export default function ConfiguracionPage() {
                                 <Plus className="h-3.5 w-3.5" />
                               </button>
                               <button
-                                className="rounded p-1 text-muted-foreground hover:bg-white/[0.05] hover:text-foreground"
+                                className="rounded p-1 text-muted-foreground hover:bg-foreground/[0.05] hover:text-foreground"
                                 onClick={() => {
                                   setRenamingCat(cat.id);
                                   setRenameInput(cat.nombre);
@@ -1561,7 +1579,7 @@ export default function ConfiguracionPage() {
                                     />
                                     <Button
                                       size="sm"
-                                      className="h-6 bg-primary px-1.5 text-white hover:bg-primary/90"
+                                      className="h-6 bg-primary px-1.5 text-primary-foreground hover:bg-primary/90"
                                       onClick={doRename}
                                     >
                                       <Check className="h-3 w-3" />
@@ -1575,7 +1593,7 @@ export default function ConfiguracionPage() {
                                     <span className="min-w-0 flex-1 truncate text-sm text-secondary-foreground">{sub.nombre}</span>
                                     <div className="flex shrink-0 items-center gap-1">
                                       <button
-                                        className="rounded p-1 text-muted-foreground hover:bg-white/[0.05] hover:text-foreground"
+                                        className="rounded p-1 text-muted-foreground hover:bg-foreground/[0.05] hover:text-foreground"
                                         onClick={() => {
                                           setRenamingCat(key);
                                           setRenameInput(sub.nombre);
@@ -1626,7 +1644,7 @@ export default function ConfiguracionPage() {
                                 />
                                 <Button
                                   size="sm"
-                                  className="h-6 bg-primary px-1.5 text-white hover:bg-primary/90"
+                                  className="h-6 bg-primary px-1.5 text-primary-foreground hover:bg-primary/90"
                                   onClick={() => handleCreateSub(cat.id)}
                                   disabled={savingSub}
                                 >
@@ -1682,7 +1700,7 @@ export default function ConfiguracionPage() {
               >
                 <Button
                   variant="outline"
-                  className="w-full gap-2 border-border bg-transparent text-secondary-foreground hover:bg-white/[0.05]"
+                  className="w-full gap-2 border-border bg-transparent text-secondary-foreground hover:bg-foreground/[0.05]"
                   onClick={async () => {
                     try {
                       const res = await fetch('/api/export');
@@ -1717,7 +1735,7 @@ export default function ConfiguracionPage() {
                 <div className="glass-card p-5 sm:p-6">
                   <Button
                     variant="outline"
-                    className="w-full gap-2 border-border bg-transparent text-secondary-foreground hover:bg-white/[0.05]"
+                    className="w-full gap-2 border-border bg-transparent text-secondary-foreground hover:bg-foreground/[0.05]"
                     disabled={signingOut}
                     onClick={handleSignOut}
                   >
@@ -1735,7 +1753,7 @@ export default function ConfiguracionPage() {
 
                   <Button
                     variant="outline"
-                    className="w-full border-destructive/40 bg-transparent text-destructive hover:bg-destructive/10"
+                    className="w-full border-destructive/40 bg-transparent text-destructive-ink hover:bg-destructive/10"
                     onClick={() => setShowDeleteConfirm(true)}
                   >
                     Eliminar cuenta
@@ -1781,7 +1799,7 @@ export default function ConfiguracionPage() {
                       <div className="flex gap-2">
                         <Button
                           variant="outline"
-                          className="flex-1 border-destructive/40 bg-transparent text-destructive hover:bg-destructive/10 disabled:opacity-40"
+                          className="flex-1 border-destructive/40 bg-transparent text-destructive-ink hover:bg-destructive/10 disabled:opacity-40"
                           disabled={deleteConfirmText.trim().toUpperCase() !== 'ELIMINAR' || deleting}
                           onClick={handleDeleteAccount}
                         >
@@ -1789,7 +1807,7 @@ export default function ConfiguracionPage() {
                         </Button>
                         <Button
                           variant="outline"
-                          className="border-border bg-transparent text-muted-foreground hover:bg-white/[0.05]"
+                          className="border-border bg-transparent text-muted-foreground hover:bg-foreground/[0.05]"
                           disabled={deleting}
                           onClick={() => { setShowDeleteConfirm(false); setDeleteConfirmText(''); }}
                         >

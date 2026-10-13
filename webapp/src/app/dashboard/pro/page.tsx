@@ -73,7 +73,7 @@ export default function ProPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <Loader2 className="h-6 w-6 animate-spin text-[#1D9E75]" />
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
       </div>
     );
   }
@@ -86,21 +86,21 @@ export default function ProPage() {
         <div className="mx-auto w-full max-w-5xl space-y-6">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-[#F0EFE8] flex items-center gap-2">
-                <Crown className="h-6 w-6" style={{ color: '#68dbae' }} /> Neto Pro
+              <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+                <Crown className="h-6 w-6" style={{ color: 'var(--primary)' }} /> Neto Pro
               </h1>
-              <p className="text-sm text-[#8A877D] mt-1">Todo el potencial de Neto, sin fricción</p>
+              <p className="text-sm text-muted-foreground mt-1">Todo el potencial de Neto, sin fricción</p>
             </div>
             <HeaderActions />
           </div>
           <div className="glass-card p-6 text-center space-y-3 mx-auto max-w-xl">
-            <h2 className="text-lg font-semibold text-[#F0EFE8]">No pudimos cargar tu estado Pro</h2>
-            <p className="text-sm text-[#8A877D] max-w-md mx-auto">
+            <h2 className="text-lg font-semibold text-foreground">No pudimos cargar tu estado Pro</h2>
+            <p className="text-sm text-muted-foreground max-w-md mx-auto">
               {isError
                 ? 'Revisa tu conexión e inténtalo de nuevo. Si ya eres Pro, tu plan sigue activo.'
                 : 'Inténtalo de nuevo en un momento.'}
             </p>
-            <button onClick={() => refetch()} className="text-xs text-[#1D9E75] hover:underline">Reintentar</button>
+            <button onClick={() => refetch()} className="text-xs text-primary hover:underline">Reintentar</button>
           </div>
         </div>
       </FadeIn>
@@ -112,10 +112,10 @@ export default function ProPage() {
       <div className="mx-auto w-full max-w-5xl space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-[#F0EFE8] flex items-center gap-2">
-              <Crown className="h-6 w-6" style={{ color: '#68dbae' }} /> Neto Pro
+            <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+              <Crown className="h-6 w-6" style={{ color: 'var(--primary)' }} /> Neto Pro
             </h1>
-            <p className="text-sm text-[#8A877D] mt-1">Todo el potencial de Neto, sin fricción</p>
+            <p className="text-sm text-muted-foreground mt-1">Todo el potencial de Neto, sin fricción</p>
           </div>
           <HeaderActions />
         </div>
@@ -176,19 +176,19 @@ function TrialState({ status, onDone }: { status: ProStatus; onDone: () => void 
         <div
           className={`inline-flex items-center justify-center w-14 h-14 rounded-full shrink-0 border ${
             urgente
-              ? 'bg-[#EF9F27]/15 border-[#EF9F27]/30'
-              : 'bg-[#1D9E75]/15 border-[#1D9E75]/30'
+              ? 'bg-accent-pro/15 border-accent-pro/30'
+              : 'bg-primary/15 border-primary/30'
           }`}
         >
-          <Clock className={`w-7 h-7 ${urgente ? 'text-[#EF9F27]' : 'text-[#1D9E75]'}`} />
+          <Clock className={`w-7 h-7 ${urgente ? 'text-accent-pro' : 'text-primary'}`} />
         </div>
         <div className="flex-1">
-          <h2 className="text-xl font-bold text-[#F0EFE8]">Estás probando Neto Pro</h2>
-          <p className={`text-sm mt-0.5 ${urgente ? 'font-medium text-[#EF9F27]' : 'text-[#8A877D]'}`}>
+          <h2 className="text-xl font-bold text-foreground">Estás probando Neto Pro</h2>
+          <p className={`text-sm mt-0.5 ${urgente ? 'font-medium text-accent-pro' : 'text-muted-foreground'}`}>
             {cuando}
             {fecha ? ` — termina el ${fecha}` : ''}
           </p>
-          <p className="text-sm text-[#8A877D] mt-2">
+          <p className="text-sm text-muted-foreground mt-2">
             Después sigo anotando todos tus gastos por WhatsApp, gratis. Lo que se cierra es el
             dashboard, el historial y los reportes.
           </p>
@@ -196,8 +196,8 @@ function TrialState({ status, onDone }: { status: ProStatus; onDone: () => void 
       </div>
 
       <div className="glass-card p-5 space-y-1">
-        <div className="flex items-center gap-2 text-sm font-semibold text-[#F0EFE8] mb-2">
-          <Crown className="h-4 w-4 text-[#1D9E75]" /> Continúa con Pro
+        <div className="flex items-center gap-2 text-sm font-semibold text-foreground mb-2">
+          <Crown className="h-4 w-4 text-primary" /> Continúa con Pro
         </div>
         <PaymentForm descuento={status.descuento} onDone={onDone} />
       </div>
@@ -229,13 +229,13 @@ function PremiumState({ status, onDone }: { status: ProStatus; onDone: () => voi
     <div className="space-y-4">
       {/* Banner */}
       <div className="glass-card glass-card-glow p-6 flex flex-col sm:flex-row items-center gap-4 sm:gap-6 text-center sm:text-left">
-        <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-[#1D9E75]/15 border border-[#1D9E75]/30 shrink-0">
-          <ShieldCheck className="w-7 h-7 text-[#1D9E75]" />
+        <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-primary/15 border border-primary/30 shrink-0">
+          <ShieldCheck className="w-7 h-7 text-primary" />
         </div>
         <div className="flex-1">
-          <h2 className="text-xl font-bold text-[#F0EFE8]">Eres Neto Pro ⭐</h2>
+          <h2 className="text-xl font-bold text-foreground">Eres Neto Pro ⭐</h2>
           {status.premiumVence && (
-            <p className="text-sm text-[#8A877D] mt-0.5">
+            <p className="text-sm text-muted-foreground mt-0.5">
               Activo hasta el{' '}
               {new Date(status.premiumVence + 'T12:00:00').toLocaleDateString('es-PE', { day: 'numeric', month: 'long', year: 'numeric' })}
             </p>
@@ -243,7 +243,7 @@ function PremiumState({ status, onDone }: { status: ProStatus; onDone: () => voi
         </div>
         <button
           onClick={() => setShowRenew((v) => !v)}
-          className="inline-flex items-center gap-2 rounded-lg border border-[rgba(255,255,255,0.1)] px-4 py-2 text-sm text-[#C8C6BC] hover:text-[#F0EFE8] hover:bg-[rgba(255,255,255,0.04)] transition-colors shrink-0"
+          className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm text-foreground-soft hover:text-foreground hover:bg-foreground/4 transition-colors shrink-0"
         >
           <RefreshCw className="h-4 w-4" /> {showRenew ? 'Cerrar' : 'Renovar'}
         </button>
@@ -252,8 +252,8 @@ function PremiumState({ status, onDone }: { status: ProStatus; onDone: () => voi
       {/* Renewal form (opens above the management grid) */}
       {showRenew && (
         <div className="glass-card p-5 space-y-1">
-          <div className="flex items-center gap-2 text-sm font-semibold text-[#F0EFE8] mb-2">
-            <RefreshCw className="h-4 w-4 text-[#1D9E75]" /> Renovar / extender tu Pro
+          <div className="flex items-center gap-2 text-sm font-semibold text-foreground mb-2">
+            <RefreshCw className="h-4 w-4 text-primary" /> Renovar / extender tu Pro
           </div>
           <PaymentForm renewal onDone={() => { setShowRenew(false); onDone(); }} />
         </div>
@@ -340,10 +340,10 @@ function BancosManager({ initial, proPagado }: { initial: string[] | null; proPa
     return (
       <div className="glass-card p-5 space-y-3 opacity-70">
         <div className="flex w-full items-center gap-2 text-left">
-          <Lock className="h-4 w-4 text-[#8A877D] shrink-0" />
+          <Lock className="h-4 w-4 text-muted-foreground shrink-0" />
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-[#C8C6BC]">Bancos de los que Neto busca avisos</p>
-            <p className="text-xs text-[#8A877D] mt-0.5">
+            <p className="text-sm font-semibold text-foreground-soft">Bancos de los que Neto busca avisos</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
               Vuélvete Pro para activar esta función beta
             </p>
           </div>
@@ -352,8 +352,8 @@ function BancosManager({ initial, proPagado }: { initial: string[] | null; proPa
           {/* Solo los que Neto registra hoy (auditoría del 08-oct-2026 en app/docs/DEFECTOS.md). */}
           {['BCP', 'Yape'].map((n) => (
             <div key={n} className="flex items-center gap-2.5 py-1">
-              <span className="h-4 w-4 rounded-[3px] border border-[rgba(240,239,232,0.15)] shrink-0" />
-              <span className="text-sm text-[#8A877D] truncate blur-[2px] select-none">{n}</span>
+              <span className="h-4 w-4 rounded-[3px] border border-foreground/15 shrink-0" />
+              <span className="text-sm text-muted-foreground truncate blur-[2px] select-none">{n}</span>
             </div>
           ))}
         </div>
@@ -368,25 +368,25 @@ function BancosManager({ initial, proPagado }: { initial: string[] | null; proPa
         aria-expanded={open}
         className="flex w-full items-center gap-2 text-left"
       >
-        <Landmark className="h-4 w-4 text-[#1D9E75] shrink-0" />
+        <Landmark className="h-4 w-4 text-primary shrink-0" />
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-[#F0EFE8]">Bancos de los que Neto busca avisos</p>
-          <p className="text-xs text-[#8A877D] mt-0.5">Se aplica al conectar tu Gmail · {resumen}</p>
+          <p className="text-sm font-semibold text-foreground">Bancos de los que Neto busca avisos</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Se aplica al conectar tu Gmail · {resumen}</p>
         </div>
-        <ChevronDown className={`h-4 w-4 text-[#8A877D] shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown className={`h-4 w-4 text-muted-foreground shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (
         <div className="space-y-3">
-          <label className="flex items-center gap-2.5 py-1.5 cursor-pointer border-b border-[rgba(255,255,255,0.06)]">
-            <input type="checkbox" checked={allChecked} onChange={toggleAll} className="accent-[#1D9E75] h-4 w-4" />
-            <span className="text-sm font-medium text-[#F0EFE8]">Todos mis bancos</span>
+          <label className="flex items-center gap-2.5 py-1.5 cursor-pointer border-b border-border">
+            <input type="checkbox" checked={allChecked} onChange={toggleAll} className="accent-primary h-4 w-4" />
+            <span className="text-sm font-medium text-foreground">Todos mis bancos</span>
           </label>
 
           {/* El catálogo filtra la búsqueda, pero no todos sus remitentes existen: medido el 08-oct-2026,
               todo lo que Neto registró desde un Gmail es de BCP o Yape. Decirlo acá evita que alguien
               de otro banco pague esperando una lectura que no va a ocurrir. */}
-          <p className="text-xs text-[#8A877D] leading-relaxed">
+          <p className="text-xs text-muted-foreground leading-relaxed">
             Hoy Neto registra avisos de BCP y Yape. Del resto todavía no reconoce desde qué correo avisan, así que
             puede que no encuentre ninguno.
           </p>
@@ -394,13 +394,13 @@ function BancosManager({ initial, proPagado }: { initial: string[] | null; proPa
           <div className="grid grid-cols-2 gap-x-4 gap-y-1">
             {bancos.map((b) => (
               <label key={b.id} className="flex items-center gap-2.5 py-1 cursor-pointer">
-                <input type="checkbox" checked={sel.has(b.id)} onChange={() => toggle(b.id)} className="accent-[#1D9E75] h-4 w-4" />
-                <span className="text-sm text-[#C8C6BC] truncate">{b.label}</span>
+                <input type="checkbox" checked={sel.has(b.id)} onChange={() => toggle(b.id)} className="accent-primary h-4 w-4" />
+                <span className="text-sm text-foreground-soft truncate">{b.label}</span>
               </label>
             ))}
           </div>
 
-          <Button onClick={save} disabled={saving} size="sm" className="bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 mt-1">
+          <Button onClick={save} disabled={saving} size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90 mt-1">
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Guardar bancos'}
           </Button>
         </div>
@@ -483,37 +483,37 @@ function GmailConnect({
       <div className="flex items-start gap-3">
         <div
           className={`mt-0.5 inline-flex items-center justify-center w-9 h-9 rounded-lg shrink-0 ${
-            alerta ? 'bg-[#EF9F27]/10' : 'bg-[#1D9E75]/10'
+            alerta ? 'bg-accent-pro/10' : 'bg-primary/10'
           }`}
         >
           {alerta ? (
-            <AlertTriangle className="w-5 h-5 text-[#EF9F27]" />
+            <AlertTriangle className="w-5 h-5 text-accent-pro" />
           ) : estado === 'bloqueado' ? (
-            <Lock className="w-5 h-5 text-[#1D9E75]" />
+            <Lock className="w-5 h-5 text-primary" />
           ) : (
-            <Mail className="w-5 h-5 text-[#1D9E75]" />
+            <Mail className="w-5 h-5 text-primary" />
           )}
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <h3 className="text-sm font-semibold text-[#F0EFE8]">{TITULOS[estado]}</h3>
+            <h3 className="text-sm font-semibold text-foreground">{TITULOS[estado]}</h3>
             {/* Beta en los cuatro estados, igual que la tarjeta Pro del Pricing de neto.pe. */}
-            <span className="rounded-full border border-[#EF9F27]/40 bg-[#EF9F27]/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#EF9F27]">
+            <span className="rounded-full border border-accent-pro/40 bg-accent-pro/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent-pro-ink">
               beta
             </span>
-            {estado === 'sano' && <Check className="h-4 w-4 text-[#1D9E75] shrink-0" />}
+            {estado === 'sano' && <Check className="h-4 w-4 text-primary shrink-0" />}
           </div>
           {estado === 'sin-buzon' ? (
             /* La cuenta de Google se creó con otro correo y no tiene bandeja de Gmail (migración
                090). No hay botón: reconectarla no cambia nada y otra cuenta gasta otro cupo de
                Google y la rechaza la regla de una cuenta por usuario. Se resuelve por soporte. */
-            <p className="text-xs text-[#8A877D] mt-0.5">
+            <p className="text-xs text-muted-foreground mt-0.5">
               Google indica que{' '}
-              <span className="text-[#C8C6BC] font-medium break-all">{email || 'la cuenta que conectaste'}</span> no tiene
+              <span className="text-foreground-soft font-medium break-all">{email || 'la cuenta que conectaste'}</span> no tiene
               una bandeja de Gmail (pasa, por ejemplo, con las cuentas creadas con un correo de Hotmail u Outlook), así que
               no hay dónde leer los avisos de tu banco. Por eso no se ha registrado nada desde tu correo. Lo que anotas por WhatsApp sigue
               igual. Escríbenos a{' '}
-              <a href="mailto:hola@neto.pe" className="text-[#1D9E75] hover:underline">hola@neto.pe</a> y lo vemos
+              <a href="mailto:hola@neto.pe" className="text-primary hover:underline">hola@neto.pe</a> y lo vemos
               contigo.
             </p>
           ) : caido ? (
@@ -521,9 +521,9 @@ function GmailConnect({
                romperlo y el síntoma que ve es "Neto dejó de anotar mis gastos". No se ofrece
                cambiar de cuenta: mandarlo a Google con otro correo ya cuesta un cupo, aunque
                el callback después lo rechace. */
-            <p className="text-xs text-[#8A877D] mt-0.5">
+            <p className="text-xs text-muted-foreground mt-0.5">
               Google dejó de aceptar el permiso de{' '}
-              <span className="text-[#C8C6BC] font-medium break-all">{email || 'tu cuenta'}</span>
+              <span className="text-foreground-soft font-medium break-all">{email || 'tu cuenta'}</span>
               {desde ? <> el {desde}</> : null}, así que Neto ya no está registrando los gastos que te llegan por
               correo. Lo que anotas por WhatsApp sigue igual.{' '}
               {/* Sin Pro pagado no hay botón (el backend responde 403), así que prometerle
@@ -534,27 +534,27 @@ function GmailConnect({
                 : 'Se reactiva al renovar tu plan.'}
             </p>
           ) : estado === 'sano' ? (
-            <p className="text-xs text-[#8A877D] mt-0.5">
+            <p className="text-xs text-muted-foreground mt-0.5">
               Neto lee los avisos de BCP y Yape que te llegan a{' '}
-              <span className="text-[#C8C6BC] font-medium break-all">{email || 'tu cuenta'}</span>. Solo lectura de esos avisos.
+              <span className="text-foreground-soft font-medium break-all">{email || 'tu cuenta'}</span>. Solo lectura de esos avisos.
             </p>
           ) : estado === 'bloqueado' ? (
             /* Framing obligatorio de Gmail (CLAUDE.md de Neto): es de Pro, es opcional y es un
                complemento de lo que la persona anota. Solo el 9.5% de los gastos nace de un correo:
                la versión anterior prometía registro sin esfuerzo, y la vigila `registro-automatico`. */
-            <p className="text-xs text-[#8A877D] mt-0.5">
+            <p className="text-xs text-muted-foreground mt-0.5">
               Opcional y de Neto Pro: si conectas tu Gmail, Neto registra los gastos de los avisos por correo de BCP y
               Yape. Es un complemento, lo demás lo sigues anotando tú por WhatsApp.{' '}
-              <span className="text-[#C8C6BC]">Se activa al confirmar tu pago</span>: es lo único que tu prueba no
+              <span className="text-foreground-soft">Se activa al confirmar tu pago</span>: es lo único que tu prueba no
               incluye. Actívalo aquí arriba y empieza a leer el mismo día.
             </p>
           ) : (
-            <p className="text-xs text-[#8A877D] mt-0.5">
+            <p className="text-xs text-muted-foreground mt-0.5">
               Neto leerá los avisos por correo de BCP y Yape. Es un complemento de lo que anotas por WhatsApp: solo
               lectura de esos avisos, sin contraseñas bancarias.{' '}
               {/* Antes de autorizar es el único momento en que se puede evitar gastar un cupo de
                   Google en una cuenta sin bandeja (migración 090): después ya no se recupera. */}
-              <span className="text-[#C8C6BC]">
+              <span className="text-foreground-soft">
                 Usa una cuenta con Gmail: una cuenta de Google creada con Hotmail u Outlook no tiene bandeja que leer.
               </span>
             </p>
@@ -575,7 +575,7 @@ function GmailConnect({
         <Button
           onClick={() => connect('inicial')}
           disabled={!!loading || !accionable}
-          className="w-full bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 disabled:opacity-50"
+          className="w-full bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
         >
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : accionable ? 'Conectar mi Gmail' : 'Se activa con Pro pagado'}
         </Button>
@@ -584,11 +584,11 @@ function GmailConnect({
           <Button
             onClick={() => connect('reemplazar')}
             disabled={!!loading}
-            className="w-full bg-[#EF9F27] text-[#0E0E0C] hover:bg-[#EF9F27]/90 disabled:opacity-50"
+            className="w-full bg-accent-pro text-accent-pro-foreground hover:bg-accent-pro/90 disabled:opacity-50"
           >
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Reconectar Gmail'}
           </Button>
-          <p className="text-[11px] text-[#8A877D] leading-relaxed">
+          <p className="text-[11px] text-muted-foreground leading-relaxed">
             Neto lee de una sola cuenta; para cambiarla, escríbenos.
           </p>
         </>
@@ -602,18 +602,18 @@ function GmailConnect({
 function PendingState({ renewal = false, onRefresh }: { renewal?: boolean; onRefresh: () => void }) {
   return (
     <div className="glass-card glass-card-glow p-6 text-center space-y-3 mx-auto max-w-xl">
-      <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-[#EF9F27]/15 border border-[#EF9F27]/30">
-        <Clock className="w-7 h-7 text-[#EF9F27]" />
+      <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-accent-pro/15 border border-accent-pro/30">
+        <Clock className="w-7 h-7 text-accent-pro" />
       </div>
-      <h2 className="text-xl font-bold text-[#F0EFE8]">
+      <h2 className="text-xl font-bold text-foreground">
         {renewal ? 'Tu renovación está en verificación' : 'Estamos verificando tu pago'}
       </h2>
-      <p className="text-sm text-[#8A877D] max-w-md mx-auto">
+      <p className="text-sm text-muted-foreground max-w-md mx-auto">
         {renewal
           ? 'Tu Pro sigue activo. Apenas validemos el pago, extendemos tu suscripción y te avisamos.'
           : 'Recibimos tu comprobante. Apenas lo validemos, activamos tu Pro y te avisamos aquí y por WhatsApp. Suele tomar pocos minutos.'}
       </p>
-      <button onClick={onRefresh} className="text-xs text-[#1D9E75] hover:underline">Actualizar estado</button>
+      <button onClick={onRefresh} className="text-xs text-primary hover:underline">Actualizar estado</button>
     </div>
   );
 }
@@ -671,15 +671,15 @@ function PaymentForm({ rejected = false, renewal = false, descuento = null, onDo
   return (
     <div className="space-y-5">
       {descuento && !renewal && (
-        <div className="glass-card p-4 border border-[#1D9E75]/30 bg-[#1D9E75]/5 flex items-start gap-3">
-          <div className="mt-0.5 inline-flex items-center justify-center w-9 h-9 rounded-lg bg-[#1D9E75]/15 shrink-0">
-            <Crown className="w-5 h-5 text-[#1D9E75]" />
+        <div className="glass-card p-4 border border-primary/30 bg-primary/5 flex items-start gap-3">
+          <div className="mt-0.5 inline-flex items-center justify-center w-9 h-9 rounded-lg bg-primary/15 shrink-0">
+            <Crown className="w-5 h-5 text-primary" />
           </div>
           <div className="flex-1">
-            <p className="text-sm font-semibold text-[#F0EFE8]">Tu 50% de bienvenida está activo 🎉</p>
-            <p className="text-xs text-[#8A877D] mt-0.5">
+            <p className="text-sm font-semibold text-foreground">Tu 50% de bienvenida está activo 🎉</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
               Estrena Neto Pro por{' '}
-              <span className="text-[#1D9E75] font-semibold">S/{precioEfectivo('mensual', descuento)}</span>{' '}
+              <span className="text-primary font-semibold">S/{precioEfectivo('mensual', descuento)}</span>{' '}
               <span className="line-through">S/{PRECIOS.mensual}</span> tu primer mes (plan mensual).{' '}
               {descuento.diasRestantes > 0
                 ? `Vence en ${descuento.diasRestantes} día${descuento.diasRestantes === 1 ? '' : 's'}.`
@@ -690,8 +690,8 @@ function PaymentForm({ rejected = false, renewal = false, descuento = null, onDo
       )}
 
       {rejected && (
-        <div className="glass-card p-4 border border-[#D85A30]/30 bg-[#D85A30]/5">
-          <p className="text-sm text-[#D85A30]">
+        <div className="glass-card p-4 border border-negative/30 bg-negative/5">
+          <p className="text-sm text-negative">
             No pudimos validar tu comprobante anterior. Revisa que el Yape sea de S/{monto} a {YAPE_NOMBRE} y vuelve a enviarlo.
           </p>
         </div>
@@ -699,7 +699,7 @@ function PaymentForm({ rejected = false, renewal = false, descuento = null, onDo
 
       {/* Plan — full width */}
       <div className="glass-card p-5 space-y-3">
-        <p className="text-xs uppercase tracking-wider text-[#8A877D]">1. Elige tu plan</p>
+        <p className="text-xs uppercase tracking-wider text-muted-foreground">1. Elige tu plan</p>
         <div className="grid grid-cols-2 gap-3">
           {(['mensual', 'anual'] as Plan[]).map((p) => (
             <button
@@ -707,26 +707,26 @@ function PaymentForm({ rejected = false, renewal = false, descuento = null, onDo
               onClick={() => setPlan(p)}
               className={`rounded-xl border p-4 text-left transition-all ${
                 plan === p
-                  ? 'border-[#1D9E75] bg-[#1D9E75]/10 ring-1 ring-[#1D9E75]/40'
-                  : 'border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.02)] hover:bg-[rgba(255,255,255,0.05)]'
+                  ? 'border-primary bg-primary/10 ring-1 ring-primary/40'
+                  : 'border-border bg-foreground/2 hover:bg-foreground/5'
               }`}
             >
               <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold text-[#F0EFE8] capitalize">{p}</span>
+                <span className="text-sm font-semibold text-foreground capitalize">{p}</span>
                 {p === 'anual' && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[#EF9F27]/15 text-[#EF9F27] font-medium">2 meses gratis</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-accent-pro/15 text-accent-pro-ink font-medium">2 meses gratis</span>
                 )}
               </div>
-              <p className="mt-1 text-lg font-bold text-[#1D9E75]">
+              <p className="mt-1 text-lg font-bold text-primary">
                 {p === 'mensual' && descuento ? (
                   <>
                     S/{precioEfectivo('mensual', descuento)}
-                    <span className="ml-1.5 text-xs font-normal text-[#8A877D] line-through">S/{PRECIOS.mensual}</span>
+                    <span className="ml-1.5 text-xs font-normal text-muted-foreground line-through">S/{PRECIOS.mensual}</span>
                   </>
                 ) : (
                   <>S/{PRECIOS[p]}</>
                 )}
-                <span className="text-xs font-normal text-[#8A877D]">/{p === 'anual' ? 'año' : 'mes'}</span>
+                <span className="text-xs font-normal text-muted-foreground">/{p === 'anual' ? 'año' : 'mes'}</span>
               </p>
             </button>
           ))}
@@ -736,65 +736,65 @@ function PaymentForm({ rejected = false, renewal = false, descuento = null, onDo
       {/* Yape + upload — two columns on desktop */}
       <div className="grid gap-5 lg:grid-cols-2">
         <div className="glass-card p-5 space-y-4">
-          <p className="text-xs uppercase tracking-wider text-[#8A877D]">2. Yapea S/{monto}</p>
+          <p className="text-xs uppercase tracking-wider text-muted-foreground">2. Yapea S/{monto}</p>
           <div className="flex flex-col sm:flex-row gap-4 items-center">
             <Dialog>
-              <DialogTrigger className="group relative shrink-0 rounded-xl overflow-hidden border border-[rgba(255,255,255,0.08)] bg-white p-2 cursor-zoom-in outline-none focus-visible:ring-2 focus-visible:ring-[#1D9E75]">
+              <DialogTrigger data-theme="light" className="group relative shrink-0 rounded-xl overflow-hidden border border-border bg-card p-2 cursor-zoom-in outline-none focus-visible:ring-2 focus-visible:ring-primary">
                 <Image src="/yape-favio-qr.jpeg" alt="QR Yape de Favio Mendoza" width={150} height={150} className="rounded-md" />
-                <span className="absolute inset-x-1 bottom-1 flex items-center justify-center gap-1 rounded-md bg-black/55 py-0.5 text-[10px] font-medium text-white opacity-90 transition-opacity group-hover:opacity-100">
+                <span className="absolute inset-x-1 bottom-1 flex items-center justify-center gap-1 rounded-md bg-foreground/70 py-0.5 text-[10px] font-medium text-card opacity-90 transition-opacity group-hover:opacity-100">
                   <ZoomIn className="h-3 w-3" /> toca para ampliar
                 </span>
               </DialogTrigger>
-              <DialogContent className="bg-white text-neutral-900 sm:max-w-xs flex flex-col items-center gap-3">
-                <DialogTitle className="text-neutral-900">Yapea a {YAPE_NOMBRE}</DialogTitle>
-                <div className="rounded-xl bg-white p-3">
+              <DialogContent data-theme="light" className="bg-card text-foreground sm:max-w-xs flex flex-col items-center gap-3">
+                <DialogTitle className="text-foreground">Yapea a {YAPE_NOMBRE}</DialogTitle>
+                <div className="rounded-xl bg-card p-3">
                   <Image src="/yape-favio-qr.jpeg" alt="QR Yape de Favio Mendoza" width={320} height={320} className="rounded-lg" />
                 </div>
-                <p className="text-sm text-neutral-500 tabular-nums">{YAPE_NUMERO}</p>
+                <p className="text-sm text-muted-foreground tabular-nums">{YAPE_NUMERO}</p>
               </DialogContent>
             </Dialog>
             <div className="flex-1 w-full space-y-2">
-              <p className="text-sm text-[#8A877D]">Yapea a nombre de <span className="text-[#F0EFE8] font-medium">{YAPE_NOMBRE}</span></p>
+              <p className="text-sm text-muted-foreground">Yapea a nombre de <span className="text-foreground font-medium">{YAPE_NOMBRE}</span></p>
               <button
                 onClick={copyNumero}
-                className="w-full flex items-center justify-between rounded-lg bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.08)] px-4 py-3 hover:bg-[rgba(255,255,255,0.07)] transition-colors"
+                className="w-full flex items-center justify-between rounded-lg bg-foreground/4 border border-border px-4 py-3 hover:bg-foreground/7 transition-colors"
               >
-                <span className="text-lg font-bold text-[#F0EFE8] tabular-nums tracking-wide">{YAPE_NUMERO}</span>
-                {copied ? <Check className="h-4 w-4 text-[#1D9E75]" /> : <Copy className="h-4 w-4 text-[#8A877D]" />}
+                <span className="text-lg font-bold text-foreground tabular-nums tracking-wide">{YAPE_NUMERO}</span>
+                {copied ? <Check className="h-4 w-4 text-primary" /> : <Copy className="h-4 w-4 text-muted-foreground" />}
               </button>
-              <p className="text-xs text-[#8A877D]">Monto exacto: <span className="text-[#1D9E75] font-semibold">S/{monto}.00</span></p>
+              <p className="text-xs text-muted-foreground">Monto exacto: <span className="text-primary font-semibold">S/{monto}.00</span></p>
             </div>
           </div>
         </div>
 
         <div className="glass-card p-5 space-y-3 flex flex-col">
-          <p className="text-xs uppercase tracking-wider text-[#8A877D]">3. Sube tu comprobante</p>
+          <p className="text-xs uppercase tracking-wider text-muted-foreground">3. Sube tu comprobante</p>
           <input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => onPickFile(e.target.files?.[0] || null)} />
           {preview ? (
             <div className="flex items-center gap-3">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={preview} alt="Comprobante" className="h-20 w-20 object-cover rounded-lg border border-[rgba(255,255,255,0.08)]" />
+              <img src={preview} alt="Comprobante" className="h-20 w-20 object-cover rounded-lg border border-border" />
               <div className="flex-1 min-w-0">
-                <p className="text-sm text-[#F0EFE8] truncate">{file?.name}</p>
-                <button onClick={() => inputRef.current?.click()} className="text-xs text-[#1D9E75] hover:underline">Cambiar</button>
+                <p className="text-sm text-foreground truncate">{file?.name}</p>
+                <button onClick={() => inputRef.current?.click()} className="text-xs text-primary hover:underline">Cambiar</button>
               </div>
             </div>
           ) : (
             <button
               onClick={() => inputRef.current?.click()}
-              className="flex-1 min-h-[120px] w-full flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-[rgba(255,255,255,0.15)] py-8 hover:bg-[rgba(255,255,255,0.03)] transition-colors"
+              className="flex-1 min-h-[120px] w-full flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-foreground/15 py-8 hover:bg-foreground/3 transition-colors"
             >
-              <Upload className="h-6 w-6 text-[#8A877D]" />
-              <span className="text-sm text-[#8A877D]">Toca para subir la captura del Yape</span>
+              <Upload className="h-6 w-6 text-muted-foreground" />
+              <span className="text-sm text-muted-foreground">Toca para subir la captura del Yape</span>
             </button>
           )}
         </div>
       </div>
 
-      <Button onClick={submit} disabled={submitting || !file} className="w-full bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 h-12 text-base">
+      <Button onClick={submit} disabled={submitting || !file} className="w-full bg-primary text-primary-foreground hover:bg-primary/90 h-12 text-base">
         {submitting ? <Loader2 className="h-5 w-5 animate-spin" /> : `Enviar comprobante — S/${monto}`}
       </Button>
-      <p className="text-center text-xs text-[#8A877D]">
+      <p className="text-center text-xs text-muted-foreground">
         {renewal ? 'Extiende tu Pro. Un humano valida el pago antes de sumar el periodo.' : 'Un humano revisa tu pago antes de activar Pro. Cancelas cuando quieras.'}
       </p>
     </div>

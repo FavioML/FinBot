@@ -71,11 +71,11 @@ import type { Transaccion, KPIData, CategoriaGasto, TendenciaMensual } from '@/l
 function TierLabel({ label, question }: { label: string; question: string }) {
   return (
     <div className="flex items-center gap-3 pt-2">
-      <span className="whitespace-nowrap rounded-full border border-[rgba(29,158,117,0.22)] bg-[rgba(29,158,117,0.10)] px-2.5 py-[5px] text-[10px] font-bold uppercase tracking-[0.14em] text-[#1D9E75]">
+      <span className="whitespace-nowrap rounded-full border border-primary/22 bg-primary/10 px-2.5 py-[5px] text-[10px] font-bold uppercase tracking-[0.14em] text-primary-ink">
         {label}
       </span>
-      <span className="text-[12.5px] text-[#8A877D]">{question}</span>
-      <span className="h-px flex-1 bg-[rgba(240,239,232,0.08)]" />
+      <span className="text-[12.5px] text-muted-foreground">{question}</span>
+      <span className="h-px flex-1 bg-foreground/8" />
     </div>
   );
 }
@@ -393,7 +393,7 @@ export default function DashboardPage() {
       {/* Welcome header — muted on mobile so the hero balance dominates */}
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-sm font-medium text-[#8A877D] sm:text-lg sm:font-medium sm:text-[#C8C6BC]">
+          <p className="text-sm font-medium text-muted-foreground sm:text-lg sm:font-medium sm:text-foreground-soft">
             {(() => {
               const hour = new Date().getHours();
               const greeting = hour < 12 ? 'Buenos días' : hour < 18 ? 'Buenas tardes' : 'Buenas noches';
@@ -401,7 +401,7 @@ export default function DashboardPage() {
               return name ? `${greeting}, ${name}` : greeting;
             })()}
           </p>
-          <p className="hidden sm:block text-sm font-medium text-[#F0EFE8] mt-0.5">
+          <p className="hidden sm:block text-sm font-medium text-foreground mt-0.5">
             {viewMode === 'anual' ? `Resumen anual ${selectedYear}` : `${MESES[currentMonth]} ${currentYear}`}
           </p>
         </div>
@@ -421,7 +421,7 @@ export default function DashboardPage() {
 
         {viewMode === 'anual' && (
           <Select value={String(selectedYear)} onValueChange={(val) => setSelectedYear(Number(val))}>
-            <SelectTrigger className="w-[120px] bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#C8C6BC]">
+            <SelectTrigger className="w-[120px] bg-foreground/3 border-border text-foreground-soft">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -442,8 +442,8 @@ export default function DashboardPage() {
           /* First-time user onboarding checklist */
           <FadeIn>
           <div className="glass-card glass-card-glow p-6 max-w-lg mx-auto">
-            <h3 className="text-lg font-semibold text-[#F0EFE8] mb-1">Bienvenido a NETO</h3>
-            <p className="text-sm text-[#8A877D] mb-5">Completa estos pasos para empezar a ver tus finanzas:</p>
+            <h3 className="text-lg font-semibold text-foreground mb-1">Bienvenido a NETO</h3>
+            <p className="text-sm text-muted-foreground mb-5">Completa estos pasos para empezar a ver tus finanzas:</p>
             <div className="space-y-3">
               {[
                 { done: true, label: 'Crear tu cuenta', sub: 'Listo — ya estás aquí' },
@@ -459,14 +459,14 @@ export default function DashboardPage() {
                   href={step.href}
                   target={step.external ? '_blank' : undefined}
                   rel={step.external ? 'noopener noreferrer' : undefined}
-                  className={`flex items-start gap-3 rounded-xl p-3 transition-all ${step.done ? 'opacity-60' : 'hover:bg-[rgba(255,255,255,0.03)] cursor-pointer'}`}
+                  className={`flex items-start gap-3 rounded-xl p-3 transition-all ${step.done ? 'opacity-60' : 'hover:bg-foreground/3 cursor-pointer'}`}
                 >
-                  <div className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-bold ${step.done ? 'bg-[#1D9E75] text-white' : 'border border-[#8A877D] text-[#8A877D]'}`}>
+                  <div className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-bold ${step.done ? 'bg-primary text-primary-foreground' : 'border border-muted-foreground text-muted-foreground'}`}>
                     {step.done ? '✓' : i + 1}
                   </div>
                   <div>
-                    <p className={`text-sm font-medium ${step.done ? 'text-[#8A877D] line-through' : 'text-[#F0EFE8]'}`}>{step.label}</p>
-                    <p className="text-xs text-[#8A877D]">{step.sub}</p>
+                    <p className={`text-sm font-medium ${step.done ? 'text-muted-foreground line-through' : 'text-foreground'}`}>{step.label}</p>
+                    <p className="text-xs text-muted-foreground">{step.sub}</p>
                   </div>
                 </a>
               ))}
@@ -538,14 +538,14 @@ export default function DashboardPage() {
               <FadeIn delay={0.14}>
                 <Link
                   href="/dashboard/alertas"
-                  className="flex items-center gap-3 rounded-xl px-4 py-3 transition-colors hover:bg-white/[0.04]"
-                  style={{ backgroundColor: 'rgba(232, 168, 56, 0.06)', border: '1px solid rgba(232, 168, 56, 0.12)' }}
+                  className="flex items-center gap-3 rounded-xl px-4 py-3 transition-colors hover:bg-foreground/[0.04]"
+                  style={{ backgroundColor: 'color-mix(in srgb, var(--warning) 6%, transparent)', border: '1px solid color-mix(in srgb, var(--warning) 12%, transparent)' }}
                 >
-                  <AlertTriangle className="h-4 w-4 shrink-0 text-[#E8A838]" />
-                  <span className="text-sm text-[#E8A838]/90">
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-warning" />
+                  <span className="text-sm text-warning-ink">
                     {recentAlerts.length} fuga{recentAlerts.length > 1 ? 's' : ''} detectada{recentAlerts.length > 1 ? 's' : ''} recientemente
                   </span>
-                  <span className="ml-auto text-xs text-[#8A877D]">Ver →</span>
+                  <span className="ml-auto text-xs text-muted-foreground">Ver →</span>
                 </Link>
               </FadeIn>
             );
@@ -577,7 +577,7 @@ export default function DashboardPage() {
               {/* Mobile toggle button */}
               <button
                 onClick={() => setShowMoreWidgets(!showMoreWidgets)}
-                className="flex md:hidden items-center justify-center gap-2 w-full rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)] py-2.5 text-xs font-medium text-[#C8C6BC] transition-colors hover:bg-[rgba(255,255,255,0.04)]"
+                className="flex md:hidden items-center justify-center gap-2 w-full rounded-xl border border-border bg-foreground/2 py-2.5 text-xs font-medium text-foreground-soft transition-colors hover:bg-foreground/4"
               >
                 {showMoreWidgets ? 'Ocultar detalles' : 'Ver mas detalles'}
                 <motion.span
@@ -726,8 +726,8 @@ export default function DashboardPage() {
             {/* Transacciones Recientes */}
             <div className="glass-card glass-card-glow p-5">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-medium md:text-base md:font-semibold text-[#C8C6BC]">Transacciones Recientes</h3>
-                <Link href="/dashboard/transacciones" className="text-xs text-[#1D9E75] hover:underline">Ver todas &rarr;</Link>
+                <h3 className="text-sm font-medium md:text-base md:font-semibold text-foreground-soft">Transacciones Recientes</h3>
+                <Link href="/dashboard/transacciones" className="text-xs text-primary hover:underline">Ver todas &rarr;</Link>
               </div>
               {transactions.length > 0 ? (
                 <div className="space-y-1">
@@ -737,23 +737,23 @@ export default function DashboardPage() {
                     return (
                       <div
                         key={tx.id}
-                        className="flex items-center gap-3 rounded-lg px-3 py-2.5 transition-all hover:bg-[rgba(255,255,255,0.03)] hover:translate-x-1"
+                        className="flex items-center gap-3 rounded-lg px-3 py-2.5 transition-all hover:bg-foreground/3 hover:translate-x-1"
                       >
-                        <span className="text-xs text-[#8A877D] w-[72px] shrink-0">{formatFecha(tx.fecha)}</span>
-                        <span className="inline-flex items-center gap-1 rounded-full bg-[rgba(255,255,255,0.05)] px-2 py-0.5 text-xs text-[#C8C6BC] shrink-0">
+                        <span className="text-xs text-muted-foreground w-[72px] shrink-0">{formatFecha(tx.fecha)}</span>
+                        <span className="inline-flex items-center gap-1 rounded-full bg-foreground/5 px-2 py-0.5 text-xs text-foreground-soft shrink-0">
                           {emoji} {tx.categoria}
                         </span>
-                        <span className="truncate text-sm text-[#F0EFE8] flex-1 min-w-0">
+                        <span className="truncate text-sm text-foreground flex-1 min-w-0">
                           {tx.comercio || tx.descripcion_original || tx.subcategoria}
                         </span>
-                        <span className="hidden lg:inline-block text-xs text-[#8A877D] w-[100px] shrink-0 truncate">
+                        <span className="hidden lg:inline-block text-xs text-muted-foreground w-[100px] shrink-0 truncate">
                           {tx.metodo_pago ? capitalizeDisplay(normalizeMetodoPago(tx.metodo_pago, tx.banco)) : ''}
                         </span>
                         <TxMonto
                           tx={tx}
                           signo={isIngreso ? '+' : '-'}
                           className="text-sm font-semibold shrink-0"
-                          style={{ color: isIngreso ? '#1D9E75' : '#D85A30' }}
+                          style={{ color: isIngreso ? 'var(--positive)' : 'var(--negative)' }}
                         />
                       </div>
                     );
@@ -761,9 +761,9 @@ export default function DashboardPage() {
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center py-6 text-center">
-                  <Receipt className="h-6 w-6 text-[#8A877D]/50 mb-2" />
-                  <p className="text-sm text-[#8A877D]">Sin transacciones recientes</p>
-                  <a href={SOCIAL_LINKS.whatsapp} target="_blank" rel="noopener noreferrer" className="text-xs text-[#1D9E75] hover:underline mt-1">Registra tu primer gasto</a>
+                  <Receipt className="h-6 w-6 text-muted-foreground/50 mb-2" />
+                  <p className="text-sm text-muted-foreground">Sin transacciones recientes</p>
+                  <a href={SOCIAL_LINKS.whatsapp} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline mt-1">Registra tu primer gasto</a>
                 </div>
               )}
             </div>
@@ -782,18 +782,18 @@ export default function DashboardPage() {
             <div className="glass-card glass-card-glow p-4 lg:p-4">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
-                  <Target className="h-4 w-4 text-[#1D9E75]" />
-                  <span className="text-sm font-medium text-[#C8C6BC]">Planes de ahorro</span>
+                  <Target className="h-4 w-4 text-primary" />
+                  <span className="text-sm font-medium text-foreground-soft">Planes de ahorro</span>
                 </div>
-                <Link href="/dashboard/planes" className="text-xs text-[#1D9E75] hover:underline">Ver todas &rarr;</Link>
+                <Link href="/dashboard/planes" className="text-xs text-primary hover:underline">Ver todas &rarr;</Link>
               </div>
               {(() => {
                 const activeGoals = goals.filter((g) => g.status === 'active' || (!g.status && !g.completada));
                 if (activeGoals.length === 0) return (
                   <div className="flex flex-col items-center justify-center py-6 text-center">
-                    <Target className="h-6 w-6 text-[#8A877D]/50 mb-2" />
-                    <p className="text-sm text-[#8A877D]">Sin planes activos</p>
-                    <Link href="/dashboard/planes" className="text-xs text-[#1D9E75] mt-1 hover:underline">Crear un plan</Link>
+                    <Target className="h-6 w-6 text-muted-foreground/50 mb-2" />
+                    <p className="text-sm text-muted-foreground">Sin planes activos</p>
+                    <Link href="/dashboard/planes" className="text-xs text-primary mt-1 hover:underline">Crear un plan</Link>
                   </div>
                 );
                 return (
@@ -805,16 +805,16 @@ export default function DashboardPage() {
                       return (
                         <div key={g.id}>
                           <div className="flex justify-between text-xs mb-1">
-                            <span className="text-[#F0EFE8]">{g.icono} {g.nombre}</span>
+                            <span className="text-foreground">{g.icono} {g.nombre}</span>
                             <div className="flex items-center gap-2">
                               {g.monthly_quota && g.status === 'active' && (
-                                <span className="text-[#8A877D]">S/{Number(g.monthly_quota).toFixed(0)}/mes</span>
+                                <span className="text-muted-foreground">S/{Number(g.monthly_quota).toFixed(0)}/mes</span>
                               )}
-                              <span className="text-[#8A877D] tabular-nums">{pct.toFixed(0)}%</span>
+                              <span className="text-muted-foreground tabular-nums">{pct.toFixed(0)}%</span>
                             </div>
                           </div>
-                          <div className="h-1.5 rounded-full bg-[rgba(255,255,255,0.06)] overflow-hidden">
-                            <div className="h-full rounded-full bg-[#1D9E75] transition-all" style={{ width: `${pct}%` }} />
+                          <div className="h-1.5 rounded-full bg-foreground/6 overflow-hidden">
+                            <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} />
                           </div>
                         </div>
                       );
@@ -828,10 +828,10 @@ export default function DashboardPage() {
             <div className="glass-card glass-card-glow p-4 lg:p-4">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
-                  <Wallet className="h-4 w-4 text-[#EF9F27]" />
-                  <span className="text-sm font-medium text-[#C8C6BC]">Deudas</span>
+                  <Wallet className="h-4 w-4 text-warning" />
+                  <span className="text-sm font-medium text-foreground-soft">Deudas</span>
                 </div>
-                <Link href="/dashboard/deudas" className="text-xs text-[#1D9E75] hover:underline">Ver todas &rarr;</Link>
+                <Link href="/dashboard/deudas" className="text-xs text-primary hover:underline">Ver todas &rarr;</Link>
               </div>
               {(() => {
                 const activas = allDebts.filter((d) => d.estado === 'activa');
@@ -839,27 +839,27 @@ export default function DashboardPage() {
                 const meDebenTotal = activas.filter((d) => d.tipo === 'me_deben').reduce((s, d) => s + Number(d.monto_pendiente), 0);
                 if (activas.length === 0) return (
                   <div className="flex flex-col items-center justify-center py-6 text-center">
-                    <Wallet className="h-6 w-6 text-[#8A877D]/50 mb-2" />
-                    <p className="text-sm text-[#8A877D]">Sin deudas activas</p>
+                    <Wallet className="h-6 w-6 text-muted-foreground/50 mb-2" />
+                    <p className="text-sm text-muted-foreground">Sin deudas activas</p>
                   </div>
                 );
                 return (
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs text-[#8A877D]">Yo debo</span>
-                      <span className="text-sm font-bold text-[#D85A30] tabular-nums">{formatCurrency(deboTotal)}</span>
+                      <span className="text-xs text-muted-foreground">Yo debo</span>
+                      <span className="text-sm font-bold text-negative tabular-nums">{formatCurrency(deboTotal)}</span>
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-xs text-[#8A877D]">Me deben</span>
-                      <span className="text-sm font-bold text-[#1D9E75] tabular-nums">{formatCurrency(meDebenTotal)}</span>
+                      <span className="text-xs text-muted-foreground">Me deben</span>
+                      <span className="text-sm font-bold text-positive tabular-nums">{formatCurrency(meDebenTotal)}</span>
                     </div>
-                    <div className="border-t border-[rgba(255,255,255,0.06)] pt-3 flex justify-between">
-                      <span className="text-xs text-[#8A877D]">Balance neto</span>
-                      <span className={`text-sm font-bold tabular-nums ${meDebenTotal - deboTotal >= 0 ? 'text-[#1D9E75]' : 'text-[#D85A30]'}`}>
+                    <div className="border-t border-border pt-3 flex justify-between">
+                      <span className="text-xs text-muted-foreground">Balance neto</span>
+                      <span className={`text-sm font-bold tabular-nums ${meDebenTotal - deboTotal >= 0 ? 'text-positive' : 'text-negative'}`}>
                         {meDebenTotal - deboTotal >= 0 ? '+' : ''}{formatCurrency(meDebenTotal - deboTotal)}
                       </span>
                     </div>
-                    <p className="text-[10px] text-[#8A877D]">{activas.length} deuda{activas.length !== 1 ? 's' : ''} activa{activas.length !== 1 ? 's' : ''}</p>
+                    <p className="text-[10px] text-muted-foreground">{activas.length} deuda{activas.length !== 1 ? 's' : ''} activa{activas.length !== 1 ? 's' : ''}</p>
                   </div>
                 );
               })()}
@@ -876,7 +876,7 @@ export default function DashboardPage() {
 
       {/* Category detail dialog */}
       <Dialog open={!!detailCategoria} onOpenChange={(open) => { if (!open) { setDetailCategoria(null); setDetailSubcategoria(null); } }}>
-        <DialogContent className="glass-card-elevated text-[#F0EFE8] max-w-md max-h-[80vh] overflow-y-auto">
+        <DialogContent className="glass-card-elevated text-foreground max-w-md max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {detailCategoria && (
@@ -884,7 +884,7 @@ export default function DashboardPage() {
                   {detailSubcategoria && (
                     <button
                       onClick={() => setDetailSubcategoria(null)}
-                      className="text-xs text-[#1D9E75] hover:underline"
+                      className="text-xs text-primary hover:underline"
                     >
                       &larr; {getCategoriaEmoji(detailCategoria)} {capitalizeDisplay(detailCategoria)}
                     </button>
@@ -893,7 +893,7 @@ export default function DashboardPage() {
                     <span>{getCategoriaEmoji(detailCategoria)} {capitalizeDisplay(detailCategoria)}</span>
                   )}
                   {detailSubcategoria && (
-                    <span className="text-[#F0EFE8]">/ {capitalizeDisplay(detailSubcategoria)}</span>
+                    <span className="text-foreground">/ {capitalizeDisplay(detailSubcategoria)}</span>
                   )}
                 </span>
               )}
@@ -928,9 +928,9 @@ export default function DashboardPage() {
 
             return (
               <div className="glass-card-depth space-y-3">
-                <p className="text-sm text-[#8A877D]">
+                <p className="text-sm text-muted-foreground">
                   Total{detailSubcategoria ? ' subcategoría' : ''}:{' '}
-                  <span className="text-[#D85A30] font-medium">
+                  <span className="text-negative font-medium">
                     {formatCurrency(detailSubcategoria
                       ? (subMap.get(detailSubcategoria)?.reduce((s, t) => s + montoPen(t), 0) || 0)
                       : catTotal)}
@@ -949,15 +949,15 @@ export default function DashboardPage() {
                         disabled={name === '(General)'}
                         className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs transition-colors ${
                           name === '(General)'
-                            ? 'cursor-default bg-[rgba(255,255,255,0.03)]'
-                            : 'bg-[rgba(255,255,255,0.03)] hover:bg-[rgba(29,158,117,0.1)]'
+                            ? 'cursor-default bg-foreground/3'
+                            : 'bg-foreground/3 hover:bg-primary/10'
                         }`}
                       >
-                        <span className={name === '(General)' ? 'text-[#8A877D]' : 'text-[#1D9E75]'}>
+                        <span className={name === '(General)' ? 'text-muted-foreground' : 'text-primary'}>
                           {capitalizeDisplay(name)}
                         </span>
-                        <span className="text-[#8A877D]">· {txs.length}</span>
-                        <span className="ml-auto font-medium tabular-nums text-[#F0EFE8]">
+                        <span className="text-muted-foreground">· {txs.length}</span>
+                        <span className="ml-auto font-medium tabular-nums text-foreground">
                           {formatCurrency(total)}
                         </span>
                       </button>
@@ -968,10 +968,10 @@ export default function DashboardPage() {
                 {visibleTxs.length > 0 ? (
                   <div className="space-y-1">
                     {visibleTxs.map((tx) => (
-                      <div key={tx.id} className="flex items-center justify-between py-2 border-b border-[rgba(255,255,255,0.04)] last:border-0">
+                      <div key={tx.id} className="flex items-center justify-between py-2 border-b border-border last:border-0">
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm text-[#F0EFE8] truncate">{tx.comercio || tx.subcategoria || 'Sin comercio'}</p>
-                          <p className="text-xs text-[#8A877D]">
+                          <p className="text-sm text-foreground truncate">{tx.comercio || tx.subcategoria || 'Sin comercio'}</p>
+                          <p className="text-xs text-muted-foreground">
                             {formatFecha(tx.fecha)}
                             {!detailSubcategoria && subcategoriaUtil(tx.subcategoria) && (
                               <span> · {capitalizeDisplay(subcategoriaUtil(tx.subcategoria))}</span>
@@ -979,10 +979,10 @@ export default function DashboardPage() {
                           </p>
                         </div>
                         <div className="flex items-center gap-2 shrink-0 ml-3">
-                          <TxMonto tx={tx} signo="-" className="text-sm font-medium text-[#D85A30]" />
+                          <TxMonto tx={tx} signo="-" className="text-sm font-medium text-negative" />
                           <button
                             onClick={() => setEditTransaction(tx)}
-                            className="p-1 rounded hover:bg-[rgba(255,255,255,0.06)] text-[#8A877D] hover:text-[#C8C6BC] transition-colors"
+                            className="p-1 rounded hover:bg-foreground/6 text-muted-foreground hover:text-foreground-soft transition-colors"
                           >
                             <Pencil className="h-3.5 w-3.5" />
                           </button>
@@ -991,7 +991,7 @@ export default function DashboardPage() {
                     ))}
                   </div>
                 ) : (
-                  <p className="text-sm text-[#8A877D] text-center py-4">Sin gastos en esta categoria</p>
+                  <p className="text-sm text-muted-foreground text-center py-4">Sin gastos en esta categoria</p>
                 )}
               </div>
             );
@@ -1018,7 +1018,7 @@ export default function DashboardPage() {
       <Dialog open={!!detailMetodo} onOpenChange={(open) => { if (!open) setDetailMetodo(null); }}>
         <DialogContent className="glass-card-elevated max-w-lg max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-[#F0EFE8] text-lg">
+            <DialogTitle className="text-foreground text-lg">
               {detailMetodo && `${getMetodoIcon(detailMetodo)} ${capitalizeDisplay(detailMetodo)}`}
             </DialogTitle>
           </DialogHeader>
@@ -1049,27 +1049,27 @@ export default function DashboardPage() {
 
             return (
             <div className="glass-card-depth space-y-3">
-              <p className="text-sm text-[#8A877D]">
-                Total: <span className="text-[#D85A30] font-medium">{formatCurrency(metodoTotal)}</span>
+              <p className="text-sm text-muted-foreground">
+                Total: <span className="text-negative font-medium">{formatCurrency(metodoTotal)}</span>
                 {' '}&mdash; {detailMetodoTransactions.length} {detailMetodoTransactions.length === 1 ? 'transaccion' : 'transacciones'}
               </p>
 
               {/* Consolidated breakdown by category + subcategory */}
-              <div className="space-y-2 rounded-xl bg-[rgba(255,255,255,0.02)] p-3">
-                <h4 className="text-xs font-medium text-[#C8C6BC]">Por categoría</h4>
+              <div className="space-y-2 rounded-xl bg-foreground/2 p-3">
+                <h4 className="text-xs font-medium text-foreground-soft">Por categoría</h4>
                 {catBreakdown.map((cat) => (
                   <div key={cat.categoria} className="space-y-1">
                     <div className="flex items-center gap-2 text-sm">
-                      <span className="text-[#F0EFE8]">
+                      <span className="text-foreground">
                         {getCategoriaEmoji(cat.categoria)} {capitalizeDisplay(cat.categoria)}
                       </span>
-                      <span className="text-xs text-[#8A877D]">· {cat.count}</span>
-                      <span className="ml-auto font-medium tabular-nums text-[#F0EFE8]">{formatCurrency(cat.total)}</span>
+                      <span className="text-xs text-muted-foreground">· {cat.count}</span>
+                      <span className="ml-auto font-medium tabular-nums text-foreground">{formatCurrency(cat.total)}</span>
                     </div>
                     {cat.subs.length > 0 && !(cat.subs.length === 1 && cat.subs[0].name === '(General)') && (
                       <div className="space-y-0.5 pl-5">
                         {cat.subs.map((sub) => (
-                          <div key={sub.name} className="flex items-center gap-2 text-xs text-[#8A877D]">
+                          <div key={sub.name} className="flex items-center gap-2 text-xs text-muted-foreground">
                             <span>{sub.name === '(General)' ? 'Sin subcategoría' : capitalizeDisplay(sub.name)}</span>
                             <span className="ml-auto tabular-nums">{formatCurrency(sub.monto)}</span>
                           </div>
@@ -1082,18 +1082,18 @@ export default function DashboardPage() {
 
               <div className="space-y-2">
                 {detailMetodoTransactions.map((tx) => (
-                  <div key={tx.id} className="flex items-center justify-between py-2 border-b border-[rgba(255,255,255,0.06)] last:border-0">
+                  <div key={tx.id} className="flex items-center justify-between py-2 border-b border-border last:border-0">
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm text-[#F0EFE8] whitespace-normal break-words">{tx.comercio || 'Sin comercio'}</p>
-                      <p className="text-xs text-[#8A877D]">
+                      <p className="text-sm text-foreground whitespace-normal break-words">{tx.comercio || 'Sin comercio'}</p>
+                      <p className="text-xs text-muted-foreground">
                         {tx.fecha} &middot; {getCategoriaEmoji(tx.categoria)} {capitalizeDisplay(tx.categoria)}
                       </p>
                     </div>
                     <div className="flex items-center gap-2 ml-3">
-                      <TxMonto tx={tx} className="text-sm font-medium text-[#D85A30]" />
+                      <TxMonto tx={tx} className="text-sm font-medium text-negative" />
                       <button
                         onClick={() => setEditTransaction(tx)}
-                        className="p-1 rounded hover:bg-[rgba(255,255,255,0.06)] text-[#8A877D] hover:text-[#C8C6BC] transition-colors"
+                        className="p-1 rounded hover:bg-foreground/6 text-muted-foreground hover:text-foreground-soft transition-colors"
                       >
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
@@ -1111,33 +1111,33 @@ export default function DashboardPage() {
       <Dialog open={!!detailComercio} onOpenChange={(open) => { if (!open) setDetailComercio(null); }}>
         <DialogContent className="glass-card-elevated max-w-lg max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-[#F0EFE8] text-lg">
+            <DialogTitle className="text-foreground text-lg">
               {detailComercio}
             </DialogTitle>
           </DialogHeader>
           {detailComercio && (
             <div className="glass-card-depth space-y-3">
-              <p className="text-sm text-[#8A877D]">
-                Total: <span className="text-[#D85A30] font-medium">{formatCurrency(detailComercioTransactions.reduce((s, t) => s + montoPen(t), 0))}</span>
+              <p className="text-sm text-muted-foreground">
+                Total: <span className="text-negative font-medium">{formatCurrency(detailComercioTransactions.reduce((s, t) => s + montoPen(t), 0))}</span>
                 {' '}&mdash; {detailComercioTransactions.length} {detailComercioTransactions.length === 1 ? 'transaccion' : 'transacciones'}
               </p>
               <div className="space-y-2">
                 {detailComercioTransactions.map((tx) => (
-                  <div key={tx.id} className="flex items-center justify-between py-2 border-b border-[rgba(255,255,255,0.06)] last:border-0">
+                  <div key={tx.id} className="flex items-center justify-between py-2 border-b border-border last:border-0">
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm text-[#F0EFE8]">
+                      <p className="text-sm text-foreground">
                         {getCategoriaEmoji(tx.categoria)} {capitalizeDisplay(tx.categoria)}
                       </p>
-                      <p className="text-xs text-[#8A877D]">
+                      <p className="text-xs text-muted-foreground">
                         {tx.fecha}
                         {subcategoriaUtil(tx.subcategoria) ? ` · ${capitalizeDisplay(subcategoriaUtil(tx.subcategoria))}` : ''}
                       </p>
                     </div>
                     <div className="flex items-center gap-2 ml-3">
-                      <TxMonto tx={tx} className="text-sm font-medium text-[#D85A30]" />
+                      <TxMonto tx={tx} className="text-sm font-medium text-negative" />
                       <button
                         onClick={() => setEditTransaction(tx)}
-                        className="p-1 rounded hover:bg-[rgba(255,255,255,0.06)] text-[#8A877D] hover:text-[#C8C6BC] transition-colors"
+                        className="p-1 rounded hover:bg-foreground/6 text-muted-foreground hover:text-foreground-soft transition-colors"
                       >
                         <Pencil className="h-3.5 w-3.5" />
                       </button>

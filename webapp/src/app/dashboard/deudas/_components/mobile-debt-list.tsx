@@ -23,7 +23,7 @@ export function MobileDebtList({
   tab: DebtTipoTab;
   handlers: DebtHandlers;
 }) {
-  const color = tab === 'debo' ? 'text-[#D85A30]' : 'text-[#1D9E75]';
+  const color = tab === 'debo' ? 'text-negative' : 'text-primary';
 
   if (mode === 'grouped') {
     return (
@@ -33,12 +33,12 @@ export function MobileDebtList({
             <div className="space-y-2">
               <div className="flex items-center justify-between px-1">
                 <div className="flex items-center gap-2 min-w-0">
-                  <div className="w-7 h-7 rounded-full bg-[rgba(29,158,117,0.1)] flex items-center justify-center shrink-0">
-                    <Users className="h-3.5 w-3.5 text-[#1D9E75]" />
+                  <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                    <Users className="h-3.5 w-3.5 text-primary" />
                   </div>
                   <div className="min-w-0">
-                    <p className="font-semibold text-sm text-[#F0EFE8] truncate">{group.contraparte}</p>
-                    <p className="text-[10px] text-[#8A877D]">{group.debts.length} deuda{group.debts.length !== 1 ? 's' : ''}</p>
+                    <p className="font-semibold text-sm text-foreground truncate">{group.contraparte}</p>
+                    <p className="text-[10px] text-muted-foreground">{group.debts.length} deuda{group.debts.length !== 1 ? 's' : ''}</p>
                   </div>
                 </div>
                 <p className={`text-sm font-bold tabular-nums shrink-0 ${color}`}>{fmtMulti(group.pen, group.usd)}</p>

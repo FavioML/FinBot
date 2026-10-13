@@ -70,14 +70,14 @@ function KPICard({
 }) {
   return (
     <div className="glass-card glass-card-glow p-4">
-      <div className="flex items-center gap-2 text-[#8A877D] text-xs mb-2">
+      <div className="flex items-center gap-2 text-muted-foreground text-xs mb-2">
         <Icon className="h-4 w-4" />
         {label}
       </div>
-      <p className={`text-xl font-semibold ${accent ? 'text-[#1D9E75]' : 'text-[#C8C6BC]'}`}>
+      <p className={`text-xl font-semibold ${accent ? 'text-primary' : 'text-foreground-soft'}`}>
         {value}
       </p>
-      {sub && <p className="text-xs text-[#8A877D] mt-1">{sub}</p>}
+      {sub && <p className="text-xs text-muted-foreground mt-1">{sub}</p>}
     </div>
   );
 }
@@ -106,29 +106,29 @@ function MonthlySubscriptionCard({
         <span className="text-2xl shrink-0">{sub.icono}</span>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[#C8C6BC] font-medium truncate">{sub.nombre}</span>
+            <span className="text-foreground-soft font-medium truncate">{sub.nombre}</span>
             {sub.plan_actual && (
-              <span className="shrink-0 rounded-full bg-[rgba(29,158,117,0.12)] px-1.5 py-0.5 text-[9px] text-[#1D9E75]">
+              <span className="shrink-0 rounded-full bg-primary/12 px-1.5 py-0.5 text-[9px] text-primary-ink">
                 {sub.plan_actual}
               </span>
             )}
             {sub.split_parent_id && (
-              <span className="shrink-0 rounded-full bg-[rgba(255,255,255,0.06)] px-1.5 py-0.5 text-[9px] text-[#8A877D]">
+              <span className="shrink-0 rounded-full bg-foreground/6 px-1.5 py-0.5 text-[9px] text-muted-foreground">
                 dividido
               </span>
             )}
           </div>
-          <div className="flex items-center gap-2 text-xs text-[#8A877D] mt-0.5">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
             <span>{tipoInfo.emoji} {tipoInfo.label}</span>
             <span>·</span>
             <span>{pagos.length} pago{pagos.length !== 1 ? 's' : ''}</span>
           </div>
         </div>
         <div className="text-right shrink-0">
-          <p className="text-[#C8C6BC] font-medium">
+          <p className="text-foreground-soft font-medium">
             S/{totalPen.toFixed(2)}
           </p>
-          <p className="text-[10px] text-[#8A877D]">
+          <p className="text-[10px] text-muted-foreground">
             {hasExtras
               ? `cuota S/${(totalPen - extrasPen).toFixed(2)} + S/${extrasPen.toFixed(2)} extra`
               : `Pago en ${monthLabel}`}
@@ -137,27 +137,27 @@ function MonthlySubscriptionCard({
         <button
           onClick={() => onEdit(sub)}
           aria-label={`Editar ${sub.nombre}`}
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[#8A877D] hover:bg-[rgba(29,158,117,0.15)] hover:text-[#1D9E75] transition-colors"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-primary/15 hover:text-primary transition-colors"
         >
           <Pencil className="h-3.5 w-3.5" />
         </button>
       </div>
       {pagos.length > 1 && (
-        <div className="mt-2 pt-2 border-t border-[rgba(255,255,255,0.04)] space-y-1">
+        <div className="mt-2 pt-2 border-t border-border space-y-1">
           {pagos.map((p, i) => (
             <div key={i} className="flex items-center justify-between text-xs px-2">
-              <span className="flex items-center gap-1.5 text-[#8A877D]">
+              <span className="flex items-center gap-1.5 text-muted-foreground">
                 {formatDate(p.fecha)}
                 {!p.recurrente && (
-                  <span className="rounded bg-[rgba(239,159,39,0.12)] px-1.5 py-0.5 text-[9px] text-[#EF9F27]">
+                  <span className="rounded bg-warning/12 px-1.5 py-0.5 text-[9px] text-warning-ink">
                     cargo adicional
                   </span>
                 )}
               </span>
-              <span className="text-[#C8C6BC]">
+              <span className="text-foreground-soft">
                 {p.moneda === 'USD' ? `$${p.monto.toFixed(2)}` : `S/${p.monto.toFixed(2)}`}
                 {p.moneda === 'USD' && (
-                  <span className="text-[#8A877D] ml-1">(S/{p.monto_pen.toFixed(2)})</span>
+                  <span className="text-muted-foreground ml-1">(S/{p.monto_pen.toFixed(2)})</span>
                 )}
               </span>
             </div>
@@ -361,8 +361,8 @@ export default function SuscripcionesPage() {
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-[#F0EFE8]">Suscripciones</h1>
-          <p className="text-sm text-[#8A877D] mt-0.5">
+          <h1 className="text-2xl font-bold text-foreground">Suscripciones</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
             Detectadas automáticamente desde tus transacciones
           </p>
         </div>
@@ -371,13 +371,13 @@ export default function SuscripcionesPage() {
 
       {/* View mode toggle + Month selector */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-        <div className="flex rounded-lg border border-[rgba(255,255,255,0.08)] overflow-hidden">
+        <div className="flex rounded-lg border border-border overflow-hidden">
           <button
             onClick={() => setViewMode('mensual')}
             className={`text-xs px-4 py-2 transition-colors ${
               viewMode === 'mensual'
-                ? 'bg-[rgba(29,158,117,0.12)] text-[#1D9E75]'
-                : 'bg-[rgba(255,255,255,0.02)] text-[#8A877D] hover:text-[#C8C6BC]'
+                ? 'bg-primary/12 text-primary-ink'
+                : 'bg-foreground/2 text-muted-foreground hover:text-foreground-soft'
             }`}
           >
             <Calendar className="h-3.5 w-3.5 inline-block mr-1.5 -mt-0.5" />
@@ -387,8 +387,8 @@ export default function SuscripcionesPage() {
             onClick={() => setViewMode('anual')}
             className={`text-xs px-4 py-2 transition-colors ${
               viewMode === 'anual'
-                ? 'bg-[rgba(29,158,117,0.12)] text-[#1D9E75]'
-                : 'bg-[rgba(255,255,255,0.02)] text-[#8A877D] hover:text-[#C8C6BC]'
+                ? 'bg-primary/12 text-primary-ink'
+                : 'bg-foreground/2 text-muted-foreground hover:text-foreground-soft'
             }`}
           >
             Anual
@@ -403,8 +403,8 @@ export default function SuscripcionesPage() {
                 onClick={() => setSelectedYear(y)}
                 className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
                   selectedYear === y
-                    ? 'bg-[rgba(29,158,117,0.12)] text-[#1D9E75] font-medium'
-                    : 'bg-[rgba(255,255,255,0.03)] text-[#8A877D] hover:text-[#C8C6BC]'
+                    ? 'bg-primary/12 text-primary-ink font-medium'
+                    : 'bg-foreground/3 text-muted-foreground hover:text-foreground-soft'
                 }`}
               >
                 {y}
@@ -483,8 +483,8 @@ export default function SuscripcionesPage() {
             onClick={() => setFilterTipo('all')}
             className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
               filterTipo === 'all'
-                ? 'bg-[rgba(29,158,117,0.12)] text-[#1D9E75]'
-                : 'bg-[rgba(255,255,255,0.03)] text-[#8A877D] hover:text-[#C8C6BC]'
+                ? 'bg-primary/12 text-primary-ink'
+                : 'bg-foreground/3 text-muted-foreground hover:text-foreground-soft'
             }`}
           >
             Todas ({currentViewData.count})
@@ -498,8 +498,8 @@ export default function SuscripcionesPage() {
                 onClick={() => setFilterTipo(tipo)}
                 className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${
                   filterTipo === tipo
-                    ? 'bg-[rgba(29,158,117,0.12)] text-[#1D9E75]'
-                    : 'bg-[rgba(255,255,255,0.03)] text-[#8A877D] hover:text-[#C8C6BC]'
+                    ? 'bg-primary/12 text-primary-ink'
+                    : 'bg-foreground/3 text-muted-foreground hover:text-foreground-soft'
                 }`}
               >
                 {info.emoji} {info.label} ({count})
@@ -550,7 +550,7 @@ export default function SuscripcionesPage() {
         if (entries.length <= 1) return null;
         return (
           <div className="glass-card p-4">
-            <h3 className="text-sm font-medium text-[#C8C6BC] mb-3">Desglose por tipo — {selectedYear}</h3>
+            <h3 className="text-sm font-medium text-foreground-soft mb-3">Desglose por tipo — {selectedYear}</h3>
             <div className="space-y-2">
               {entries.map(([tipo, total]) => {
                 const info = TIPO_LABELS[tipo as TipoSuscripcion] || TIPO_LABELS.otro;
@@ -560,14 +560,14 @@ export default function SuscripcionesPage() {
                     <span className="text-sm shrink-0">{info.emoji}</span>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between text-xs mb-1">
-                        <span className="text-[#C8C6BC]">{info.label}</span>
-                        <span className="text-[#8A877D]">
+                        <span className="text-foreground-soft">{info.label}</span>
+                        <span className="text-muted-foreground">
                           S/{total.toFixed(0)} ({pct.toFixed(0)}%)
                         </span>
                       </div>
-                      <div className="h-1.5 rounded-full bg-[rgba(255,255,255,0.06)] overflow-hidden">
+                      <div className="h-1.5 rounded-full bg-foreground/6 overflow-hidden">
                         <motion.div
-                          className="h-full rounded-full bg-[#1D9E75]"
+                          className="h-full rounded-full bg-primary"
                           initial={{ width: 0 }}
                           animate={{ width: `${Math.min(pct, 100)}%` }}
                           transition={{ duration: 0.8, ease: [0.25, 0.46, 0.45, 0.94], delay: 0.2 }}
@@ -591,13 +591,13 @@ export default function SuscripcionesPage() {
         if (inactive.length === 0) return null;
         const potentialSavings = inactive.reduce((s, sub) => s + sub.monto_pen, 0);
         return (
-          <div className="glow-amber flex items-start gap-3 rounded-xl bg-[rgba(239,159,39,0.06)] border border-[rgba(239,159,39,0.15)] p-4">
-            <AlertTriangle className="h-5 w-5 text-[#EF9F27] shrink-0 mt-0.5" />
+          <div className="glow-amber flex items-start gap-3 rounded-xl bg-warning/6 border border-warning/15 p-4">
+            <AlertTriangle className="h-5 w-5 text-warning shrink-0 mt-0.5" />
             <div>
-              <p className="text-sm font-medium text-[#F0EFE8]">
+              <p className="text-sm font-medium text-foreground">
                 {inactive.length} suscripci{inactive.length === 1 ? 'on' : 'ones'} sin cobro reciente
               </p>
-              <p className="text-xs text-[#8A877D] mt-0.5">
+              <p className="text-xs text-muted-foreground mt-0.5">
                 {inactive.map((s) => s.nombre).join(', ')} — si ya no las usas, podrias ahorrar ~S/{Math.round(potentialSavings)}/mes
               </p>
             </div>
@@ -608,17 +608,17 @@ export default function SuscripcionesPage() {
       {/* Optimization CTA */}
       {subsData && subsData.cantidad >= 3 && (
         <div className="glass-card glass-card-glow p-5 text-center">
-          <p className="text-sm font-medium text-[#F0EFE8] mb-1">
+          <p className="text-sm font-medium text-foreground mb-1">
             Gastas ~S/{(subsData.totalMensualPEN).toFixed(0)}/mes en {subsData.cantidad} suscripciones
           </p>
-          <p className="text-xs text-[#8A877D] mb-3">
+          <p className="text-xs text-muted-foreground mb-3">
             Revisa si todas las sigues usando. Cancelar una suscripción de S/30 te ahorra S/360 al año.
           </p>
           <a
             href={SOCIAL_LINKS.whatsapp}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-[#1D9E75] hover:underline"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
           >
             Pregúntale a NETO cuáles puedes optimizar
             <ExternalLink className="h-3 w-3" />
@@ -628,9 +628,9 @@ export default function SuscripcionesPage() {
 
       {/* Info footer */}
       {subsData && subsData.cantidad > 0 && (
-        <div className="flex items-start gap-2 p-3 rounded-lg bg-[rgba(255,255,255,0.02)] border border-[rgba(255,255,255,0.04)]">
-          <Info className="h-4 w-4 text-[#8A877D] mt-0.5 shrink-0" />
-          <p className="text-xs text-[#8A877D]">
+        <div className="flex items-start gap-2 p-3 rounded-lg bg-foreground/2 border border-border">
+          <Info className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+          <p className="text-xs text-muted-foreground">
             Las suscripciones se detectan automáticamente analizando tus transacciones de los últimos 3 meses.
             Los precios de referencia son aproximados y pueden variar según tu plan actual.
             Tipo de cambio referencial: 1 USD = S/{TC_APROXIMADO.toFixed(2)}
@@ -658,7 +658,7 @@ export default function SuscripcionesPage() {
               <div className="px-4 pb-4 space-y-4">
                 {editSub.split_parent_id ? (
                   // ── Sub que salió de una división: solo deshacer ──
-                  <p className="text-xs text-[#8A877D]">
+                  <p className="text-xs text-muted-foreground">
                     Este servicio salió de dividir un cargo agrupado. Puedes deshacer la división
                     para volver a verlo como un solo cargo.
                   </p>
@@ -667,7 +667,7 @@ export default function SuscripcionesPage() {
                     {/* Marcar plan */}
                     {editSub.planes_disponibles.length > 0 && (
                       <div>
-                        <p className="text-[11px] text-[#8A877D] mb-1.5">Tu plan</p>
+                        <p className="text-[11px] text-muted-foreground mb-1.5">Tu plan</p>
                         <div className="space-y-1">
                           {editSub.planes_disponibles.map((plan) => {
                             const isCurrent = editSub.plan_actual
@@ -679,16 +679,16 @@ export default function SuscripcionesPage() {
                                 onClick={() => doMarkPlan(plan.nombre)}
                                 className={`w-full flex items-center justify-between text-xs px-2.5 py-2 rounded-lg transition-colors ${
                                   isCurrent
-                                    ? 'bg-[rgba(29,158,117,0.12)] border border-[rgba(29,158,117,0.25)]'
-                                    : 'bg-[rgba(255,255,255,0.02)] hover:bg-[rgba(255,255,255,0.05)]'
+                                    ? 'bg-primary/12 border border-primary/25'
+                                    : 'bg-foreground/2 hover:bg-foreground/5'
                                 }`}
                               >
-                                <span className={`flex items-center gap-1.5 ${isCurrent ? 'text-[#1D9E75]' : 'text-[#C8C6BC]'}`}>
+                                <span className={`flex items-center gap-1.5 ${isCurrent ? 'text-primary' : 'text-foreground-soft'}`}>
                                   {isCurrent && <Check className="h-3 w-3" />}
                                   {plan.nombre}
                                   {isCurrent && ' (actual)'}
                                 </span>
-                                <span className={isCurrent ? 'text-[#1D9E75]' : 'text-[#8A877D]'}>
+                                <span className={isCurrent ? 'text-primary' : 'text-muted-foreground'}>
                                   {formatPrecioConversion(plan.precio, editSub.moneda)}
                                 </span>
                               </button>
@@ -700,7 +700,7 @@ export default function SuscripcionesPage() {
 
                     {/* Renombrar */}
                     <div>
-                      <label className="text-[11px] text-[#8A877D] flex items-center gap-1.5 mb-1.5">
+                      <label className="text-[11px] text-muted-foreground flex items-center gap-1.5 mb-1.5">
                         <Pencil className="h-3 w-3" /> Nombre
                       </label>
                       <div className="flex gap-2">
@@ -713,7 +713,7 @@ export default function SuscripcionesPage() {
                         <button
                           onClick={doRename}
                           disabled={!renameValue.trim() || renameValue.trim() === editSub.nombre}
-                          className="inline-flex items-center gap-1 rounded-lg bg-[rgba(29,158,117,0.15)] px-3 text-sm font-medium text-[#1D9E75] disabled:opacity-40 hover:bg-[rgba(29,158,117,0.25)] transition-colors"
+                          className="inline-flex items-center gap-1 rounded-lg bg-primary/15 px-3 text-sm font-medium text-primary-ink disabled:opacity-40 hover:bg-primary/25 transition-colors"
                         >
                           <Check className="h-3.5 w-3.5" /> Guardar
                         </button>
@@ -723,10 +723,10 @@ export default function SuscripcionesPage() {
                     {/* Dividir en varios servicios */}
                     {editClusters.length >= 2 && (
                       <div>
-                        <p className="text-[11px] text-[#8A877D] flex items-center gap-1.5 mb-1.5">
+                        <p className="text-[11px] text-muted-foreground flex items-center gap-1.5 mb-1.5">
                           <Split className="h-3 w-3" /> Dividir en varios servicios
                         </p>
-                        <p className="text-[10px] text-[#8A877D] mb-2">
+                        <p className="text-[10px] text-muted-foreground mb-2">
                           Este cargo agrupa montos distintos. Asigna cada uno a su servicio real.
                         </p>
                         <div className="space-y-2">
@@ -737,11 +737,11 @@ export default function SuscripcionesPage() {
                             return (
                               <div
                                 key={cl.centroidPen}
-                                className="flex items-center gap-2 rounded-lg bg-[rgba(255,255,255,0.02)] px-2.5 py-2"
+                                className="flex items-center gap-2 rounded-lg bg-foreground/2 px-2.5 py-2"
                               >
-                                <span className="text-xs text-[#C8C6BC] shrink-0 tabular-nums w-24">
+                                <span className="text-xs text-foreground-soft shrink-0 tabular-nums w-24">
                                   ≈ S/{cl.centroidPen.toFixed(2)}
-                                  <span className="text-[10px] text-[#8A877D] ml-1">/mes</span>
+                                  <span className="text-[10px] text-muted-foreground ml-1">/mes</span>
                                 </span>
                                 <select
                                   value={current ?? ''}
@@ -769,7 +769,7 @@ export default function SuscripcionesPage() {
                   {!editSub.split_parent_id && (
                     <button
                       onClick={doHide}
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-[rgba(255,255,255,0.04)] px-3 py-2 text-xs text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.07)] transition-colors"
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-foreground/4 px-3 py-2 text-xs text-foreground-soft hover:bg-foreground/7 transition-colors"
                     >
                       <EyeOff className="h-3.5 w-3.5" /> No es suscripción
                     </button>
@@ -777,7 +777,7 @@ export default function SuscripcionesPage() {
                   {undoParentId && (
                     <button
                       onClick={doUndoSplit}
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-[rgba(255,255,255,0.04)] px-3 py-2 text-xs text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.07)] transition-colors"
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-foreground/4 px-3 py-2 text-xs text-foreground-soft hover:bg-foreground/7 transition-colors"
                     >
                       <Split className="h-3.5 w-3.5" /> Deshacer división
                     </button>
@@ -785,7 +785,7 @@ export default function SuscripcionesPage() {
                   {editHasOverride && !editSub.split_parent_id && (
                     <button
                       onClick={doReset}
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-[rgba(255,255,255,0.04)] px-3 py-2 text-xs text-[#8A877D] hover:text-[#C8C6BC] transition-colors"
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-foreground/4 px-3 py-2 text-xs text-muted-foreground hover:text-foreground-soft transition-colors"
                     >
                       <RotateCcw className="h-3.5 w-3.5" /> Restablecer
                     </button>

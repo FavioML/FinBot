@@ -25,41 +25,41 @@ function DebtDetailBlock({ debt, handlers, titleMode }: { debt: Deuda; handlers:
     <div className="glass-card-elevated rounded-xl p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className={`font-semibold text-sm flex items-center gap-1.5 flex-wrap ${isPagada ? 'text-[#8A877D] line-through' : 'text-[#F0EFE8]'}`}>
+          <p className={`font-semibold text-sm flex items-center gap-1.5 flex-wrap ${isPagada ? 'text-muted-foreground line-through' : 'text-foreground'}`}>
             {title}
             <RecurrenteBadge debt={debt} />
             {!isPagada && <VencimientoBadge debt={debt} />}
           </p>
           {titleMode === 'contraparte' && debt.descripcion && (
-            <p className="text-xs text-[#8A877D] mt-0.5">{debt.descripcion}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{debt.descripcion}</p>
           )}
           {debt.es_recurrente && !isPagada && (
-            <p className="text-[10px] text-[#8A877D] mt-0.5">
+            <p className="text-[10px] text-muted-foreground mt-0.5">
               {debt.fecha_fin ? `Hasta ${fechaLarga(debt.fecha_fin)}` : 'Indefinido'}
               {periodos > 0 && ` · ${periodos} periodo${periodos !== 1 ? 's' : ''} cobrado${periodos !== 1 ? 's' : ''}`}
             </p>
           )}
           {!debt.es_recurrente && debt.fecha_vencimiento && !isPagada && !getVencimientoBadge(debt) && (
-            <p className="text-[10px] text-[#8A877D] mt-0.5">Vence: {fechaLarga(debt.fecha_vencimiento)}</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">Vence: {fechaLarga(debt.fecha_vencimiento)}</p>
           )}
         </div>
         <div className="text-right shrink-0">
-          <p className={`text-lg font-bold tabular-nums ${isPagada ? 'text-[#8A877D]' : esDebo ? 'text-[#D85A30]' : 'text-[#1D9E75]'}`}>
+          <p className={`text-lg font-bold tabular-nums ${isPagada ? 'text-muted-foreground' : esDebo ? 'text-negative' : 'text-primary'}`}>
             {fmtMoneda(debt.moneda, debt.monto_pendiente)}
           </p>
-          <p className="text-[10px] text-[#8A877D] tabular-nums">de {fmtMoneda(debt.moneda, debt.monto_original)}</p>
+          <p className="text-[10px] text-muted-foreground tabular-nums">de {fmtMoneda(debt.moneda, debt.monto_original)}</p>
         </div>
       </div>
 
       {!isPagada && <DebtProgress debt={debt} className="mt-3" />}
 
       {(debt.deuda_abonos?.length ?? 0) > 0 && (
-        <div className="mt-3 pt-3 border-t border-[rgba(255,255,255,0.05)]">
+        <div className="mt-3 pt-3 border-t border-border">
           <DebtHistory debt={debt} />
         </div>
       )}
 
-      <div className="mt-3 pt-3 border-t border-[rgba(255,255,255,0.05)] flex justify-end">
+      <div className="mt-3 pt-3 border-t border-border flex justify-end">
         <DebtActions debt={debt} handlers={handlers} size="md" />
       </div>
     </div>
@@ -88,10 +88,10 @@ export function DetailPanel({
   if (!group && !debt) {
     return (
       <div className="glass-card flex flex-col items-center justify-center text-center h-full min-h-[320px] p-8">
-        <div className="w-12 h-12 rounded-full bg-[rgba(255,255,255,0.03)] flex items-center justify-center mb-3">
-          <MousePointerClick className="h-5 w-5 text-[#8A877D]" />
+        <div className="w-12 h-12 rounded-full bg-foreground/3 flex items-center justify-center mb-3">
+          <MousePointerClick className="h-5 w-5 text-muted-foreground" />
         </div>
-        <p className="text-sm text-[#8A877D]">Selecciona una deuda para ver el detalle</p>
+        <p className="text-sm text-muted-foreground">Selecciona una deuda para ver el detalle</p>
       </div>
     );
   }
@@ -112,26 +112,26 @@ export function DetailPanel({
         {group ? (
           <>
             {/* Header agregado por persona */}
-            <div className="flex items-start justify-between gap-3 pb-4 border-b border-[rgba(255,255,255,0.06)]">
+            <div className="flex items-start justify-between gap-3 pb-4 border-b border-border">
               <div className="flex items-center gap-3 min-w-0">
-                <div className="w-11 h-11 rounded-full bg-[rgba(29,158,117,0.1)] flex items-center justify-center shrink-0">
-                  <Users className="h-5 w-5 text-[#1D9E75]" />
+                <div className="w-11 h-11 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                  <Users className="h-5 w-5 text-primary" />
                 </div>
                 <div className="min-w-0">
-                  <p className="font-semibold text-base text-[#F0EFE8] truncate">{group.contraparte}</p>
-                  <p className="text-xs text-[#8A877D]">
+                  <p className="font-semibold text-base text-foreground truncate">{group.contraparte}</p>
+                  <p className="text-xs text-muted-foreground">
                     {group.debts.length} deuda{group.debts.length !== 1 ? 's' : ''}
-                    {group.vencidas > 0 && <span className="text-[#D85A30]"> · {group.vencidas} vencida{group.vencidas !== 1 ? 's' : ''}</span>}
+                    {group.vencidas > 0 && <span className="text-negative"> · {group.vencidas} vencida{group.vencidas !== 1 ? 's' : ''}</span>}
                   </p>
                 </div>
               </div>
               <div className="text-right shrink-0">
-                <p className="text-[10px] text-[#8A877D] uppercase tracking-wider">{esDebo ? 'Le debes' : 'Te debe'}</p>
-                <p className={`text-lg font-bold tabular-nums ${esDebo ? 'text-[#D85A30]' : 'text-[#1D9E75]'}`}>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{esDebo ? 'Le debes' : 'Te debe'}</p>
+                <p className={`text-lg font-bold tabular-nums ${esDebo ? 'text-negative' : 'text-primary'}`}>
                   {fmtMulti(group.pen, group.usd)}
                 </p>
                 {group.proximoVencimiento && (
-                  <p className="text-[10px] text-[#8A877D] flex items-center gap-1 justify-end mt-0.5">
+                  <p className="text-[10px] text-muted-foreground flex items-center gap-1 justify-end mt-0.5">
                     <Calendar className="h-3 w-3" /> Próx. {fechaCorta(group.proximoVencimiento)}
                   </p>
                 )}
@@ -147,11 +147,11 @@ export function DetailPanel({
         ) : (
           <div className="flex items-center gap-3 mb-1">
             <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-              debt!.estado === 'pagada' ? 'bg-[rgba(255,255,255,0.05)]' : esDebo ? 'bg-[rgba(216,90,48,0.1)]' : 'bg-[rgba(29,158,117,0.1)]'
+              debt!.estado === 'pagada' ? 'bg-foreground/5' : esDebo ? 'bg-negative/10' : 'bg-primary/10'
             }`}>
-              <Coins className={`h-5 w-5 ${debt!.estado === 'pagada' ? 'text-[#8A877D]' : esDebo ? 'text-[#D85A30]' : 'text-[#1D9E75]'}`} />
+              <Coins className={`h-5 w-5 ${debt!.estado === 'pagada' ? 'text-muted-foreground' : esDebo ? 'text-negative' : 'text-primary'}`} />
             </div>
-            <p className="text-sm text-[#8A877D]">Detalle de la deuda</p>
+            <p className="text-sm text-muted-foreground">Detalle de la deuda</p>
           </div>
         )}
         {debt && (

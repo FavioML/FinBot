@@ -13,15 +13,15 @@ export function DebtProgress({ debt, showLabel = true, className = '' }: { debt:
 
   return (
     <div className={`space-y-1 ${className}`}>
-      <div className="h-1.5 rounded-full bg-[rgba(255,255,255,0.06)] overflow-hidden">
+      <div className="h-1.5 rounded-full bg-foreground/6 overflow-hidden">
         <motion.div
-          className={`h-full rounded-full ${esDebo ? 'bg-[#D85A30]' : 'bg-[#1D9E75]'}`}
+          className={`h-full rounded-full ${esDebo ? 'bg-negative' : 'bg-primary'}`}
           initial={reduce ? false : { width: 0 }}
           animate={{ width: `${pct}%` }}
           transition={reduce ? { duration: 0 } : { duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
         />
       </div>
-      {showLabel && <p className="text-xs text-[#8A877D]">{pct.toFixed(0)}% pagado</p>}
+      {showLabel && <p className="text-xs text-muted-foreground">{pct.toFixed(0)}% pagado</p>}
     </div>
   );
 }

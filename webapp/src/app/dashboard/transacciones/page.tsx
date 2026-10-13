@@ -531,7 +531,7 @@ export default function TransaccionesPage() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-[#F0EFE8]">Transacciones</h1>
+        <h1 className="text-2xl font-bold text-foreground">Transacciones</h1>
         <HeaderActions />
       </div>
       <div className="flex flex-wrap items-center gap-2">
@@ -539,7 +539,7 @@ export default function TransaccionesPage() {
           <Button
             variant="outline"
             size="sm"
-            className="border-[rgba(255,255,255,0.06)] text-[#8A877D] hover:text-[#C8C6BC]"
+            className="border-border text-muted-foreground hover:text-foreground-soft"
             onClick={() => {
               // Export CSV es Pro: para Free redirige al upsell en vez de exportar.
               if (!canAccess(user.plan, 'export')) { window.location.href = '/dashboard/pro'; return; }
@@ -550,14 +550,14 @@ export default function TransaccionesPage() {
             <Download className="h-4 w-4 mr-1.5" />
             CSV
             {!canAccess(user.plan, 'export') && (
-              <Crown className="h-3 w-3 ml-1.5" style={{ color: '#68dbae' }} />
+              <Crown className="h-3 w-3 ml-1.5" style={{ color: 'var(--primary)' }} />
             )}
           </Button>
         )}
         <Button
           variant="outline"
           size="sm"
-          className="border-[rgba(255,255,255,0.06)] text-[#8A877D] hover:text-[#C8C6BC]"
+          className="border-border text-muted-foreground hover:text-foreground-soft"
           onClick={() => {
             // Carga masiva Excel/CSV es Pro: Free redirige al upsell.
             if (!canAccess(user.plan, 'excel_upload')) { window.location.href = '/dashboard/pro'; return; }
@@ -568,19 +568,19 @@ export default function TransaccionesPage() {
           <Upload className="h-4 w-4 mr-1.5" />
           Importar
           {!canAccess(user.plan, 'excel_upload') && (
-            <Crown className="h-3 w-3 ml-1.5" style={{ color: '#68dbae' }} />
+            <Crown className="h-3 w-3 ml-1.5" style={{ color: 'var(--primary)' }} />
           )}
         </Button>
         <Button
           variant="outline"
-          className="border-[rgba(255,255,255,0.06)] text-[#C8C6BC]"
+          className="border-border text-foreground-soft"
           onClick={() => openCreate('ingreso')}
         >
           <Plus className="h-4 w-4" data-icon="inline-start" />
           Nuevo ingreso
         </Button>
         <Button
-          className="bg-[#1D9E75] hover:bg-[#1D9E75]/90 text-white"
+          className="bg-primary hover:bg-primary/90 text-primary-foreground"
           onClick={() => openCreate('gasto')}
         >
           <Plus className="h-4 w-4" data-icon="inline-start" />
@@ -618,32 +618,32 @@ export default function TransaccionesPage() {
         <StaggerItem>
         <div className="glass-card glass-card-glow p-4">
           <div className="flex items-center gap-2 mb-1.5">
-            <TrendingDown className="h-4 w-4 text-[#D85A30]" />
-            <span className="text-label text-[#8A877D]">
+            <TrendingDown className="h-4 w-4 text-negative" />
+            <span className="text-label text-muted-foreground">
               {hasActiveFilters ? 'Gastos (filtrado)' : `Gastos ${delPeriodo(periodo)}`}
             </span>
           </div>
-          <CurrencyDisplay amount={summary.totalGastos} className="text-[#D85A30]" size="md" />
+          <CurrencyDisplay amount={summary.totalGastos} className="text-negative" size="md" />
         </div>
         </StaggerItem>
         <StaggerItem>
         <div className="glass-card glass-card-glow p-4">
           <div className="flex items-center gap-2 mb-1.5">
-            <TrendingUp className="h-4 w-4 text-[#1D9E75]" />
-            <span className="text-label text-[#8A877D]">
+            <TrendingUp className="h-4 w-4 text-primary" />
+            <span className="text-label text-muted-foreground">
               {hasActiveFilters ? 'Ingresos (filtrado)' : `Ingresos ${delPeriodo(periodo)}`}
             </span>
           </div>
-          <CurrencyDisplay amount={summary.totalIngresos} className="text-[#1D9E75]" size="md" />
+          <CurrencyDisplay amount={summary.totalIngresos} className="text-positive" size="md" />
         </div>
         </StaggerItem>
         <StaggerItem>
         <div className="glass-card glass-card-glow p-4">
           <div className="flex items-center gap-2 mb-1.5">
-            <Receipt className="h-4 w-4 text-[#378ADD]" />
-            <span className="text-label text-[#8A877D]">Transacciones</span>
+            <Receipt className="h-4 w-4 text-info" />
+            <span className="text-label text-muted-foreground">Transacciones</span>
           </div>
-          <span className="text-xl font-semibold text-[#F0EFE8]">{summary.count}</span>
+          <span className="text-xl font-semibold text-foreground">{summary.count}</span>
         </div>
         </StaggerItem>
       </StaggerContainer>
@@ -658,10 +658,10 @@ export default function TransaccionesPage() {
         if (!topCat) return null;
         const pct = Math.round((topCat[1] / summary.totalGastos) * 100);
         return (
-          <div className="flex items-center gap-2 rounded-xl bg-[rgba(255,255,255,0.02)] border border-[rgba(255,255,255,0.04)] px-4 py-2.5">
+          <div className="flex items-center gap-2 rounded-xl bg-foreground/2 border border-border px-4 py-2.5">
             <span className="text-sm">{getCategoriaEmoji(topCat[0])}</span>
-            <p className="text-xs text-[#8A877D]">
-              <span className="text-[#C8C6BC] font-medium">{topCat[0]}</span> representa el {pct}% de tus gastos {estePeriodo(periodo)} ({formatCurrency(topCat[1])})
+            <p className="text-xs text-muted-foreground">
+              <span className="text-foreground-soft font-medium">{topCat[0]}</span> representa el {pct}% de tus gastos {estePeriodo(periodo)} ({formatCurrency(topCat[1])})
             </p>
           </div>
         );
@@ -681,13 +681,13 @@ export default function TransaccionesPage() {
           return (
             <button
               onClick={() => activarPorRevisar('global')}
-              className="flex w-full items-center gap-2 rounded-xl border border-[rgba(255,255,255,0.05)] bg-[rgba(255,255,255,0.02)] px-4 py-2.5 text-left transition-colors hover:bg-[rgba(255,255,255,0.04)]"
+              className="flex w-full items-center gap-2 rounded-xl border border-border bg-foreground/2 px-4 py-2.5 text-left transition-colors hover:bg-foreground/4"
             >
-              <AlertCircle className="h-3.5 w-3.5 shrink-0 text-[#8A877D]" />
-              <p className="min-w-0 flex-1 text-xs text-[#8A877D]">
+              <AlertCircle className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <p className="min-w-0 flex-1 text-xs text-muted-foreground">
                 {porRevisarGlobalCount} {plural(porRevisarGlobalCount)} por revisar fuera de este periodo
               </p>
-              <span className="shrink-0 text-xs font-medium text-[#EF9F27]">Ver todas</span>
+              <span className="shrink-0 text-xs font-medium text-warning">Ver todas</span>
             </button>
           );
         }
@@ -697,8 +697,8 @@ export default function TransaccionesPage() {
           <div
             className={`rounded-xl border px-4 py-3 transition-colors ${
               porRevisarActive
-                ? 'border-[rgba(239,159,39,0.45)] bg-[rgba(239,159,39,0.12)]'
-                : 'border-[rgba(239,159,39,0.2)] bg-[rgba(239,159,39,0.06)]'
+                ? 'border-warning/45 bg-warning/12'
+                : 'border-warning/20 bg-warning/6'
             }`}
           >
             <button
@@ -706,12 +706,12 @@ export default function TransaccionesPage() {
               aria-pressed={porRevisarActive}
               className="flex w-full items-center gap-3 text-left"
             >
-              <AlertCircle className="h-4 w-4 shrink-0 text-[#EF9F27]" />
+              <AlertCircle className="h-4 w-4 shrink-0 text-warning" />
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-[#F0EFE8]">
+                <p className="text-sm font-medium text-foreground">
                   {mainCount} {plural(mainCount)} por revisar{!scopeGlobal && ` en ${periodLabel}`}
                 </p>
-                <p className="text-xs text-[#8A877D]">
+                <p className="text-xs text-muted-foreground">
                   {porRevisarActive
                     ? scopeGlobal
                       ? 'Mostrando las de todos los meses. Toca para volver.'
@@ -721,7 +721,7 @@ export default function TransaccionesPage() {
               </div>
               <Badge
                 variant="outline"
-                className="shrink-0 border-[rgba(239,159,39,0.35)] bg-[rgba(239,159,39,0.1)] text-xs text-[#EF9F27]"
+                className="shrink-0 border-warning/35 bg-warning/10 text-xs text-warning-ink"
               >
                 {porRevisarActive ? 'Filtrando' : 'Revisar'}
               </Badge>
@@ -729,7 +729,7 @@ export default function TransaccionesPage() {
             {porRevisarOtherCount > 0 && !scopeGlobal && (
               <button
                 onClick={() => activarPorRevisar('global')}
-                className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-[#8A877D] transition-colors hover:text-[#EF9F27]"
+                className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-muted-foreground transition-colors hover:text-warning"
               >
                 +{porRevisarOtherCount} fuera de este periodo · ver todas
               </button>
@@ -757,15 +757,15 @@ export default function TransaccionesPage() {
       {/* Bulk action bar */}
       {selectedIds.size > 0 && (
         <div className="space-y-2">
-          <div className="flex items-center justify-between rounded-xl bg-[rgba(29,158,117,0.08)] border border-[rgba(29,158,117,0.2)] px-4 py-2.5">
-            <span className="text-sm text-[#1D9E75] font-medium">
+          <div className="flex items-center justify-between rounded-xl bg-primary/8 border border-primary/20 px-4 py-2.5">
+            <span className="text-sm text-primary font-medium">
               {selectedIds.size} seleccionada{selectedIds.size !== 1 ? 's' : ''}
             </span>
             <div className="flex items-center gap-2">
               <Button
                 variant="ghost"
                 size="sm"
-                className="text-[#8A877D] hover:text-[#C8C6BC]"
+                className="text-muted-foreground hover:text-foreground-soft"
                 onClick={() => { setSelectedIds(new Set()); setBulkEditOpen(false); }}
               >
                 Cancelar
@@ -773,7 +773,7 @@ export default function TransaccionesPage() {
               <Button
                 variant="outline"
                 size="sm"
-                className="border-[rgba(29,158,117,0.3)] text-[#1D9E75] hover:bg-[rgba(29,158,117,0.1)]"
+                className="border-primary/30 text-primary-ink hover:bg-primary/10"
                 onClick={() => setBulkEditOpen(!bulkEditOpen)}
               >
                 <Settings2 className="h-3.5 w-3.5 mr-1.5" />
@@ -793,16 +793,16 @@ export default function TransaccionesPage() {
 
           {/* Bulk edit panel */}
           {bulkEditOpen && (
-            <div className="glass-card p-4 space-y-3 border-[rgba(29,158,117,0.2)]">
-              <p className="text-xs text-[#8A877D]">
+            <div className="glass-card p-4 space-y-3 border-primary/20">
+              <p className="text-xs text-muted-foreground">
                 Solo se actualizan los campos que selecciones. Los demas quedan igual.
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 {/* Método de pago */}
                 <div className="space-y-1">
-                  <label className="text-xs text-[#8A877D]">Metodo de pago</label>
+                  <label className="text-xs text-muted-foreground">Metodo de pago</label>
                   <Select value={bulkEditFields.metodo_pago} onValueChange={(v) => setBulkEditFields(prev => ({ ...prev, metodo_pago: v ?? '' }))}>
-                    <SelectTrigger className="h-9 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-[#C8C6BC] text-sm">
+                    <SelectTrigger className="h-9 bg-foreground/3 border-border text-foreground-soft text-sm">
                       <SelectValue placeholder="Sin cambiar" />
                     </SelectTrigger>
                     <SelectContent>
@@ -815,9 +815,9 @@ export default function TransaccionesPage() {
 
                 {/* Banco */}
                 <div className="space-y-1">
-                  <label className="text-xs text-[#8A877D]">Banco</label>
+                  <label className="text-xs text-muted-foreground">Banco</label>
                   <Select value={bulkEditFields.banco} onValueChange={(v) => setBulkEditFields(prev => ({ ...prev, banco: v ?? '' }))}>
-                    <SelectTrigger className="h-9 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-[#C8C6BC] text-sm">
+                    <SelectTrigger className="h-9 bg-foreground/3 border-border text-foreground-soft text-sm">
                       <SelectValue placeholder="Sin cambiar" />
                     </SelectTrigger>
                     <SelectContent>
@@ -830,9 +830,9 @@ export default function TransaccionesPage() {
 
                 {/* Categoría */}
                 <div className="space-y-1">
-                  <label className="text-xs text-[#8A877D]">Categoria</label>
+                  <label className="text-xs text-muted-foreground">Categoria</label>
                   <Select value={bulkEditFields.categoria} onValueChange={(v) => setBulkEditFields(prev => ({ ...prev, categoria: v ?? '', subcategoria: '' }))}>
-                    <SelectTrigger className="h-9 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-[#C8C6BC] text-sm">
+                    <SelectTrigger className="h-9 bg-foreground/3 border-border text-foreground-soft text-sm">
                       <SelectValue placeholder="Sin cambiar" />
                     </SelectTrigger>
                     <SelectContent>
@@ -845,13 +845,13 @@ export default function TransaccionesPage() {
 
                 {/* Subcategoría */}
                 <div className="space-y-1">
-                  <label className="text-xs text-[#8A877D]">Subcategoria</label>
+                  <label className="text-xs text-muted-foreground">Subcategoria</label>
                   <Select
                     value={bulkEditFields.subcategoria}
                     onValueChange={(v) => setBulkEditFields(prev => ({ ...prev, subcategoria: v ?? '' }))}
                     disabled={!bulkEditFields.categoria || bulkEditSubs.length === 0}
                   >
-                    <SelectTrigger className="h-9 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.08)] text-[#C8C6BC] text-sm">
+                    <SelectTrigger className="h-9 bg-foreground/3 border-border text-foreground-soft text-sm">
                       <SelectValue placeholder={!bulkEditFields.categoria ? 'Elige categoria primero' : 'Sin cambiar'} />
                     </SelectTrigger>
                     <SelectContent>
@@ -866,7 +866,7 @@ export default function TransaccionesPage() {
               <div className="flex items-center gap-2 pt-1">
                 <Button
                   size="sm"
-                  className="bg-[#1D9E75] text-white hover:bg-[#178a64]"
+                  className="bg-primary text-primary-foreground hover:bg-primary/90"
                   onClick={handleBulkEdit}
                   disabled={bulkEditing}
                 >
@@ -875,7 +875,7 @@ export default function TransaccionesPage() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="text-[#8A877D]"
+                  className="text-muted-foreground"
                   onClick={() => {
                     setBulkEditFields({ metodo_pago: '', banco: '', categoria: '', subcategoria: '' });
                   }}
@@ -913,19 +913,19 @@ export default function TransaccionesPage() {
           <div className="hidden md:block glass-card overflow-hidden">
             <Table>
               <TableHeader>
-                <TableRow className="border-[rgba(255,255,255,0.06)] hover:bg-transparent">
+                <TableRow className="border-border hover:bg-transparent">
                   <TableHead className="w-10">
                     <input
                       type="checkbox"
                       checked={paginated.length > 0 && selectedIds.size === paginated.length}
                       onChange={toggleSelectAll}
-                      className="h-3.5 w-3.5 rounded border-[#8A877D] accent-[#1D9E75] cursor-pointer"
+                      className="h-3.5 w-3.5 rounded border-muted-foreground accent-primary cursor-pointer"
                     />
                   </TableHead>
                   <TableHead>
                     <button
                       onClick={() => toggleSort('fecha')}
-                      className="inline-flex items-center gap-1 text-[#8A877D] hover:text-[#C8C6BC] transition-colors"
+                      className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground-soft transition-colors"
                     >
                       Fecha
                       <ArrowUpDown className="h-3 w-3" />
@@ -934,25 +934,25 @@ export default function TransaccionesPage() {
                   <TableHead>
                     <button
                       onClick={() => toggleSort('comercio')}
-                      className="inline-flex items-center gap-1 text-[#8A877D] hover:text-[#C8C6BC] transition-colors"
+                      className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground-soft transition-colors"
                     >
                       Comercio
                       <ArrowUpDown className="h-3 w-3" />
                     </button>
                   </TableHead>
-                  <TableHead className="text-[#8A877D]">Categoria</TableHead>
-                  <TableHead className="text-[#8A877D]">Subcategoria</TableHead>
-                  <TableHead className="text-[#8A877D]">Metodo</TableHead>
+                  <TableHead className="text-muted-foreground">Categoria</TableHead>
+                  <TableHead className="text-muted-foreground">Subcategoria</TableHead>
+                  <TableHead className="text-muted-foreground">Metodo</TableHead>
                   <TableHead>
                     <button
                       onClick={() => toggleSort('monto')}
-                      className="inline-flex items-center gap-1 text-[#8A877D] hover:text-[#C8C6BC] transition-colors"
+                      className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground-soft transition-colors"
                     >
                       Monto
                       <ArrowUpDown className="h-3 w-3" />
                     </button>
                   </TableHead>
-                  <TableHead className="text-[#8A877D] w-[80px]">Acciones</TableHead>
+                  <TableHead className="text-muted-foreground w-[80px]">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -993,7 +993,7 @@ export default function TransaccionesPage() {
           {/* Pagination */}
           {totalPages > 1 && (
             <div className="flex flex-col gap-2 sm:flex-row items-center justify-between pt-2">
-              <span className="text-xs text-[#8A877D]">
+              <span className="text-xs text-muted-foreground">
                 {filtered.length} transacciones
               </span>
               <div className="flex items-center gap-1">
@@ -1002,7 +1002,7 @@ export default function TransaccionesPage() {
                   size="icon-sm"
                   disabled={safeCurrentPage <= 1}
                   onClick={() => setPage(1)}
-                  className="border-[rgba(255,255,255,0.06)] text-[#C8C6BC] transition-all duration-150"
+                  className="border-border text-foreground-soft transition-all duration-150"
                   title="Primera"
                 >
                   <ChevronsLeft className="h-4 w-4" />
@@ -1012,7 +1012,7 @@ export default function TransaccionesPage() {
                   size="icon-sm"
                   disabled={safeCurrentPage <= 1}
                   onClick={() => setPage((p) => p - 1)}
-                  className="border-[rgba(255,255,255,0.06)] text-[#C8C6BC]"
+                  className="border-border text-foreground-soft"
                   title="Anterior"
                 >
                   <ChevronLeft className="h-4 w-4" />
@@ -1025,8 +1025,8 @@ export default function TransaccionesPage() {
                     onClick={() => setPage(p)}
                     className={
                       p === safeCurrentPage
-                        ? 'bg-[#1D9E75] hover:bg-[#1D9E75]/90 text-white border-[#1D9E75] transition-all duration-150'
-                        : 'border-[rgba(255,255,255,0.06)] text-[#C8C6BC] transition-all duration-150'
+                        ? 'bg-primary hover:bg-primary/90 text-primary-foreground border-primary transition-all duration-150'
+                        : 'border-border text-foreground-soft transition-all duration-150'
                     }
                   >
                     {p}
@@ -1037,7 +1037,7 @@ export default function TransaccionesPage() {
                   size="icon-sm"
                   disabled={safeCurrentPage >= totalPages}
                   onClick={() => setPage((p) => p + 1)}
-                  className="border-[rgba(255,255,255,0.06)] text-[#C8C6BC]"
+                  className="border-border text-foreground-soft"
                   title="Siguiente"
                 >
                   <ChevronRight className="h-4 w-4" />
@@ -1047,13 +1047,13 @@ export default function TransaccionesPage() {
                   size="icon-sm"
                   disabled={safeCurrentPage >= totalPages}
                   onClick={() => setPage(totalPages)}
-                  className="border-[rgba(255,255,255,0.06)] text-[#C8C6BC]"
+                  className="border-border text-foreground-soft"
                   title="Última"
                 >
                   <ChevronsRight className="h-4 w-4" />
                 </Button>
               </div>
-              <span className="text-xs text-[#8A877D]">
+              <span className="text-xs text-muted-foreground">
                 Página {safeCurrentPage} de {totalPages}
               </span>
             </div>
@@ -1116,38 +1116,38 @@ function TransactionTableRow({
   const emoji = getCategoriaEmoji(tx.categoria);
 
   return (
-    <TableRow className={`border-[rgba(255,255,255,0.06)] hover:bg-white/[0.03] transition-colors duration-150 ${selected ? 'bg-[rgba(29,158,117,0.06)]' : ''}`}>
+    <TableRow className={`border-border hover:bg-foreground/[0.03] transition-colors duration-150 ${selected ? 'bg-primary/6' : ''}`}>
       <TableCell>
         <input
           type="checkbox"
           checked={selected}
           onChange={onToggleSelect}
-          className="h-3.5 w-3.5 rounded border-[#8A877D] accent-[#1D9E75] cursor-pointer"
+          className="h-3.5 w-3.5 rounded border-muted-foreground accent-primary cursor-pointer"
         />
       </TableCell>
-      <TableCell className="text-xs text-[#8A877D]">{formatFecha(tx.fecha)}</TableCell>
-      <TableCell className="text-sm text-[#F0EFE8]">
+      <TableCell className="text-xs text-muted-foreground">{formatFecha(tx.fecha)}</TableCell>
+      <TableCell className="text-sm text-foreground">
         {tx.comercio || tx.descripcion_original || '-'}
       </TableCell>
       <TableCell>
         <Badge
           variant="outline"
-          className="border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] text-[#C8C6BC] text-xs"
+          className="border-border bg-foreground/3 text-foreground-soft text-xs"
         >
           {emoji} {tx.categoria}
         </Badge>
       </TableCell>
-      <TableCell className="text-xs text-[#8A877D] capitalize">
+      <TableCell className="text-xs text-muted-foreground capitalize">
         {tx.subcategoria?.replace(/_/g, ' ') || '-'}
       </TableCell>
-      <TableCell className="text-xs text-[#8A877D]">{getMetodoIcon(normalizeMetodoPago(tx.metodo_pago, tx.banco))} {normalizeMetodoPago(tx.metodo_pago, tx.banco)}{formatLast4(tx.tarjeta_last4)}</TableCell>
+      <TableCell className="text-xs text-muted-foreground">{getMetodoIcon(normalizeMetodoPago(tx.metodo_pago, tx.banco))} {normalizeMetodoPago(tx.metodo_pago, tx.banco)}{formatLast4(tx.tarjeta_last4)}</TableCell>
       <TableCell>
         <TxMonto
           tx={tx}
           signo={isIngreso ? '+' : '-'}
           align="start"
-          className={`text-sm font-semibold ${isIngreso ? 'shadow-[0_0_8px_rgba(29,158,117,0.2)]' : 'shadow-[0_0_8px_rgba(239,159,39,0.15)]'}`}
-          style={{ color: isIngreso ? '#1D9E75' : '#D85A30' }}
+          className={`text-sm font-semibold ${isIngreso ? 'shadow-[0_0_8px_color-mix(in_srgb,var(--positive)_20%,transparent)]' : 'shadow-[0_0_8px_color-mix(in_srgb,var(--warning)_15%,transparent)]'}`}
+          style={{ color: isIngreso ? 'var(--positive)' : 'var(--negative)' }}
         />
       </TableCell>
       <TableCell>
@@ -1156,7 +1156,7 @@ function TransactionTableRow({
             variant="ghost"
             size="icon-xs"
             onClick={onEdit}
-            className="text-[#8A877D] hover:text-[#F0EFE8]"
+            className="text-muted-foreground hover:text-foreground"
           >
             <Pencil className="h-3 w-3" />
           </Button>
@@ -1164,7 +1164,7 @@ function TransactionTableRow({
             variant="ghost"
             size="icon-xs"
             onClick={onDelete}
-            className="text-[#8A877D] hover:text-[#D85A30]"
+            className="text-muted-foreground hover:text-negative"
           >
             <Trash2 className="h-3 w-3" />
           </Button>
@@ -1194,37 +1194,37 @@ function TransactionCard({
 
   return (
     <div
-      className={`glass-card p-4 border-l-2 transition-colors hover:bg-[rgba(255,255,255,0.02)] ${selected ? 'bg-[rgba(29,158,117,0.06)]' : ''}`}
-      style={{ borderLeftColor: isIngreso ? '#1D9E75' : '#D85A30' }}
+      className={`glass-card p-4 border-l-2 transition-colors hover:bg-foreground/2 ${selected ? 'bg-primary/6' : ''}`}
+      style={{ borderLeftColor: isIngreso ? 'var(--positive)' : 'var(--negative)' }}
     >
       <div className="flex items-start justify-between gap-3">
         <input
           type="checkbox"
           checked={selected}
           onChange={onToggleSelect}
-          className="h-3.5 w-3.5 mt-1 rounded border-[#8A877D] accent-[#1D9E75] cursor-pointer shrink-0"
+          className="h-3.5 w-3.5 mt-1 rounded border-muted-foreground accent-primary cursor-pointer shrink-0"
         />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
-            <span className="text-xs text-[#8A877D]">{formatFecha(tx.fecha)}</span>
+            <span className="text-xs text-muted-foreground">{formatFecha(tx.fecha)}</span>
             <Badge
               variant="outline"
-              className="border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] text-[#C8C6BC] text-xs"
+              className="border-border bg-foreground/3 text-foreground-soft text-xs"
             >
               {emoji} {tx.categoria}
             </Badge>
           </div>
-          <p className="text-sm text-[#F0EFE8] truncate">
+          <p className="text-sm text-foreground truncate">
             {tx.comercio || tx.descripcion_original || tx.subcategoria}
           </p>
           <div className="flex items-center gap-2 mt-1">
             {tx.subcategoria && (
-              <span className="text-xs text-[#8A877D] capitalize">
+              <span className="text-xs text-muted-foreground capitalize">
                 {tx.subcategoria.replace(/_/g, ' ')}
               </span>
             )}
             {tx.metodo_pago && (
-              <span className="text-xs text-[#8A877D]">&middot; {getMetodoIcon(normalizeMetodoPago(tx.metodo_pago, tx.banco))} {normalizeMetodoPago(tx.metodo_pago, tx.banco)}{formatLast4(tx.tarjeta_last4)}</span>
+              <span className="text-xs text-muted-foreground">&middot; {getMetodoIcon(normalizeMetodoPago(tx.metodo_pago, tx.banco))} {normalizeMetodoPago(tx.metodo_pago, tx.banco)}{formatLast4(tx.tarjeta_last4)}</span>
             )}
           </div>
         </div>
@@ -1233,14 +1233,14 @@ function TransactionCard({
             tx={tx}
             signo={isIngreso ? '+' : '-'}
             className="text-sm font-semibold"
-            style={{ color: isIngreso ? '#1D9E75' : '#D85A30' }}
+            style={{ color: isIngreso ? 'var(--positive)' : 'var(--negative)' }}
           />
           <div className="flex gap-1">
             <Button
               variant="ghost"
               size="icon-xs"
               onClick={onEdit}
-              className="text-[#8A877D] hover:text-[#F0EFE8]"
+              className="text-muted-foreground hover:text-foreground"
             >
               <Pencil className="h-3 w-3" />
             </Button>
@@ -1248,7 +1248,7 @@ function TransactionCard({
               variant="ghost"
               size="icon-xs"
               onClick={onDelete}
-              className="text-[#8A877D] hover:text-[#D85A30]"
+              className="text-muted-foreground hover:text-negative"
             >
               <Trash2 className="h-3 w-3" />
             </Button>

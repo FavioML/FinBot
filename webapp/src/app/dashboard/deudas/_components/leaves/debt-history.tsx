@@ -32,11 +32,11 @@ export function DebtHistory({
 
   const row = (a: DeudaAbono) => (
     <div key={a.id} className="flex justify-between text-xs">
-      <span className="text-[#8A877D] min-w-0 truncate">
+      <span className="text-muted-foreground min-w-0 truncate">
         {fechaCorta(a.fecha)}
-        {a.nota && <span className="ml-1 text-[#6A6760]">· {a.nota}</span>}
+        {a.nota && <span className="ml-1 text-muted-foreground">· {a.nota}</span>}
       </span>
-      <span className="text-[#C8C6BC] tabular-nums font-medium shrink-0 ml-2">
+      <span className="text-foreground-soft tabular-nums font-medium shrink-0 ml-2">
         {fmtMoneda(debt.moneda, a.monto)}
       </span>
     </div>
@@ -44,9 +44,9 @@ export function DebtHistory({
 
   return (
     <div>
-      <p className="text-[10px] text-[#8A877D] uppercase tracking-wider mb-1.5">
+      <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1.5">
         Historial de abonos
-        <span className="ml-1.5 text-[#6A6760] normal-case tracking-normal">{abonos.length}</span>
+        <span className="ml-1.5 text-muted-foreground normal-case tracking-normal">{abonos.length}</span>
       </p>
       <div className="space-y-1">
         {base.map(row)}
@@ -69,7 +69,7 @@ export function DebtHistory({
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
-          className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-medium text-[#8A877D] hover:text-[#C8C6BC] transition-colors"
+          className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-medium text-muted-foreground hover:text-foreground-soft transition-colors"
         >
           <ChevronDown className={`h-3 w-3 transition-transform ${expanded ? 'rotate-180' : ''}`} />
           {expanded ? 'Ver menos' : `Ver los ${abonos.length} abonos`}

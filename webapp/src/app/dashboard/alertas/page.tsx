@@ -18,26 +18,26 @@ import { ErrorState } from '@/components/shared/error-state';
 const TYPE_CONFIG = {
   spike: {
     icon: TrendingUp,
-    color: '#D85A30',
-    bg: 'rgba(216,90,48,0.08)',
+    color: 'var(--negative)',
+    bg: 'color-mix(in srgb, var(--negative) 8%, transparent)',
     label: 'Incremento inusual',
   },
   ant: {
     icon: Bug,
-    color: '#EF9F27',
-    bg: 'rgba(239,159,39,0.08)',
+    color: 'var(--warning)',
+    bg: 'color-mix(in srgb, var(--warning) 8%, transparent)',
     label: 'Gastos hormiga',
   },
   recurring: {
     icon: Repeat,
-    color: '#378ADD',
-    bg: 'rgba(55,138,221,0.08)',
+    color: 'var(--info)',
+    bg: 'color-mix(in srgb, var(--info) 8%, transparent)',
     label: 'Patrón recurrente',
   },
   projection: {
     icon: AlertTriangle,
-    color: '#EF9F27',
-    bg: 'rgba(239,159,39,0.08)',
+    color: 'var(--warning)',
+    bg: 'color-mix(in srgb, var(--warning) 8%, transparent)',
     label: 'Proyección de exceso',
   },
 } as const;
@@ -80,35 +80,35 @@ function AlertCard({ alert, canLimits, onSetLimit }: { alert: SpendingAlert; can
           <p className="text-xs font-medium uppercase tracking-wide" style={{ color: config.color }}>
             {config.label}{alert.category ? ` · ${alert.category}` : ''}
           </p>
-          <span className="text-xs text-[#8A877D]">{date}</span>
+          <span className="text-xs text-muted-foreground">{date}</span>
         </div>
-        <p className="text-sm text-[#F0EFE8] mt-1">{alert.message}</p>
+        <p className="text-sm text-foreground mt-1">{alert.message}</p>
         <div className="flex items-center gap-3 mt-2 flex-wrap">
-          <span className="text-sm font-semibold text-[#F0EFE8]">
+          <span className="text-sm font-semibold text-foreground">
             {formatCurrency(alert.amount)}
           </span>
           {showComparison && (
-            <span className="text-xs text-[#8A877D]">
+            <span className="text-xs text-muted-foreground">
               vs {formatCurrency(alert.comparison_amount)} {COMPARISON_LABEL[alert.type] ?? ''}
               {diff !== null && ` (+${diff}%)`}
             </span>
           )}
           {alert.action_taken && (
-            <span className="flex items-center gap-1 text-xs text-[#1D9E75]">
+            <span className="flex items-center gap-1 text-xs text-primary">
               <CheckCircle2 className="w-3 h-3" /> Atendida
             </span>
           )}
         </div>
         {showLimitButton && !alert.limit_set && (
           <button
-            className="mt-2 text-xs font-medium text-[#1D9E75] hover:underline"
+            className="mt-2 text-xs font-medium text-primary hover:underline"
             onClick={() => onSetLimit?.(alert.category ?? undefined)}
           >
             + Poner límite
           </button>
         )}
         {alert.limit_set && (
-          <p className="mt-2 text-xs text-[#8A877D]">Límite activo: {formatCurrency(alert.limit_set)}</p>
+          <p className="mt-2 text-xs text-muted-foreground">Límite activo: {formatCurrency(alert.limit_set)}</p>
         )}
       </div>
     </div>
@@ -160,8 +160,8 @@ export default function AlertasPage() {
       <FadeIn>
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-[#F0EFE8]">Detector de Fugas</h1>
-            <p className="text-[#8A877D] text-sm mt-1">
+            <h1 className="text-2xl font-bold text-foreground">Detector de Fugas</h1>
+            <p className="text-muted-foreground text-sm mt-1">
               Neto analiza tus gastos y detecta patrones que podrían estar drenando tu billetera
             </p>
           </div>
@@ -172,9 +172,9 @@ export default function AlertasPage() {
       {visibleAlerts.length === 0 ? (
         <FadeIn delay={0.05}>
           <div className="glass-card p-10 flex flex-col items-center text-center gap-3">
-            <ShieldCheck className="w-12 h-12 text-[#1D9E75]" style={{ filter: 'drop-shadow(0 0 12px rgba(29,158,117,0.4))' }} />
-            <h2 className="text-base font-semibold text-[#F0EFE8]">Todo bien por ahora</h2>
-            <p className="text-sm text-[#8A877D] max-w-xs">
+            <ShieldCheck className="w-12 h-12 text-primary" style={{ filter: 'drop-shadow(0 0 12px color-mix(in srgb, var(--primary) 40%, transparent))' }} />
+            <h2 className="text-base font-semibold text-foreground">Todo bien por ahora</h2>
+            <p className="text-sm text-muted-foreground max-w-xs">
               Neto te avisará por aquí y por WhatsApp si detecta algún patrón de gasto inusual.
             </p>
           </div>
@@ -208,18 +208,18 @@ export default function AlertasPage() {
       {/* Pro banner for free users */}
       {!canWeeklyAlerts && (
         <FadeIn delay={0.15}>
-          <div className="glass-card p-5 flex items-start gap-4 border border-[rgba(29,158,117,0.2)]">
-            <div className="rounded-xl p-2.5 bg-[rgba(29,158,117,0.1)] shrink-0">
-              <ShieldCheck className="w-5 h-5 text-[#1D9E75]" />
+          <div className="glass-card p-5 flex items-start gap-4 border border-primary/20">
+            <div className="rounded-xl p-2.5 bg-primary/10 shrink-0">
+              <ShieldCheck className="w-5 h-5 text-primary" />
             </div>
             <div className="flex-1">
-              <p className="text-sm font-semibold text-[#F0EFE8]">Más protección con Pro</p>
-              <p className="text-xs text-[#8A877D] mt-1">
+              <p className="text-sm font-semibold text-foreground">Más protección con Pro</p>
+              <p className="text-xs text-muted-foreground mt-1">
                 Alertas semanales automáticas, proyecciones de gasto y límites automáticos por categoría.
               </p>
               <Link
                 href="/dashboard/configuracion"
-                className="inline-block mt-3 rounded-lg bg-[#1D9E75] px-4 py-1.5 text-sm font-medium text-white hover:bg-[#1D9E75]/90 transition-colors"
+                className="inline-block mt-3 rounded-lg bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
               >
                 Ver planes →
               </Link>

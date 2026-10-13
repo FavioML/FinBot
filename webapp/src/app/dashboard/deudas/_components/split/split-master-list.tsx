@@ -28,21 +28,21 @@ export function SplitMasterList({
             onClick={() => onSelect(gasto.id)}
             className={`w-full text-left rounded-xl p-3 flex items-center gap-3 transition-colors border ${
               active
-                ? 'bg-[rgba(239,159,39,0.08)] border-[#EF9F27]/30'
-                : 'bg-[rgba(255,255,255,0.02)] border-transparent hover:bg-[rgba(255,255,255,0.04)]'
+                ? 'bg-warning/8 border-accent-pro/30'
+                : 'bg-foreground/2 border-transparent hover:bg-foreground/4'
             } ${allPaid ? 'opacity-60' : ''}`}
           >
-            <div className="w-8 h-8 rounded-full bg-[rgba(239,159,39,0.1)] flex items-center justify-center shrink-0">
-              <Users className="h-4 w-4 text-[#EF9F27]" />
+            <div className="w-8 h-8 rounded-full bg-warning/10 flex items-center justify-center shrink-0">
+              <Users className="h-4 w-4 text-accent-pro" />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="font-semibold text-sm text-[#F0EFE8] truncate">{gasto.descripcion}</p>
-              <p className="text-[10px] text-[#8A877D] mt-0.5">
+              <p className="font-semibold text-sm text-foreground truncate">{gasto.descripcion}</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">
                 {pagados}/{total} pagados{allPaid && ' · liquidado'}
               </p>
             </div>
-            <p className="text-sm font-bold tabular-nums text-[#EF9F27] shrink-0">{fmtMoneda(gasto.moneda, gasto.monto_total)}</p>
-            <ChevronRight className={`h-4 w-4 shrink-0 ${active ? 'text-[#EF9F27]' : 'text-[#6A6760]'}`} />
+            <p className="text-sm font-bold tabular-nums text-accent-pro shrink-0">{fmtMoneda(gasto.moneda, gasto.monto_total)}</p>
+            <ChevronRight className={`h-4 w-4 shrink-0 ${active ? 'text-accent-pro' : 'text-muted-foreground'}`} />
           </button>
         );
       })}

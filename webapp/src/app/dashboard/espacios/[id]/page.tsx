@@ -61,14 +61,14 @@ function BalanceCard({
   const isZero = Math.abs(balance) < 0.01;
 
   return (
-    <div className={`glass-card p-4 ${isCurrentUser ? 'border border-[rgba(29,158,117,0.3)]' : ''}`}>
-      <p className="text-xs text-[#8A877D] mb-1">{name}{isCurrentUser ? ' (tú)' : ''}</p>
+    <div className={`glass-card p-4 ${isCurrentUser ? 'border border-primary/30' : ''}`}>
+      <p className="text-xs text-muted-foreground mb-1">{name}{isCurrentUser ? ' (tú)' : ''}</p>
       {isZero ? (
-        <p className="text-sm font-semibold text-[#1D9E75]">Al día ✅</p>
+        <p className="text-sm font-semibold text-primary">Al día ✅</p>
       ) : isPositive ? (
-        <p className="text-sm font-semibold text-[#1D9E75]">Te deben {formatCurrency(abs)}</p>
+        <p className="text-sm font-semibold text-primary">Te deben {formatCurrency(abs)}</p>
       ) : (
-        <p className="text-sm font-semibold text-[#D85A30]">Debes {formatCurrency(abs)}</p>
+        <p className="text-sm font-semibold text-negative">Debes {formatCurrency(abs)}</p>
       )}
     </div>
   );
@@ -173,7 +173,7 @@ export default function SpaceDetailPage() {
   if (isError) {
     return (
       <ErrorState titulo="No pudimos cargar el espacio" onReintentar={() => refetch()}>
-        <Link href="/dashboard/espacios" className="text-[#1D9E75] text-sm inline-block">← Volver</Link>
+        <Link href="/dashboard/espacios" className="text-primary text-sm inline-block">← Volver</Link>
       </ErrorState>
     );
   }
@@ -181,8 +181,8 @@ export default function SpaceDetailPage() {
   if (!data) {
     return (
       <div>
-        <p className="text-[#8A877D]">Espacio no encontrado o sin acceso.</p>
-        <Link href="/dashboard/espacios" className="text-[#1D9E75] text-sm mt-2 inline-block">← Volver</Link>
+        <p className="text-muted-foreground">Espacio no encontrado o sin acceso.</p>
+        <Link href="/dashboard/espacios" className="text-primary text-sm mt-2 inline-block">← Volver</Link>
       </div>
     );
   }
@@ -218,19 +218,19 @@ export default function SpaceDetailPage() {
       <FadeIn>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Link href="/dashboard/espacios" className="text-[#8A877D] hover:text-[#F0EFE8] transition-colors">
+            <Link href="/dashboard/espacios" className="text-muted-foreground hover:text-foreground transition-colors">
               <ArrowLeft className="w-5 h-5" />
             </Link>
             <div>
-              <h1 className="text-2xl font-bold text-[#F0EFE8]">{space.name}</h1>
-              <p className="text-xs text-[#8A877D]">{members.length} miembro{members.length !== 1 ? 's' : ''}</p>
+              <h1 className="text-2xl font-bold text-foreground">{space.name}</h1>
+              <p className="text-xs text-muted-foreground">{members.length} miembro{members.length !== 1 ? 's' : ''}</p>
             </div>
           </div>
           <HeaderActions>
             {isOwner && (
               <button
                 onClick={() => { setRenameName(space.name); setShowSettingsDialog(true); }}
-                className="p-2 rounded-lg text-[#8A877D] hover:text-[#F0EFE8] hover:bg-[rgba(255,255,255,0.04)] transition-colors"
+                className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-foreground/4 transition-colors"
                 title="Configuración"
               >
                 <Settings className="w-5 h-5" />
@@ -244,12 +244,12 @@ export default function SpaceDetailPage() {
       <FadeIn delay={0.05}>
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-[#F0EFE8]">Balances</h2>
+            <h2 className="text-sm font-semibold text-foreground">Balances</h2>
             <Button
               size="sm"
               variant="outline"
               onClick={() => setShowSettleDialog(true)}
-              className="text-xs border-[rgba(255,255,255,0.1)] text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.04)] gap-1.5"
+              className="text-xs border-border text-foreground-soft hover:bg-foreground/4 gap-1.5"
             >
               <CreditCard className="w-3.5 h-3.5" />
               Registrar pago
@@ -268,14 +268,14 @@ export default function SpaceDetailPage() {
           {/* Simplified debts */}
           {settlementPlan.length > 0 && (
             <div className="glass-card p-4 space-y-1.5">
-              <p className="text-xs font-medium text-[#8A877D] uppercase tracking-wide">Resumen de deudas</p>
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Resumen de deudas</p>
               {settlementPlan.map((t) => (
-                <p key={`${t.from}-${t.to}`} className="text-sm text-[#C8C6BC]">
-                  <span className="text-[#D85A30]">{memberName(t.from)}</span>
+                <p key={`${t.from}-${t.to}`} className="text-sm text-foreground-soft">
+                  <span className="text-negative">{memberName(t.from)}</span>
                   {' le debe '}
                   <span className="font-semibold">{formatCurrency(t.amount)}</span>
                   {' a '}
-                  <span className="text-[#1D9E75]">{memberName(t.to)}</span>
+                  <span className="text-primary">{memberName(t.to)}</span>
                 </p>
               ))}
             </div>
@@ -287,7 +287,7 @@ export default function SpaceDetailPage() {
       <FadeIn delay={0.1}>
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-[#F0EFE8]">Gastos recientes</h2>
+            <h2 className="text-sm font-semibold text-foreground">Gastos recientes</h2>
             <Button
               size="sm"
               onClick={() => {
@@ -295,7 +295,7 @@ export default function SpaceDetailPage() {
                 setExpAmount(''); setExpDescription(''); setExpCategory('');
                 setShowExpenseDialog(true);
               }}
-              className="text-xs bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 gap-1.5"
+              className="text-xs bg-primary text-primary-foreground hover:bg-primary/90 gap-1.5"
             >
               <Plus className="w-3.5 h-3.5" />
               Agregar
@@ -303,7 +303,7 @@ export default function SpaceDetailPage() {
           </div>
           {expenses.length === 0 ? (
             <div className="glass-card p-6 text-center">
-              <p className="text-sm text-[#8A877D]">Sin gastos registrados aún</p>
+              <p className="text-sm text-muted-foreground">Sin gastos registrados aún</p>
             </div>
           ) : (
             <div className="space-y-2">
@@ -321,18 +321,18 @@ export default function SpaceDetailPage() {
                 return (
                   <div key={exp.id} className="glass-card p-3.5 flex items-start justify-between gap-3 group">
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm text-[#F0EFE8] truncate">{exp.description || 'Sin descripción'}</p>
-                      <p className="text-xs text-[#8A877D] mt-0.5">
+                      <p className="text-sm text-foreground truncate">{exp.description || 'Sin descripción'}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
                         {paidByMe ? 'Pagaste tú' : `Pagó ${exp.usuarios?.nombre}`}
                         {exp.category ? ` · ${exp.category}` : ''}
                         {' · '}{new Date(exp.created_at).toLocaleDateString('es-PE', { day: 'numeric', month: 'short' })}
-                        {byRule && <span className="text-[#1D9E75]"> · regla {myPct}%</span>}
+                        {byRule && <span className="text-primary"> · regla {myPct}%</span>}
                       </p>
                     </div>
                     <div className="flex items-start gap-2 shrink-0">
                       <div className="text-right">
-                        <p className="text-sm font-semibold text-[#F0EFE8]">{formatCurrency(Number(exp.amount))}</p>
-                        <p className="text-xs text-[#8A877D]">tu parte: {formatCurrency(myShare)}</p>
+                        <p className="text-sm font-semibold text-foreground">{formatCurrency(Number(exp.amount))}</p>
+                        <p className="text-xs text-muted-foreground">tu parte: {formatCurrency(myShare)}</p>
                       </div>
                       <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 max-sm:opacity-100 transition-opacity">
                         <button
@@ -343,7 +343,7 @@ export default function SpaceDetailPage() {
                             setExpCategory(exp.category || '');
                             setShowExpenseDialog(true);
                           }}
-                          className="p-1 rounded text-[#8A877D] hover:text-[#F0EFE8]"
+                          className="p-1 rounded text-muted-foreground hover:text-foreground"
                         >
                           <Pencil className="w-3 h-3" />
                         </button>
@@ -352,7 +352,7 @@ export default function SpaceDetailPage() {
                             deleteExpense.mutate(exp.id);
                             toast.success('Gasto eliminado');
                           }}
-                          className="p-1 rounded text-[#8A877D] hover:text-[#D85A30]"
+                          className="p-1 rounded text-muted-foreground hover:text-negative"
                         >
                           <Trash2 className="w-3 h-3" />
                         </button>
@@ -370,16 +370,16 @@ export default function SpaceDetailPage() {
       <FadeIn delay={0.15}>
         <div className="glass-card p-5 space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-[#F0EFE8] flex items-center gap-2">
-              <Users className="w-4 h-4 text-[#8A877D]" />
+            <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+              <Users className="w-4 h-4 text-muted-foreground" />
               Miembros ({members.length}/{memberLimit})
             </h2>
             <div className="flex items-center gap-3">
               <button
                 onClick={copyInviteCode}
-                className="flex items-center gap-1.5 text-xs text-[#8A877D] hover:text-[#C8C6BC]"
+                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground-soft"
               >
-                {copiedCode ? <Check className="w-3.5 h-3.5 text-[#1D9E75]" /> : <Copy className="w-3.5 h-3.5" />}
+                {copiedCode ? <Check className="w-3.5 h-3.5 text-primary" /> : <Copy className="w-3.5 h-3.5" />}
                 {copiedCode ? 'Copiado' : space.invite_code}
               </button>
               {canInvite && (
@@ -391,7 +391,7 @@ export default function SpaceDetailPage() {
                     setTimeout(() => setCopiedLink(false), 2000);
                     toast.success('Link de invitación copiado');
                   }}
-                  className="flex items-center gap-1.5 text-xs text-[#1D9E75] hover:underline"
+                  className="flex items-center gap-1.5 text-xs text-primary hover:underline"
                 >
                   {copiedLink ? <Check className="w-3.5 h-3.5" /> : <UserPlus className="w-3.5 h-3.5" />}
                   {copiedLink ? 'Copiado' : 'Invitar'}
@@ -403,15 +403,15 @@ export default function SpaceDetailPage() {
             {members.map((m) => (
               <div key={m.user_id} className="group flex items-center justify-between text-sm">
                 <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-full bg-[rgba(29,158,117,0.15)] flex items-center justify-center text-xs text-[#1D9E75] font-bold">
+                  <div className="w-7 h-7 rounded-full bg-primary/15 flex items-center justify-center text-xs text-primary-ink font-bold">
                     {(m.usuarios?.nombre ?? '?').charAt(0).toUpperCase()}
                   </div>
-                  <span className="text-[#C8C6BC]">
+                  <span className="text-foreground-soft">
                     {m.usuarios?.nombre ?? m.user_id}
                     {m.user_id === currentUserId ? ' (tú)' : ''}
                   </span>
                 </div>
-                <div className="flex items-center gap-2 text-xs text-[#8A877D]">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <span>{effectivePct[m.user_id] ?? 0}%</span>
                   <span className="capitalize">{m.role}</span>
                   {isOwner && m.user_id !== currentUserId && (
@@ -420,7 +420,7 @@ export default function SpaceDetailPage() {
                         removeMember.mutate(m.user_id);
                         toast.success(`${m.usuarios?.nombre ?? 'Miembro'} eliminado`);
                       }}
-                      className="p-1 rounded opacity-0 group-hover:opacity-100 max-sm:opacity-100 text-[#8A877D] hover:text-[#D85A30] transition-all"
+                      className="p-1 rounded opacity-0 group-hover:opacity-100 max-sm:opacity-100 text-muted-foreground hover:text-negative transition-all"
                       title="Quitar del espacio"
                     >
                       <X className="w-3.5 h-3.5" />
@@ -437,8 +437,8 @@ export default function SpaceDetailPage() {
       <FadeIn delay={0.2}>
         <div className="glass-card p-5 space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-[#F0EFE8] flex items-center gap-2">
-              <PieChart className="w-4 h-4 text-[#8A877D]" />
+            <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+              <PieChart className="w-4 h-4 text-muted-foreground" />
               Reglas de División
             </h2>
             {isPro ? (
@@ -450,13 +450,13 @@ export default function SpaceDetailPage() {
                   setRuleSplits(Object.fromEntries(members.map((m) => [m.user_id, ''])));
                   setShowSplitRuleDialog(true);
                 }}
-                className="text-xs border-[rgba(255,255,255,0.1)] text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.04)] gap-1.5"
+                className="text-xs border-border text-foreground-soft hover:bg-foreground/4 gap-1.5"
               >
                 <Plus className="w-3.5 h-3.5" />
                 Agregar regla
               </Button>
             ) : (
-              <div className="flex items-center gap-1.5 text-xs text-[#8A877D]">
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <span>Reglas por categoría</span>
                 <ProBadge size="sm" />
               </div>
@@ -464,9 +464,9 @@ export default function SpaceDetailPage() {
           </div>
 
           {/* Default rule */}
-          <div className="rounded-lg bg-[rgba(255,255,255,0.02)] p-3 border border-[rgba(255,255,255,0.04)]">
+          <div className="rounded-lg bg-foreground/2 p-3 border border-border">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-xs text-[#8A877D]">Por defecto (todas las categorías sin regla)</p>
+              <p className="text-xs text-muted-foreground">Por defecto (todas las categorías sin regla)</p>
               <button
                 onClick={() => {
                   // Prefill con el % efectivo, no con el peso crudo: es el numero
@@ -475,7 +475,7 @@ export default function SpaceDetailPage() {
                   setDefaultSplits(Object.fromEntries(members.map((m) => [m.user_id, String(effectivePct[m.user_id] ?? 0)])));
                   setShowDefaultSplitDialog(true);
                 }}
-                className="text-[#8A877D] hover:text-[#1D9E75] transition-colors"
+                className="text-muted-foreground hover:text-primary transition-colors"
               >
                 <Pencil className="w-3 h-3" />
               </button>
@@ -484,11 +484,11 @@ export default function SpaceDetailPage() {
               {members.map((m) => (
                 <div key={m.user_id} className="flex-1">
                   <div className="flex items-center justify-between text-xs mb-1">
-                    <span className="text-[#C8C6BC]">{m.usuarios?.nombre}</span>
-                    <span className="text-[#8A877D]">{effectivePct[m.user_id] ?? 0}%</span>
+                    <span className="text-foreground-soft">{m.usuarios?.nombre}</span>
+                    <span className="text-muted-foreground">{effectivePct[m.user_id] ?? 0}%</span>
                   </div>
-                  <div className="h-1.5 rounded-full bg-[rgba(255,255,255,0.06)] overflow-hidden">
-                    <div className="h-full rounded-full bg-[#8A877D]" style={{ width: `${effectivePct[m.user_id] ?? 0}%` }} />
+                  <div className="h-1.5 rounded-full bg-foreground/6 overflow-hidden">
+                    <div className="h-full rounded-full bg-muted-foreground" style={{ width: `${effectivePct[m.user_id] ?? 0}%` }} />
                   </div>
                 </div>
               ))}
@@ -497,9 +497,9 @@ export default function SpaceDetailPage() {
 
           {/* Category-specific rules (Pro-tier spaces only) */}
           {isPro && (data.splitRules ?? []).map((rule) => (
-            <div key={rule.id} className="rounded-lg bg-[rgba(255,255,255,0.02)] p-3 border border-[rgba(29,158,117,0.15)]">
+            <div key={rule.id} className="rounded-lg bg-foreground/2 p-3 border border-primary/15">
               <div className="flex items-center justify-between mb-2">
-                <p className="text-xs font-medium text-[#F0EFE8]">
+                <p className="text-xs font-medium text-foreground">
                   {getCategoriaEmoji(rule.category)} {rule.category}
                 </p>
                 <button
@@ -508,7 +508,7 @@ export default function SpaceDetailPage() {
                     updateSplitRules.mutate(updated);
                     toast.success('Regla eliminada');
                   }}
-                  className="text-[#8A877D] hover:text-[#D85A30] transition-colors"
+                  className="text-muted-foreground hover:text-negative transition-colors"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -519,11 +519,11 @@ export default function SpaceDetailPage() {
                   return (
                     <div key={m.user_id} className="flex-1">
                       <div className="flex items-center justify-between text-xs mb-1">
-                        <span className="text-[#C8C6BC]">{m.usuarios?.nombre}</span>
-                        <span className="text-[#1D9E75] font-medium">{pct}%</span>
+                        <span className="text-foreground-soft">{m.usuarios?.nombre}</span>
+                        <span className="text-primary font-medium">{pct}%</span>
                       </div>
-                      <div className="h-1.5 rounded-full bg-[rgba(255,255,255,0.06)] overflow-hidden">
-                        <div className="h-full rounded-full bg-[#1D9E75]" style={{ width: `${pct}%` }} />
+                      <div className="h-1.5 rounded-full bg-foreground/6 overflow-hidden">
+                        <div className="h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
                       </div>
                     </div>
                   );
@@ -538,8 +538,8 @@ export default function SpaceDetailPage() {
       <FadeIn delay={0.25}>
         <div className="glass-card p-5 space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-[#F0EFE8] flex items-center gap-2">
-              <Target className="w-4 h-4 text-[#8A877D]" />
+            <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+              <Target className="w-4 h-4 text-muted-foreground" />
               Presupuestos Mensuales
             </h2>
             {isPro && (
@@ -551,7 +551,7 @@ export default function SpaceDetailPage() {
                   setBudgetLimit('');
                   setShowBudgetDialog(true);
                 }}
-                className="text-xs border-[rgba(255,255,255,0.1)] text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.04)] gap-1.5"
+                className="text-xs border-border text-foreground-soft hover:bg-foreground/4 gap-1.5"
               >
                 <Plus className="w-3.5 h-3.5" />
                 Agregar
@@ -561,16 +561,16 @@ export default function SpaceDetailPage() {
 
           {!isPro ? (
             <div className="flex flex-col items-center text-center gap-2 py-4">
-              <p className="text-sm text-[#8A877D]">
+              <p className="text-sm text-muted-foreground">
                 Ponle un límite mensual conjunto a cada categoría del espacio.
               </p>
-              <div className="flex items-center gap-1.5 text-xs text-[#8A877D]">
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <span>Presupuesto conjunto</span>
                 <ProBadge size="sm" />
               </div>
             </div>
           ) : (data.budgets ?? []).length === 0 ? (
-            <p className="text-sm text-[#8A877D] text-center py-4">Sin presupuestos configurados</p>
+            <p className="text-sm text-muted-foreground text-center py-4">Sin presupuestos configurados</p>
           ) : (
             <div className="space-y-3">
               {(data.budgets ?? []).map((budget) => {
@@ -578,16 +578,16 @@ export default function SpaceDetailPage() {
                   .filter((e) => e.category === budget.category)
                   .reduce((s, e) => s + Number(e.amount), 0);
                 const pct = budget.limit > 0 ? Math.round((spent / budget.limit) * 100) : 0;
-                const barColor = pct > 90 ? '#D85A30' : pct > 70 ? '#EF9F27' : '#1D9E75';
+                const barColor = pct > 90 ? 'var(--negative)' : pct > 70 ? 'var(--warning)' : 'var(--primary)';
 
                 return (
                   <div key={budget.id} className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <p className="text-sm text-[#F0EFE8]">
+                      <p className="text-sm text-foreground">
                         {getCategoriaEmoji(budget.category)} {budget.category}
                       </p>
                       <div className="flex items-center gap-3">
-                        <span className="text-xs text-[#8A877D]">
+                        <span className="text-xs text-muted-foreground">
                           {formatCurrency(spent)} / {formatCurrency(budget.limit)}
                         </span>
                         <button
@@ -596,19 +596,19 @@ export default function SpaceDetailPage() {
                             updateBudgets.mutate(updated);
                             toast.success('Presupuesto eliminado');
                           }}
-                          className="text-[#8A877D] hover:text-[#D85A30] transition-colors"
+                          className="text-muted-foreground hover:text-negative transition-colors"
                         >
                           <Trash2 className="w-3 h-3" />
                         </button>
                       </div>
                     </div>
-                    <div className="h-1.5 rounded-full bg-[rgba(255,255,255,0.06)] overflow-hidden">
+                    <div className="h-1.5 rounded-full bg-foreground/6 overflow-hidden">
                       <div
                         className="h-full rounded-full transition-all"
                         style={{ width: `${Math.min(pct, 100)}%`, backgroundColor: barColor }}
                       />
                     </div>
-                    <div className="text-[10px] text-[#8A877D] space-y-0.5">
+                    <div className="text-[10px] text-muted-foreground space-y-0.5">
                       {members.map((m) => {
                         const frac = resolveSplit(budget.category, m.user_id, members, data.splitRules ?? []);
                         const memberSpent = expenses
@@ -634,34 +634,34 @@ export default function SpaceDetailPage() {
 
       {/* Add/Edit Expense Dialog */}
       <Dialog open={showExpenseDialog} onOpenChange={(open) => { setShowExpenseDialog(open); if (!open) setEditingExpense(null); }}>
-        <DialogContent className="glass-card-elevated text-[#F0EFE8] max-w-sm">
+        <DialogContent className="glass-card-elevated text-foreground max-w-sm">
           <DialogHeader>
             <DialogTitle>{editingExpense ? 'Editar gasto' : 'Agregar gasto'}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div>
-              <label className="text-xs text-[#8A877D] mb-1 block">Monto (S/)</label>
+              <label className="text-xs text-muted-foreground mb-1 block">Monto (S/)</label>
               <Input
                 type="number"
                 placeholder="0.00"
                 value={expAmount}
                 onChange={(e) => setExpAmount(e.target.value)}
-                className="bg-[rgba(255,255,255,0.04)] border-[rgba(255,255,255,0.08)] text-[#F0EFE8]"
+                className="bg-foreground/4 border-border text-foreground"
               />
             </div>
             <div>
-              <label className="text-xs text-[#8A877D] mb-1 block">Descripción</label>
+              <label className="text-xs text-muted-foreground mb-1 block">Descripción</label>
               <Input
                 placeholder="ej: Mercado, luz, internet"
                 value={expDescription}
                 onChange={(e) => setExpDescription(e.target.value)}
-                className="bg-[rgba(255,255,255,0.04)] border-[rgba(255,255,255,0.08)] text-[#F0EFE8]"
+                className="bg-foreground/4 border-border text-foreground"
               />
             </div>
             <div>
-              <label className="text-xs text-[#8A877D] mb-1 block">Categoría (opcional)</label>
+              <label className="text-xs text-muted-foreground mb-1 block">Categoría (opcional)</label>
               <Select value={expCategory || undefined} onValueChange={(v) => setExpCategory(v ?? '')}>
-                <SelectTrigger className="bg-[rgba(255,255,255,0.04)] border-[rgba(255,255,255,0.08)] text-[#F0EFE8]">
+                <SelectTrigger className="bg-foreground/4 border-border text-foreground">
                   <SelectValue placeholder="Seleccionar categoría" />
                 </SelectTrigger>
                 <SelectContent>
@@ -676,15 +676,15 @@ export default function SpaceDetailPage() {
             {expCategory && (() => {
               const rule = (data?.splitRules ?? []).find((r) => r.category === expCategory);
               return (
-                <div className="rounded-lg bg-[rgba(29,158,117,0.08)] p-2.5 text-xs">
+                <div className="rounded-lg bg-primary/8 p-2.5 text-xs">
                   {rule ? (
-                    <p className="text-[#1D9E75]">
+                    <p className="text-primary">
                       División: {members.map((m) =>
                         `${m.usuarios?.nombre} ${rule.splits[m.user_id] ?? 0}%`
                       ).join(', ')}
                     </p>
                   ) : (
-                    <p className="text-[#8A877D]">
+                    <p className="text-muted-foreground">
                       Se usará la división global ({members.map((m) => `${effectivePct[m.user_id] ?? 0}%`).join('/')})
                     </p>
                   )}
@@ -694,7 +694,7 @@ export default function SpaceDetailPage() {
             <Button
               onClick={handleAddExpense}
               disabled={addExpense.isPending}
-              className="w-full bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90"
+              className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
             >
               {addExpense.isPending || editExpense.isPending ? 'Guardando...' : editingExpense ? 'Actualizar gasto' : 'Registrar gasto'}
             </Button>
@@ -704,13 +704,13 @@ export default function SpaceDetailPage() {
 
       {/* Settle Dialog */}
       <Dialog open={showSettleDialog} onOpenChange={setShowSettleDialog}>
-        <DialogContent className="glass-card-elevated text-[#F0EFE8] max-w-sm">
+        <DialogContent className="glass-card-elevated text-foreground max-w-sm">
           <DialogHeader>
             <DialogTitle>Registrar pago</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div>
-              <label className="text-xs text-[#8A877D] mb-1 block">Pagar a</label>
+              <label className="text-xs text-muted-foreground mb-1 block">Pagar a</label>
               <div className="space-y-1.5">
                 {otherMembers.map((m) => (
                   <button
@@ -718,8 +718,8 @@ export default function SpaceDetailPage() {
                     onClick={() => setSettleToUser(m.user_id)}
                     className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors border ${
                       settleToUser === m.user_id
-                        ? 'border-[#1D9E75] bg-[rgba(29,158,117,0.1)] text-[#1D9E75]'
-                        : 'border-[rgba(255,255,255,0.08)] text-[#C8C6BC]'
+                        ? 'border-primary bg-primary/10 text-primary-ink'
+                        : 'border-border text-foreground-soft'
                     }`}
                   >
                     {m.usuarios?.nombre ?? m.user_id}
@@ -728,19 +728,19 @@ export default function SpaceDetailPage() {
               </div>
             </div>
             <div>
-              <label className="text-xs text-[#8A877D] mb-1 block">Monto (S/)</label>
+              <label className="text-xs text-muted-foreground mb-1 block">Monto (S/)</label>
               <Input
                 type="number"
                 placeholder="0.00"
                 value={settleAmount}
                 onChange={(e) => setSettleAmount(e.target.value)}
-                className="bg-[rgba(255,255,255,0.04)] border-[rgba(255,255,255,0.08)] text-[#F0EFE8]"
+                className="bg-foreground/4 border-border text-foreground"
               />
             </div>
             <Button
               onClick={handleSettle}
               disabled={settle.isPending || !settleToUser}
-              className="w-full bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90"
+              className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
             >
               {settle.isPending ? 'Guardando...' : 'Registrar pago'}
             </Button>
@@ -750,15 +750,15 @@ export default function SpaceDetailPage() {
 
       {/* Split Rule Dialog */}
       <Dialog open={showSplitRuleDialog} onOpenChange={setShowSplitRuleDialog}>
-        <DialogContent className="glass-card-elevated text-[#F0EFE8] max-w-sm">
+        <DialogContent className="glass-card-elevated text-foreground max-w-sm">
           <DialogHeader>
             <DialogTitle>Nueva regla de división</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div>
-              <label className="text-xs text-[#8A877D] mb-1 block">Categoría</label>
+              <label className="text-xs text-muted-foreground mb-1 block">Categoría</label>
               <Select value={ruleCategory || undefined} onValueChange={(v) => setRuleCategory(v ?? '')}>
-                <SelectTrigger className="bg-[rgba(255,255,255,0.04)] border-[rgba(255,255,255,0.08)] text-[#F0EFE8]">
+                <SelectTrigger className="bg-foreground/4 border-border text-foreground">
                   <SelectValue placeholder="Seleccionar categoría" />
                 </SelectTrigger>
                 <SelectContent>
@@ -774,7 +774,7 @@ export default function SpaceDetailPage() {
             </div>
             {members.map((m) => (
               <div key={m.user_id}>
-                <label className="text-xs text-[#8A877D] mb-1 block">
+                <label className="text-xs text-muted-foreground mb-1 block">
                   {m.usuarios?.nombre} (%)
                 </label>
                 <Input
@@ -784,7 +784,7 @@ export default function SpaceDetailPage() {
                   max={100}
                   value={ruleSplits[m.user_id] ?? ''}
                   onChange={(e) => setRuleSplits((prev) => ({ ...prev, [m.user_id]: e.target.value }))}
-                  className="bg-[rgba(255,255,255,0.04)] border-[rgba(255,255,255,0.08)] text-[#F0EFE8]"
+                  className="bg-foreground/4 border-border text-foreground"
                 />
               </div>
             ))}
@@ -793,7 +793,7 @@ export default function SpaceDetailPage() {
               const isValid = total === 100;
               return (
                 <>
-                  <p className={`text-xs ${isValid ? 'text-[#1D9E75]' : 'text-[#D85A30]'}`}>
+                  <p className={`text-xs ${isValid ? 'text-primary' : 'text-negative'}`}>
                     Total: {total}% {isValid ? '✓' : '(debe sumar 100%)'}
                   </p>
                   <Button
@@ -814,7 +814,7 @@ export default function SpaceDetailPage() {
                       setShowSplitRuleDialog(false);
                     }}
                     disabled={!ruleCategory || !isValid}
-                    className="w-full bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90"
+                    className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
                   >
                     Guardar regla
                   </Button>
@@ -827,15 +827,15 @@ export default function SpaceDetailPage() {
 
       {/* Budget Dialog */}
       <Dialog open={showBudgetDialog} onOpenChange={setShowBudgetDialog}>
-        <DialogContent className="glass-card-elevated text-[#F0EFE8] max-w-sm">
+        <DialogContent className="glass-card-elevated text-foreground max-w-sm">
           <DialogHeader>
             <DialogTitle>Nuevo presupuesto</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div>
-              <label className="text-xs text-[#8A877D] mb-1 block">Categoría</label>
+              <label className="text-xs text-muted-foreground mb-1 block">Categoría</label>
               <Select value={budgetCategory || undefined} onValueChange={(v) => setBudgetCategory(v ?? '')}>
-                <SelectTrigger className="bg-[rgba(255,255,255,0.04)] border-[rgba(255,255,255,0.08)] text-[#F0EFE8]">
+                <SelectTrigger className="bg-foreground/4 border-border text-foreground">
                   <SelectValue placeholder="Seleccionar categoría" />
                 </SelectTrigger>
                 <SelectContent>
@@ -850,13 +850,13 @@ export default function SpaceDetailPage() {
               </Select>
             </div>
             <div>
-              <label className="text-xs text-[#8A877D] mb-1 block">Límite mensual (S/)</label>
+              <label className="text-xs text-muted-foreground mb-1 block">Límite mensual (S/)</label>
               <Input
                 type="number"
                 placeholder="0.00"
                 value={budgetLimit}
                 onChange={(e) => setBudgetLimit(e.target.value)}
-                className="bg-[rgba(255,255,255,0.04)] border-[rgba(255,255,255,0.08)] text-[#F0EFE8]"
+                className="bg-foreground/4 border-border text-foreground"
               />
             </div>
             <Button
@@ -877,7 +877,7 @@ export default function SpaceDetailPage() {
                 setShowBudgetDialog(false);
               }}
               disabled={!budgetCategory || !budgetLimit}
-              className="w-full bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90"
+              className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
             >
               Guardar presupuesto
             </Button>
@@ -887,17 +887,17 @@ export default function SpaceDetailPage() {
 
       {/* Default Split Dialog */}
       <Dialog open={showDefaultSplitDialog} onOpenChange={setShowDefaultSplitDialog}>
-        <DialogContent className="glass-card-elevated text-[#F0EFE8] max-w-sm">
+        <DialogContent className="glass-card-elevated text-foreground max-w-sm">
           <DialogHeader>
             <DialogTitle>Editar división por defecto</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
-            <p className="text-xs text-[#8A877D]">
+            <p className="text-xs text-muted-foreground">
               Esta división se aplica a todas las categorías que no tienen una regla específica.
             </p>
             {members.map((m) => (
               <div key={m.user_id}>
-                <label className="text-xs text-[#8A877D] mb-1 block">
+                <label className="text-xs text-muted-foreground mb-1 block">
                   {m.usuarios?.nombre} (%)
                 </label>
                 <Input
@@ -906,7 +906,7 @@ export default function SpaceDetailPage() {
                   max={100}
                   value={defaultSplits[m.user_id] ?? ''}
                   onChange={(e) => setDefaultSplits((prev) => ({ ...prev, [m.user_id]: e.target.value }))}
-                  className="bg-[rgba(255,255,255,0.04)] border-[rgba(255,255,255,0.08)] text-[#F0EFE8]"
+                  className="bg-foreground/4 border-border text-foreground"
                 />
               </div>
             ))}
@@ -915,7 +915,7 @@ export default function SpaceDetailPage() {
               const isValid = total === 100;
               return (
                 <>
-                  <p className={`text-xs ${isValid ? 'text-[#1D9E75]' : 'text-[#D85A30]'}`}>
+                  <p className={`text-xs ${isValid ? 'text-primary' : 'text-negative'}`}>
                     Total: {total}% {isValid ? '✓' : '(debe sumar 100%)'}
                   </p>
                   <Button
@@ -934,7 +934,7 @@ export default function SpaceDetailPage() {
                       }
                     }}
                     disabled={!isValid || updateDefaultSplit.isPending}
-                    className="w-full bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90"
+                    className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
                   >
                     {updateDefaultSplit.isPending ? 'Guardando...' : 'Guardar'}
                   </Button>
@@ -948,21 +948,21 @@ export default function SpaceDetailPage() {
       {/* Settings Dialog (owner only) */}
       <Dialog open={showSettingsDialog} onOpenChange={setShowSettingsDialog}>
         {/* `glass-card-elevated` como los otros 12 diálogos del archivo: el token de
-            superficie de un modal es el elevado (#1C1C19), no el de tarjeta (#131311).
+            superficie de un modal es el elevado (surface-elevated), no el de tarjeta (card).
             Este quedó con el de tarjeta y se veía plano sobre el fondo (F13). */}
-        <DialogContent className="glass-card-elevated border-[rgba(255,255,255,0.08)] max-w-sm">
+        <DialogContent className="glass-card-elevated border-border max-w-sm">
           <DialogHeader>
             <DialogTitle>Configuración del espacio</DialogTitle>
           </DialogHeader>
           <div className="space-y-5">
             {/* Rename */}
             <div className="space-y-2">
-              <label className="text-xs text-[#8A877D]">Nombre del espacio</label>
+              <label className="text-xs text-muted-foreground">Nombre del espacio</label>
               <div className="flex gap-2">
                 <Input
                   value={renameName}
                   onChange={(e) => setRenameName(e.target.value)}
-                  className="bg-[rgba(255,255,255,0.04)] border-[rgba(255,255,255,0.08)] text-[#F0EFE8]"
+                  className="bg-foreground/4 border-border text-foreground"
                 />
                 <Button
                   size="sm"
@@ -973,7 +973,7 @@ export default function SpaceDetailPage() {
                     setShowSettingsDialog(false);
                   }}
                   disabled={!renameName.trim() || renameName.trim() === space.name}
-                  className="bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90"
+                  className="bg-primary text-primary-foreground hover:bg-primary/90"
                 >
                   Guardar
                 </Button>
@@ -981,17 +981,17 @@ export default function SpaceDetailPage() {
             </div>
 
             {/* Space info */}
-            <div className="rounded-lg bg-[rgba(255,255,255,0.02)] p-3 border border-[rgba(255,255,255,0.04)] space-y-1">
-              <p className="text-xs text-[#8A877D]">Tipo: <span className="text-[#C8C6BC] capitalize">{space.type}</span></p>
-              <p className="text-xs text-[#8A877D]">Límite: <span className="text-[#C8C6BC]">{memberLimit} miembros</span></p>
-              <p className="text-xs text-[#8A877D]">Código: <span className="text-[#1D9E75] font-mono">{space.invite_code}</span></p>
+            <div className="rounded-lg bg-foreground/2 p-3 border border-border space-y-1">
+              <p className="text-xs text-muted-foreground">Tipo: <span className="text-foreground-soft capitalize">{space.type}</span></p>
+              <p className="text-xs text-muted-foreground">Límite: <span className="text-foreground-soft">{memberLimit} miembros</span></p>
+              <p className="text-xs text-muted-foreground">Código: <span className="text-primary font-mono">{space.invite_code}</span></p>
             </div>
 
             {/* Delete space */}
-            <div className="pt-3 border-t border-[rgba(255,255,255,0.06)]">
+            <div className="pt-3 border-t border-border">
               {showDeleteConfirm ? (
                 <div className="space-y-2">
-                  <p className="text-xs text-[#D85A30]">¿Estás seguro? Se eliminarán todos los gastos, pagos y miembros de este espacio.</p>
+                  <p className="text-xs text-negative">¿Estás seguro? Se eliminarán todos los gastos, pagos y miembros de este espacio.</p>
                   <div className="flex gap-2">
                     <Button
                       variant="outline"
@@ -1008,7 +1008,7 @@ export default function SpaceDetailPage() {
                         toast.success('Espacio eliminado');
                         router.push('/dashboard/espacios');
                       }}
-                      className="flex-1 text-xs bg-[#D85A30] text-white hover:bg-[#D85A30]/90"
+                      className="flex-1 text-xs bg-negative text-negative-foreground hover:bg-negative/90"
                     >
                       <Trash2 className="w-3.5 h-3.5 mr-1" />
                       Eliminar
@@ -1018,7 +1018,7 @@ export default function SpaceDetailPage() {
               ) : (
                 <button
                   onClick={() => setShowDeleteConfirm(true)}
-                  className="flex items-center gap-2 text-xs text-[#D85A30] hover:underline"
+                  className="flex items-center gap-2 text-xs text-negative hover:underline"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                   Eliminar espacio

@@ -131,24 +131,24 @@ export default function LogrosPage() {
       <div className="space-y-6">
         <FadeIn>
           <div className="flex items-center justify-between mb-6">
-            <h1 className="text-2xl font-bold text-[#F0EFE8]">Logros</h1>
+            <h1 className="text-2xl font-bold text-foreground">Logros</h1>
             <HeaderActions />
           </div>
         </FadeIn>
         <FadeIn delay={0.05}>
           <div className="glass-card p-10 flex flex-col items-center text-center gap-4">
-            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[rgba(29,158,117,0.1)]">
-              <Trophy className="h-8 w-8 text-[#1D9E75]/40" />
+            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
+              <Trophy className="h-8 w-8 text-primary/40" />
             </div>
             <div className="space-y-1">
-              <h2 className="text-base font-semibold text-[#F0EFE8]">Aún no tienes logros</h2>
-              <p className="text-sm text-[#8A877D] max-w-xs">
+              <h2 className="text-base font-semibold text-foreground">Aún no tienes logros</h2>
+              <p className="text-sm text-muted-foreground max-w-xs">
                 Completa tus metas de ahorro para desbloquear logros y medallas
               </p>
             </div>
             <a
               href="/dashboard/planes"
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#1D9E75] text-white text-sm font-medium hover:bg-[#1D9E75]/90 transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
             >
               Crear mi primera meta
               <ArrowRight className="h-4 w-4" />
@@ -169,12 +169,12 @@ export default function LogrosPage() {
       <FadeIn>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[rgba(29,158,117,0.12)]">
-              <Trophy className="h-5 w-5 text-[#1D9E75]" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/12">
+              <Trophy className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-[#F0EFE8]">Logros</h1>
-              <p className="text-xs text-[#8A877D]">{totalUnlocked} de {LOGRO_CATALOG.length} desbloqueados</p>
+              <h1 className="text-2xl font-bold text-foreground">Logros</h1>
+              <p className="text-xs text-muted-foreground">{totalUnlocked} de {LOGRO_CATALOG.length} desbloqueados</p>
             </div>
           </div>
           <HeaderActions />
@@ -186,11 +186,11 @@ export default function LogrosPage() {
         <div className="grid grid-cols-3 gap-3">
           {/* Total logros */}
           <div className="glass-card p-4 text-center">
-            <p className="text-2xl font-bold text-[#1D9E75]">{totalUnlocked}</p>
-            <p className="text-[10px] text-[#8A877D] mt-1">Logros</p>
-            <div className="mt-2 h-1 rounded-full bg-[rgba(255,255,255,0.06)] overflow-hidden">
+            <p className="text-2xl font-bold text-primary">{totalUnlocked}</p>
+            <p className="text-[10px] text-muted-foreground mt-1">Logros</p>
+            <div className="mt-2 h-1 rounded-full bg-foreground/6 overflow-hidden">
               <motion.div
-                className="h-full rounded-full bg-[#1D9E75]"
+                className="h-full rounded-full bg-primary"
                 initial={{ width: 0 }}
                 animate={{ width: `${progressPct}%` }}
                 transition={{ duration: 0.8, ease: 'easeOut' }}
@@ -200,10 +200,10 @@ export default function LogrosPage() {
 
           {/* Racha */}
           <div className="glass-card p-4 text-center">
-            <p className="text-2xl font-bold text-[#EF9F27]">
+            <p className="text-2xl font-bold text-warning">
               {streak > 0 ? streak : '—'}
             </p>
-            <p className="text-[10px] text-[#8A877D] mt-1">
+            <p className="text-[10px] text-muted-foreground mt-1">
               {streak === 1 ? 'Semana racha' : 'Semanas racha'}
             </p>
             {streak >= 3 && (
@@ -213,8 +213,8 @@ export default function LogrosPage() {
 
           {/* Metas completadas */}
           <div className="glass-card p-4 text-center">
-            <p className="text-2xl font-bold text-[#F0EFE8]">{completedGoals}</p>
-            <p className="text-[10px] text-[#8A877D] mt-1">
+            <p className="text-2xl font-bold text-foreground">{completedGoals}</p>
+            <p className="text-[10px] text-muted-foreground mt-1">
               {totalGoals > 0 ? `de ${totalGoals} metas` : 'Metas cumplidas'}
             </p>
           </div>
@@ -225,13 +225,13 @@ export default function LogrosPage() {
       {nextToUnlock && (
         <FadeIn delay={0.15}>
           <div className="glass-card glass-card-glow p-4 flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[rgba(239,159,39,0.12)] shrink-0">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-warning/12 shrink-0">
               <span className="text-lg">{nextToUnlock.emoji}</span>
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-xs font-medium text-[#EF9F27]">Proximo logro</p>
-              <p className="text-sm text-[#C8C6BC] font-medium">{nextToUnlock.label}</p>
-              <p className="text-[10px] text-[#8A877D]">{nextToUnlock.desc}</p>
+              <p className="text-xs font-medium text-warning">Proximo logro</p>
+              <p className="text-sm text-foreground-soft font-medium">{nextToUnlock.label}</p>
+              <p className="text-[10px] text-muted-foreground">{nextToUnlock.desc}</p>
             </div>
           </div>
         </FadeIn>
@@ -239,7 +239,7 @@ export default function LogrosPage() {
 
       {/* Badges grid */}
       <FadeIn delay={0.2}>
-        <h2 className="text-sm font-medium text-[#C8C6BC] mb-3">Todos los logros</h2>
+        <h2 className="text-sm font-medium text-foreground-soft mb-3">Todos los logros</h2>
       </FadeIn>
 
       <StaggerContainer>
@@ -253,32 +253,32 @@ export default function LogrosPage() {
                 <motion.div
                   className={`glass-card p-4 flex flex-col items-center text-center transition-all duration-300 ${
                     isUnlocked
-                      ? 'glass-card-glow ring-1 ring-[rgba(29,158,117,0.2)]'
+                      ? 'glass-card-glow ring-1 ring-primary/20'
                       : 'opacity-50 grayscale'
                   }`}
                   whileHover={isUnlocked ? { scale: 1.02 } : undefined}
                 >
                   <div className={`flex h-12 w-12 items-center justify-center rounded-2xl mb-2 ${
                     isUnlocked
-                      ? 'bg-[rgba(29,158,117,0.12)]'
-                      : 'bg-[rgba(255,255,255,0.04)]'
+                      ? 'bg-primary/12'
+                      : 'bg-foreground/4'
                   }`}>
                     {isUnlocked ? (
                       <span className="text-2xl">{item.emoji}</span>
                     ) : (
-                      <Lock className="h-5 w-5 text-[#8A877D]" />
+                      <Lock className="h-5 w-5 text-muted-foreground" />
                     )}
                   </div>
 
-                  <p className={`text-xs font-medium ${isUnlocked ? 'text-[#F0EFE8]' : 'text-[#8A877D]'}`}>
+                  <p className={`text-xs font-medium ${isUnlocked ? 'text-foreground' : 'text-muted-foreground'}`}>
                     {item.label}
                   </p>
-                  <p className="text-[10px] text-[#8A877D] mt-0.5 leading-snug">
+                  <p className="text-[10px] text-muted-foreground mt-0.5 leading-snug">
                     {item.desc}
                   </p>
 
                   {isUnlocked && unlocked.fecha && (
-                    <p className="text-[9px] text-[#1D9E75] mt-2 flex items-center gap-1">
+                    <p className="text-[9px] text-primary mt-2 flex items-center gap-1">
                       <CalendarDays className="h-3 w-3" />
                       {timeAgo(unlocked.fecha)}
                     </p>
@@ -293,7 +293,7 @@ export default function LogrosPage() {
       {/* Timeline of recent achievements */}
       {achievements.length > 0 && (
         <FadeIn delay={0.3}>
-          <h2 className="text-sm font-medium text-[#C8C6BC] mb-3 mt-6">Historial</h2>
+          <h2 className="text-sm font-medium text-foreground-soft mb-3 mt-6">Historial</h2>
           <div className="space-y-2">
             {achievements.slice(0, 10).map((logro) => {
               const catalogItem = LOGRO_CATALOG.find((c) => c.tipo === logro.tipo);
@@ -306,10 +306,10 @@ export default function LogrosPage() {
                 >
                   <span className="text-lg shrink-0">{catalogItem.emoji}</span>
                   <div className="min-w-0 flex-1">
-                    <p className="text-xs font-medium text-[#C8C6BC]">{catalogItem.label}</p>
-                    <p className="text-[10px] text-[#8A877D]">{catalogItem.desc}</p>
+                    <p className="text-xs font-medium text-foreground-soft">{catalogItem.label}</p>
+                    <p className="text-[10px] text-muted-foreground">{catalogItem.desc}</p>
                   </div>
-                  <span className="text-[10px] text-[#8A877D] shrink-0">
+                  <span className="text-[10px] text-muted-foreground shrink-0">
                     {logro.fecha
                       ? new Date(logro.fecha + 'T12:00:00').toLocaleDateString('es-PE', { day: 'numeric', month: 'short' })
                       : ''}

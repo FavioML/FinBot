@@ -6,8 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import type { GastoCompartido, GastoParticipante } from '@/lib/hooks/use-split';
 
-const INPUT_CLS = 'w-full rounded-lg bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.08)] px-3 py-2 text-sm text-[#F0EFE8] placeholder:text-[#8A877D] outline-none focus:border-[#1D9E75]';
-const LABEL_CLS = 'text-xs text-[#8A877D] mb-1.5 block';
+const INPUT_CLS = 'w-full rounded-lg bg-foreground/4 border border-border px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary';
+const LABEL_CLS = 'text-xs text-muted-foreground mb-1.5 block';
 
 export interface SplitCreatePayload {
   descripcion: string;
@@ -66,7 +66,7 @@ export function SplitCreateDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="glass-card-elevated text-[#F0EFE8] max-w-md">
+      <DialogContent className="glass-card-elevated text-foreground max-w-md">
         <DialogHeader>
           <DialogTitle>Dividir gasto</DialogTitle>
         </DialogHeader>
@@ -102,8 +102,8 @@ export function SplitCreateDialog({
           </div>
 
           {monto && numPersonas && (
-            <p className="text-xs text-[#8A877D] bg-[rgba(239,159,39,0.06)] rounded-lg px-3 py-2">
-              Cada persona: <span className="text-[#EF9F27] font-medium">S/ {(parseFloat(monto) / (parseInt(numPersonas) || 2)).toFixed(2)}</span>
+            <p className="text-xs text-muted-foreground bg-warning/6 rounded-lg px-3 py-2">
+              Cada persona: <span className="text-accent-pro font-medium">S/ {(parseFloat(monto) / (parseInt(numPersonas) || 2)).toFixed(2)}</span>
             </p>
           )}
 
@@ -114,7 +114,7 @@ export function SplitCreateDialog({
 
           {Array.from({ length: Math.max(0, (parseInt(numPersonas) || 2) - 1) }, (_, i) => (
             <div key={i}>
-              <label className="text-xs text-[#8A877D] mb-1 block">Persona {i + 1}</label>
+              <label className="text-xs text-muted-foreground mb-1 block">Persona {i + 1}</label>
               <input
                 type="text"
                 value={names[i] || ''}
@@ -130,10 +130,10 @@ export function SplitCreateDialog({
           ))}
 
           <div className="flex gap-2 pt-1">
-            <Button onClick={handleCreate} className="flex-1 bg-[#EF9F27] text-white hover:bg-[#EF9F27]/90" disabled={isPending}>
+            <Button onClick={handleCreate} className="flex-1 bg-accent-pro text-accent-pro-foreground hover:bg-accent-pro/90" disabled={isPending}>
               {isPending ? 'Creando...' : 'Crear gasto compartido'}
             </Button>
-            <Button variant="outline" onClick={() => onOpenChange(false)} className="border-[rgba(255,255,255,0.1)] bg-transparent text-[#C8C6BC]">
+            <Button variant="outline" onClick={() => onOpenChange(false)} className="border-border bg-transparent text-foreground-soft">
               Cancelar
             </Button>
           </div>
@@ -188,25 +188,25 @@ export function SplitEditDialog({
 
   return (
     <Dialog open={!!gasto} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="glass-card-elevated text-[#F0EFE8] max-w-md">
+      <DialogContent className="glass-card-elevated text-foreground max-w-md">
         <DialogHeader>
           <DialogTitle>Editar gasto compartido</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           <div>
             <label className={LABEL_CLS}>Descripcion</label>
-            <input type="text" value={desc} onChange={(e) => setDesc(e.target.value)} className={`${INPUT_CLS} focus:border-[#EF9F27]`} />
+            <input type="text" value={desc} onChange={(e) => setDesc(e.target.value)} className={`${INPUT_CLS} focus:border-accent-pro`} />
           </div>
           <div>
             <label className={LABEL_CLS}>Fecha limite de cobro (opcional)</label>
-            <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={`${INPUT_CLS} focus:border-[#EF9F27]`} />
+            <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={`${INPUT_CLS} focus:border-accent-pro`} />
           </div>
           <div>
             <label className={LABEL_CLS}>Participantes</label>
             <div className="space-y-2">
               {names.map((p, i) => (
                 <div key={p.id} className="flex items-center gap-2">
-                  <span className="text-xs text-[#8A877D] w-20 shrink-0">Persona {i + 1}</span>
+                  <span className="text-xs text-muted-foreground w-20 shrink-0">Persona {i + 1}</span>
                   <input
                     type="text"
                     value={p.nombre}
@@ -215,7 +215,7 @@ export function SplitEditDialog({
                       next[i] = { ...next[i], nombre: e.target.value };
                       setNames(next);
                     }}
-                    className={`flex-1 ${INPUT_CLS} py-1.5 focus:border-[#EF9F27]`}
+                    className={`flex-1 ${INPUT_CLS} py-1.5 focus:border-accent-pro`}
                   />
                 </div>
               ))}
@@ -223,13 +223,13 @@ export function SplitEditDialog({
           </div>
           <div>
             <label className={LABEL_CLS}>Notas (opcional)</label>
-            <input type="text" value={notas} onChange={(e) => setNotas(e.target.value)} placeholder="Ej: Cena de cumpleanos" className={`${INPUT_CLS} focus:border-[#EF9F27]`} />
+            <input type="text" value={notas} onChange={(e) => setNotas(e.target.value)} placeholder="Ej: Cena de cumpleanos" className={`${INPUT_CLS} focus:border-accent-pro`} />
           </div>
           <div className="flex gap-2 pt-1">
-            <Button onClick={handleUpdate} className="flex-1 bg-[#EF9F27] text-white hover:bg-[#EF9F27]/90" disabled={isPending}>
+            <Button onClick={handleUpdate} className="flex-1 bg-accent-pro text-accent-pro-foreground hover:bg-accent-pro/90" disabled={isPending}>
               {isPending ? 'Guardando...' : 'Guardar cambios'}
             </Button>
-            <Button variant="outline" onClick={onClose} className="border-[rgba(255,255,255,0.1)] bg-transparent text-[#C8C6BC]">
+            <Button variant="outline" onClick={onClose} className="border-border bg-transparent text-foreground-soft">
               Cancelar
             </Button>
           </div>
@@ -273,24 +273,24 @@ export function SplitAbonoDialog({
 
   return (
     <Dialog open={!!target} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="glass-card-elevated text-[#F0EFE8] max-w-xs">
+      <DialogContent className="glass-card-elevated text-foreground max-w-xs">
         <DialogHeader>
           <DialogTitle>Registrar pago</DialogTitle>
         </DialogHeader>
         {target && (
           <div className="space-y-4">
-            <p className="text-xs text-[#8A877D]">
-              {target.participante.nombre} — pendiente: <span className="text-[#EF9F27]">S/ {pendiente.toFixed(2)}</span>
+            <p className="text-xs text-muted-foreground">
+              {target.participante.nombre} — pendiente: <span className="text-accent-pro">S/ {pendiente.toFixed(2)}</span>
             </p>
             <div>
               <label className={LABEL_CLS}>Monto del abono</label>
-              <input type="number" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} placeholder={pendiente.toFixed(2)} className={`${INPUT_CLS} focus:border-[#EF9F27]`} />
+              <input type="number" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} placeholder={pendiente.toFixed(2)} className={`${INPUT_CLS} focus:border-accent-pro`} />
             </div>
             <div className="flex gap-2">
-              <Button onClick={handleAbono} className="flex-1 bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90" disabled={isPending}>
+              <Button onClick={handleAbono} className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90" disabled={isPending}>
                 {isPending ? 'Registrando...' : 'Registrar abono'}
               </Button>
-              <Button variant="outline" onClick={onClose} className="border-[rgba(255,255,255,0.1)] bg-transparent text-[#C8C6BC]">
+              <Button variant="outline" onClick={onClose} className="border-border bg-transparent text-foreground-soft">
                 Cancelar
               </Button>
             </div>

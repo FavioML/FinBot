@@ -267,14 +267,14 @@ export default function DeudasPage() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-[#F0EFE8]">Deudas</h1>
-            <p className="text-sm text-[#8A877D] mt-1">Lleva el control de lo que debes y te deben</p>
+            <h1 className="text-2xl font-bold text-foreground">Deudas</h1>
+            <p className="text-sm text-muted-foreground mt-1">Lleva el control de lo que debes y te deben</p>
           </div>
           <HeaderActions>
             <Button
               onClick={() => { setCreateTipo(tab === 'me_deben' ? 'me_deben' : 'debo'); setShowForm(true); }}
               size="sm"
-              className="bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 gap-1.5"
+              className="bg-primary text-primary-foreground hover:bg-primary/90 gap-1.5"
             >
               <Plus className="h-4 w-4" />
               <span className="hidden sm:inline">Nueva deuda</span>
@@ -311,8 +311,8 @@ export default function DeudasPage() {
             {tab === 'compartidos' ? (
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <p className="text-sm text-[#8A877D]">Divide gastos y lleva la cuenta de quien pago</p>
-                  <Button onClick={() => setShowSplitForm(true)} className="bg-[#EF9F27] text-white hover:bg-[#EF9F27]/90 gap-2 text-xs" size="sm">
+                  <p className="text-sm text-muted-foreground">Divide gastos y lleva la cuenta de quien pago</p>
+                  <Button onClick={() => setShowSplitForm(true)} className="bg-warning text-warning-foreground hover:bg-warning/90 gap-2 text-xs" size="sm">
                     <Plus className="h-3.5 w-3.5" />
                     Dividir gasto
                   </Button>
