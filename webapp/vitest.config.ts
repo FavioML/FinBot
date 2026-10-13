@@ -12,5 +12,9 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['src/**/*.test.ts'],
+    // Los guards que barren `src/` entero tardan <1 s solos y 6-27 s en la suite completa con la
+    // máquina cargada (13-oct-2026: `copy-claims` 0.8 s solo, 8.8 s en la suite). Con el default de
+    // 5 s fallaban por reloj, nunca por aserción. Un timeout acá frena cuelgues, no mide velocidad.
+    testTimeout: 30_000,
   },
 });
