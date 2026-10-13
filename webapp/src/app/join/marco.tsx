@@ -37,8 +37,10 @@ export function PieSinCuenta() {
   return (
     <div className="pt-3 border-t border-border text-center">
       <p className="text-xs text-muted-foreground mb-2">¿No tienes cuenta NETO?</p>
+      {/* En celular los links miden 44 px de alto (regla táctil de globals.css): sin
+          `inline-flex items-center` su texto queda arriba y la "o" centrada, 14 px más abajo. */}
       <div className="flex items-center justify-center gap-2 text-xs">
-        <a href="/login" className="text-primary hover:underline">
+        <a href="/login" className="inline-flex items-center text-primary hover:underline">
           Regístrate en la app
         </a>
         <span className="text-muted-foreground">o</span>
@@ -46,7 +48,7 @@ export function PieSinCuenta() {
           href={WA_INVITACION}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-primary hover:underline"
+          className="inline-flex items-center text-primary hover:underline"
         >
           por WhatsApp
         </a>
