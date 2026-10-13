@@ -48,7 +48,7 @@ export function AccionUnirseMeta({ code }: { code: string }) {
 
   if (listo) {
     return (
-      <div className="flex items-center justify-center gap-2 py-3 text-[#1D9E75]">
+      <div className="flex items-center justify-center gap-2 py-3 text-primary">
         <Check className="h-5 w-5" />
         <span className="text-sm font-medium">Te uniste exitosamente</span>
       </div>
@@ -57,16 +57,16 @@ export function AccionUnirseMeta({ code }: { code: string }) {
 
   return (
     <div className="space-y-3">
-      {error && <p className="text-xs text-[#D85A30] text-center">{error}</p>}
+      {error && <p className="text-xs text-negative text-center">{error}</p>}
       <Button
         onClick={unirse}
         disabled={enviando}
-        className="w-full bg-[#1D9E75] hover:bg-[#1D9E75]/90 text-white"
+        className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
       >
         {enviando ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Target className="h-4 w-4 mr-2" />}
         Unirme a esta meta
       </Button>
-      <p className="text-[10px] text-[#8A877D] text-center">Necesitas una cuenta NETO para unirte</p>
+      <p className="text-[10px] text-muted-foreground text-center">Necesitas una cuenta NETO para unirte</p>
     </div>
   );
 }

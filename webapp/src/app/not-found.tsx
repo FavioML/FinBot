@@ -24,7 +24,7 @@ const ENTRADA = 'animate-[fade-up_0.5s_cubic-bezier(0.16,1,0.3,1)_both]';
 
 export default function NotFound() {
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-[#0E0E0C] px-6 text-center">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-background px-6 text-center">
       {/* Logo */}
       <div className={ENTRADA}>
         <div className="mb-6 flex items-center justify-center gap-3">
@@ -36,21 +36,21 @@ export default function NotFound() {
             priority
             className="h-14 w-14 rounded-xl object-contain"
           />
-          <span className="text-xl font-bold text-[#F0EFE8]">NETO</span>
+          <span className="text-xl font-bold text-foreground">NETO</span>
         </div>
       </div>
 
       {/* 404 number */}
-      <h1 className={`text-7xl font-bold text-[#1D9E75] mb-2 ${ENTRADA} [animation-delay:100ms]`}>
+      <h1 className={`text-7xl font-bold text-primary mb-2 ${ENTRADA} [animation-delay:100ms]`}>
         404
       </h1>
 
       {/* Message */}
       <div className={`${ENTRADA} [animation-delay:200ms]`}>
-        <h2 className="text-xl font-semibold text-[#F0EFE8] mb-2">
+        <h2 className="text-xl font-semibold text-foreground mb-2">
           Pagina no encontrada
         </h2>
-        <p className="text-sm text-[#8A877D] max-w-sm mb-8">
+        <p className="text-sm text-muted-foreground max-w-sm mb-8">
           La pagina que buscas no existe o fue movida. Vuelve al inicio para seguir controlando tus finanzas.
         </p>
       </div>
@@ -59,14 +59,14 @@ export default function NotFound() {
       <div className={`flex flex-col sm:flex-row gap-3 ${ENTRADA} [animation-delay:300ms]`}>
         <Link
           href="/dashboard"
-          className="inline-flex items-center gap-2 rounded-xl bg-[#1D9E75] px-6 py-3 text-sm font-medium text-white shadow-lg shadow-[#1D9E75]/20 transition-all hover:bg-[#1D9E75]/90 hover:shadow-[#1D9E75]/30"
+          className="inline-flex items-center gap-2 rounded-xl bg-primary px-6 py-3 text-sm font-medium text-primary-foreground shadow-lg shadow-primary/20 transition-all hover:bg-primary/90 hover:shadow-primary/30"
         >
           <Home className="h-4 w-4" />
           Ir al dashboard
         </Link>
         <button
           onClick={() => window.history.back()}
-          className="inline-flex items-center gap-2 rounded-xl border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] px-6 py-3 text-sm font-medium text-[#C8C6BC] transition-all hover:bg-[rgba(255,255,255,0.06)]"
+          className="inline-flex items-center gap-2 rounded-xl border border-border bg-foreground/3 px-6 py-3 text-sm font-medium text-foreground-soft transition-all hover:bg-foreground/6"
         >
           <ArrowLeft className="h-4 w-4" />
           Volver atras

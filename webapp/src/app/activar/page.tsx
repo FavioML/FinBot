@@ -86,7 +86,7 @@ export default async function ActivarPage({
     : `tus ${cuantos} gastos te están esperando`;
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#0E0E0C] px-6 py-10">
+    <main className="flex min-h-screen items-center justify-center bg-background px-6 py-10">
       <div className="w-full max-w-md">
         <div className="mb-6 flex items-center gap-3">
           <Image
@@ -98,15 +98,15 @@ export default async function ActivarPage({
             className="h-12 w-12 rounded-xl object-contain"
           />
           <div>
-            <p className="text-lg font-bold leading-tight text-[#F0EFE8]">NETO</p>
-            <p className="text-sm text-[#8A877D]">Tu cuenta ya existe</p>
+            <p className="text-lg font-bold leading-tight text-foreground">NETO</p>
+            <p className="text-sm text-muted-foreground">Tu cuenta ya existe</p>
           </div>
         </div>
 
-        <h1 className="mb-2 text-3xl font-bold leading-tight text-[#F0EFE8]">
+        <h1 className="mb-2 text-3xl font-bold leading-tight text-foreground">
           {primerNombre ? `${primerNombre}, ${titular}` : titular.charAt(0).toUpperCase() + titular.slice(1)}
         </h1>
-        <p className="mb-7 text-[#8A877D]">
+        <p className="mb-7 text-muted-foreground">
           {cuantos === 1 ? 'Entra y lo ves' : 'Entra y los ves'} en gráficos, con presupuestos y tu historial completo.
         </p>
 
@@ -116,14 +116,14 @@ export default async function ActivarPage({
               <div
                 key={i}
                 className="flex items-center justify-between py-2 text-sm"
-                style={i < gastos.length - 1 ? { borderBottom: '0.5px solid rgba(240,239,232,0.08)' } : undefined}
+                style={i < gastos.length - 1 ? { borderBottom: '0.5px solid var(--border)' } : undefined}
               >
-                <span className="text-[#8A877D]">{g.comercio || g.categoria || 'Gasto'}</span>
-                <span className="text-[#F0EFE8]">{montoSoles(g)}</span>
+                <span className="text-muted-foreground">{g.comercio || g.categoria || 'Gasto'}</span>
+                <span className="text-foreground">{montoSoles(g)}</span>
               </div>
             ))}
             {cuantos > gastos.length && (
-              <p className="pt-3 text-xs text-[#8A877D]">y {cuantos - gastos.length} más</p>
+              <p className="pt-3 text-xs text-muted-foreground">y {cuantos - gastos.length} más</p>
             )}
           </div>
         )}

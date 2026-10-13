@@ -34,30 +34,30 @@ export default function RootError({ error, reset }: ErrorProps) {
   }, [error]);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#0E0E0C] p-6">
+    <div className="flex min-h-screen items-center justify-center bg-background p-6">
       <div className="glass-card w-full max-w-md space-y-4 p-8 text-center">
-        <div className="mx-auto inline-flex h-14 w-14 items-center justify-center rounded-full border border-[rgba(232,93,74,0.25)] bg-[rgba(232,93,74,0.1)]">
-          <AlertTriangle className="h-7 w-7 text-[#E85D4A]" />
+        <div className="mx-auto inline-flex h-14 w-14 items-center justify-center rounded-full border border-negative/25 bg-negative/10">
+          <AlertTriangle className="h-7 w-7 text-negative" />
         </div>
-        <h1 className="text-xl font-bold text-[#F0EFE8]">Algo se rompió de nuestro lado</h1>
-        <p className="text-sm text-[#8A877D]">
+        <h1 className="text-xl font-bold text-foreground">Algo se rompió de nuestro lado</h1>
+        <p className="text-sm text-muted-foreground">
           No es tu conexión y no perdiste nada: tus gastos siguen guardados. Reintenta en un
           momento.
         </p>
         {/* El `digest` es lo único que ata lo que vio el usuario con la fila del log del
             servidor. Sin él, un reporte por WhatsApp es imposible de rastrear. */}
         {error.digest && (
-          <p className="font-mono text-[11px] text-[#8A877D]/70">ref: {error.digest}</p>
+          <p className="font-mono text-[11px] text-muted-foreground/70">ref: {error.digest}</p>
         )}
         <div className="flex flex-col items-center gap-3 pt-1">
           <button
             type="button"
             onClick={reset}
-            className="inline-flex items-center gap-2 rounded-lg bg-[#1D9E75] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#1D9E75]/90"
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
           >
             Reintentar
           </button>
-          <Link href="/dashboard" className="text-sm text-[#1D9E75] hover:underline">
+          <Link href="/dashboard" className="text-sm text-primary hover:underline">
             Ir a mi dashboard
           </Link>
         </div>

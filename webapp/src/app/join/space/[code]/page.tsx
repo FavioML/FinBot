@@ -32,9 +32,9 @@ export default async function JoinSpacePage({ params }: { params: Promise<{ code
     return (
       <MarcoInvitacion>
         <div className="glass-card p-8 text-center">
-          <Users className="w-10 h-10 text-[#8A877D]/50 mx-auto" />
-          <p className="text-base font-semibold text-[#F0EFE8] mt-3">Invitación no válida</p>
-          <p className="text-sm text-[#8A877D] mt-1">Código de invitación inválido o expirado</p>
+          <Users className="w-10 h-10 text-muted-foreground/50 mx-auto" />
+          <p className="text-base font-semibold text-foreground mt-3">Invitación no válida</p>
+          <p className="text-sm text-muted-foreground mt-1">Código de invitación inválido o expirado</p>
           <Button
             variant="outline"
             className="mt-4"
@@ -52,20 +52,20 @@ export default async function JoinSpacePage({ params }: { params: Promise<{ code
     <MarcoInvitacion>
       <div className="glass-card glass-card-glow p-6 space-y-5">
         <div className="text-center">
-          <div className="w-14 h-14 rounded-2xl bg-[rgba(29,158,117,0.12)] flex items-center justify-center mx-auto">
+          <div className="w-14 h-14 rounded-2xl bg-primary/12 flex items-center justify-center mx-auto">
             <span className="text-2xl">{TYPE_ICON[preview.type] || '👥'}</span>
           </div>
-          <h1 className="text-lg font-semibold text-[#F0EFE8] mt-4">
+          <h1 className="text-lg font-semibold text-foreground mt-4">
             {preview.creator} te invita a un espacio
           </h1>
-          <p className="text-xs text-[#8A877D] mt-1">
+          <p className="text-xs text-muted-foreground mt-1">
             {TYPE_LABEL[preview.type] || 'Espacio compartido'}
           </p>
         </div>
 
-        <div className="text-center py-3 rounded-xl bg-[rgba(255,255,255,0.03)]">
-          <p className="text-xl font-bold text-[#1D9E75]">{preview.name}</p>
-          <p className="text-xs text-[#8A877D] mt-1">
+        <div className="text-center py-3 rounded-xl bg-foreground/3">
+          <p className="text-xl font-bold text-primary">{preview.name}</p>
+          <p className="text-xs text-muted-foreground mt-1">
             {preview.members_count} miembro{preview.members_count !== 1 ? 's' : ''}
           </p>
         </div>

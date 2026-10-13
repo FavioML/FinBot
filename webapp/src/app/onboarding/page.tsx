@@ -13,8 +13,8 @@ type Phase = 'input' | 'verify';
 
 function Spinner() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#0E0E0C]">
-      <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#1D9E75] border-t-transparent" />
+    <div className="flex min-h-screen items-center justify-center bg-background">
+      <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
     </div>
   );
 }
@@ -137,7 +137,7 @@ function Onboarding() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-[#0E0E0C] px-4">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
       <div className={`w-full max-w-md ${ENTRADA_TARJETA} animation-duration-600`}>
         {/* Logo */}
         <div className="mb-10 flex items-center gap-3">
@@ -150,26 +150,26 @@ function Onboarding() {
             className="h-14 w-14 rounded-xl object-contain"
           />
           <div>
-            <h2 className="text-xl font-bold text-[#F0EFE8]">NETO</h2>
-            <p className="text-sm text-[#8A877D]">Tu asistente financiero</p>
+            <h2 className="text-xl font-bold text-foreground">NETO</h2>
+            <p className="text-sm text-muted-foreground">Tu asistente financiero</p>
           </div>
         </div>
 
         {phase === 'input' && (
           <>
-            <h1 className="mb-2 text-2xl font-bold text-[#F0EFE8]">
+            <h1 className="mb-2 text-2xl font-bold text-foreground">
               Conecta tu WhatsApp
             </h1>
-            <p className="mb-8 text-[#8A877D]">
+            <p className="mb-8 text-muted-foreground">
               Opcional: registra gastos por chat y foto de Yape. Tu cuenta ya funciona sin esto.
             </p>
 
             <div className="mb-6">
-              <label className="mb-1.5 block text-sm font-medium text-[#C8C6BC]">
+              <label className="mb-1.5 block text-sm font-medium text-foreground-soft">
                 WhatsApp
               </label>
-              <div className="flex overflow-hidden rounded-xl border border-white/[0.06] bg-white/[0.03] focus-within:border-[#1D9E75]/50">
-                <span className="flex items-center border-r border-white/[0.06] bg-white/[0.02] px-4 text-sm font-medium text-[#8A877D]">
+              <div className="flex overflow-hidden rounded-xl border border-border bg-foreground/[0.03] focus-within:border-primary/50">
+                <span className="flex items-center border-r border-border bg-foreground/[0.02] px-4 text-sm font-medium text-muted-foreground">
                   +51
                 </span>
                 <input
@@ -177,26 +177,26 @@ function Onboarding() {
                   placeholder="999 999 999"
                   value={whatsapp}
                   onChange={(e) => setWhatsapp(formatWhatsapp(e.target.value))}
-                  className="w-full bg-transparent px-4 py-3 text-sm text-[#F0EFE8] outline-none placeholder:text-[#8A877D]/50"
+                  className="w-full bg-transparent px-4 py-3 text-sm text-foreground outline-none placeholder:text-muted-foreground/50"
                   maxLength={11}
                 />
               </div>
-              <p className="mt-1.5 text-xs text-[#8A877D]">
+              <p className="mt-1.5 text-xs text-muted-foreground">
                 Para registrar gastos por WhatsApp
               </p>
             </div>
 
-            {error && <p className="mb-4 text-sm text-red-400">{error}</p>}
+            {error && <p className="mb-4 text-sm text-negative">{error}</p>}
 
             <motion.button
               onClick={handleSubmit}
               disabled={submitting}
-              className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-[#1D9E75] px-6 py-4 text-base font-medium text-white shadow-lg shadow-[#1D9E75]/20 transition-all hover:bg-[#1D9E75]/90 hover:shadow-[#1D9E75]/30 disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-primary px-6 py-4 text-base font-medium text-primary-foreground shadow-lg shadow-primary/20 transition-all hover:bg-primary/90 hover:shadow-primary/30 disabled:cursor-not-allowed disabled:opacity-50"
               whileHover={{ scale: 1.01 }}
               whileTap={{ scale: 0.98 }}
             >
               {submitting ? (
-                <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" />
               ) : (
                 'Continuar'
               )}
@@ -204,7 +204,7 @@ function Onboarding() {
 
             <button
               onClick={() => router.replace('/dashboard')}
-              className="mt-4 w-full text-center text-sm text-[#8A877D] transition-colors hover:text-[#C8C6BC] cursor-pointer"
+              className="mt-4 w-full text-center text-sm text-muted-foreground transition-colors hover:text-foreground-soft cursor-pointer"
             >
               Ahora no, ir al dashboard
             </button>
@@ -213,18 +213,18 @@ function Onboarding() {
 
         {phase === 'verify' && (
           <>
-            <h1 className="mb-2 text-2xl font-bold text-[#F0EFE8]">
+            <h1 className="mb-2 text-2xl font-bold text-foreground">
               Verifica tu WhatsApp
             </h1>
-            <p className="mb-6 text-[#8A877D]">
+            <p className="mb-6 text-muted-foreground">
               Toca el boton, se abrira WhatsApp con un mensaje listo. Solo
               envialo y esta pantalla continua sola.
             </p>
 
             {/* Codigo (referencia visible por si el mensaje se borra) */}
-            <div className="mb-6 rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3 text-center">
-              <p className="mb-1 text-xs text-[#8A877D]">Tu codigo</p>
-              <p className="font-mono text-lg font-bold tracking-widest text-[#F0EFE8]">
+            <div className="mb-6 rounded-xl border border-border bg-foreground/[0.03] px-4 py-3 text-center">
+              <p className="mb-1 text-xs text-muted-foreground">Tu codigo</p>
+              <p className="font-mono text-lg font-bold tracking-widest text-foreground">
                 {code}
               </p>
             </div>
@@ -233,15 +233,15 @@ function Onboarding() {
               href={waLink}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-[#1D9E75] px-6 py-4 text-base font-medium text-white shadow-lg shadow-[#1D9E75]/20 transition-all hover:bg-[#1D9E75]/90 hover:shadow-[#1D9E75]/30"
+              className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-primary px-6 py-4 text-base font-medium text-primary-foreground shadow-lg shadow-primary/20 transition-all hover:bg-primary/90 hover:shadow-primary/30"
               whileHover={{ scale: 1.01 }}
               whileTap={{ scale: 0.98 }}
             >
               Abrir WhatsApp y enviar
             </motion.a>
 
-            <div className="mt-6 flex items-center justify-center gap-2 text-sm text-[#8A877D]">
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-[#1D9E75] border-t-transparent" />
+            <div className="mt-6 flex items-center justify-center gap-2 text-sm text-muted-foreground">
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
               Esperando tu confirmacion...
             </div>
 
@@ -251,7 +251,7 @@ function Onboarding() {
                 setCode('');
                 setWaLink('');
               }}
-              className="mt-6 w-full text-center text-sm text-[#8A877D] transition-colors hover:text-[#C8C6BC] cursor-pointer"
+              className="mt-6 w-full text-center text-sm text-muted-foreground transition-colors hover:text-foreground-soft cursor-pointer"
             >
               Usar otro numero
             </button>
@@ -264,27 +264,27 @@ function Onboarding() {
             await signOutAndClear();
             router.replace('/login');
           }}
-          className="mt-6 w-full text-center text-sm text-[#8A877D] hover:text-[#C8C6BC] transition-colors cursor-pointer"
+          className="mt-6 w-full text-center text-sm text-muted-foreground hover:text-foreground-soft transition-colors cursor-pointer"
         >
           Cambiar de cuenta
         </button>
 
         {/* Footer */}
-        <footer className="mt-12 flex items-center justify-center gap-4 text-xs text-[#8A877D]">
+        <footer className="mt-12 flex items-center justify-center gap-4 text-xs text-muted-foreground">
           <a
             href="https://neto.pe"
             target="_blank"
             rel="noopener noreferrer"
-            className="transition-colors hover:text-[#C8C6BC]"
+            className="transition-colors hover:text-foreground-soft"
           >
             neto.pe
           </a>
-          <span className="text-white/[0.06]">|</span>
-          <a href="/privacidad" className="transition-colors hover:text-[#C8C6BC]">
+          <span className="text-foreground/15">|</span>
+          <a href="/privacidad" className="transition-colors hover:text-foreground-soft">
             Privacidad
           </a>
-          <span className="text-white/[0.06]">|</span>
-          <a href="/terminos" className="transition-colors hover:text-[#C8C6BC]">
+          <span className="text-foreground/15">|</span>
+          <a href="/terminos" className="transition-colors hover:text-foreground-soft">
             Terminos
           </a>
         </footer>

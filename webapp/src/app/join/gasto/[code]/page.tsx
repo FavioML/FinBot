@@ -37,7 +37,7 @@ export default async function JoinGastoPage({ params }: { params: Promise<{ code
     return (
       <MarcoInvitacion>
         <div className="glass-card p-8 text-center">
-          <p className="text-sm text-[#D85A30] mb-4">Invitacion invalida o expirada</p>
+          <p className="text-sm text-negative mb-4">Invitacion invalida o expirada</p>
           <Button variant="outline" nativeButton={false} render={<Link href="/dashboard" />}>
             Ir al dashboard
           </Button>
@@ -52,29 +52,29 @@ export default async function JoinGastoPage({ params }: { params: Promise<{ code
     <MarcoInvitacion>
       <div className="glass-card glass-card-glow p-6 space-y-5">
         <div className="text-center">
-          <div className="w-14 h-14 rounded-2xl bg-[rgba(239,159,39,0.12)] flex items-center justify-center mx-auto">
-            <Users className="h-7 w-7 text-[#EF9F27]" />
+          <div className="w-14 h-14 rounded-2xl bg-warning/12 flex items-center justify-center mx-auto">
+            <Users className="h-7 w-7 text-accent-pro" />
           </div>
-          <h1 className="text-lg font-semibold text-[#F0EFE8] mt-4">
+          <h1 className="text-lg font-semibold text-foreground mt-4">
             {preview.creador} dividio un gasto
           </h1>
-          <p className="text-xs text-[#8A877D] mt-1">{preview.descripcion}</p>
+          <p className="text-xs text-muted-foreground mt-1">{preview.descripcion}</p>
         </div>
 
-        <div className="text-center py-3 rounded-xl bg-[rgba(255,255,255,0.03)] space-y-2">
-          <p className="text-xs text-[#8A877D]">
+        <div className="text-center py-3 rounded-xl bg-foreground/3 space-y-2">
+          <p className="text-xs text-muted-foreground">
             Total: {formatCurrency(preview.monto_total, preview.moneda)}
           </p>
-          <p className="text-2xl font-bold text-[#EF9F27]">
+          <p className="text-2xl font-bold text-accent-pro">
             Tu parte: {formatCurrency(preview.monto_debe, preview.moneda)}
           </p>
           {preview.monto_pagado > 0 && (
-            <p className="text-xs text-[#1D9E75]">
+            <p className="text-xs text-primary">
               Ya abonaste: {formatCurrency(preview.monto_pagado, preview.moneda)}
             </p>
           )}
           {preview.fecha_limite && (
-            <p className="text-xs text-[#8A877D]">
+            <p className="text-xs text-muted-foreground">
               Vence:{' '}
               {new Date(preview.fecha_limite + 'T12:00:00').toLocaleDateString('es-PE', {
                 day: 'numeric',
@@ -85,13 +85,13 @@ export default async function JoinGastoPage({ params }: { params: Promise<{ code
         </div>
 
         {preview.pagado && (
-          <p className="text-center text-xs text-[#1D9E75] bg-[rgba(29,158,117,0.1)] rounded-lg py-2">
+          <p className="text-center text-xs text-primary-ink bg-primary/10 rounded-lg py-2">
             Esta parte ya fue pagada
           </p>
         )}
 
         {preview.ya_confirmada && !preview.pagado && (
-          <p className="text-center text-xs text-[#EF9F27] bg-[rgba(239,159,39,0.1)] rounded-lg py-2">
+          <p className="text-center text-xs text-accent-pro bg-warning/10 rounded-lg py-2">
             Ya confirmaste esta participacion
           </p>
         )}

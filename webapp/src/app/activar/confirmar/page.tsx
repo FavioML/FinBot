@@ -45,7 +45,7 @@ export default async function ConfirmarActivacionPage() {
   if (!fila || fila.supabase_auth_id) redirect('/dashboard');
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#0E0E0C] px-6">
+    <main className="flex min-h-screen items-center justify-center bg-background px-6">
       <div className="glass-card w-full max-w-md rounded-2xl p-8">
         <div className="mb-5 flex items-center gap-3">
           <Image
@@ -56,17 +56,17 @@ export default async function ConfirmarActivacionPage() {
             priority
             className="h-12 w-12 rounded-xl object-contain"
           />
-          <span className="text-lg font-bold text-[#F0EFE8]">NETO</span>
+          <span className="text-lg font-bold text-foreground">NETO</span>
         </div>
-        <h1 className="mb-2 text-2xl font-bold text-[#F0EFE8]">
+        <h1 className="mb-2 text-2xl font-bold text-foreground">
           {fila.nombre ? `Activar la cuenta de ${fila.nombre.split(' ')[0]}` : 'Activar tu cuenta'}
         </h1>
-        <p className="mb-6 text-sm text-[#8A877D]">
+        <p className="mb-6 text-sm text-muted-foreground">
           Vas a vincular los gastos que registraste desde{' '}
-          <span className="text-[#F0EFE8]">{enmascarar(fila.whatsapp)}</span> con la sesión de{' '}
-          <span className="text-[#F0EFE8]">{user.email}</span>.
+          <span className="text-foreground">{enmascarar(fila.whatsapp)}</span> con la sesión de{' '}
+          <span className="text-foreground">{user.email}</span>.
         </p>
-        <p className="mb-8 text-sm text-[#8A877D]">
+        <p className="mb-8 text-sm text-muted-foreground">
           Si esa no es tu cuenta, cierra sesión primero y vuelve a abrir el enlace desde tu WhatsApp.
         </p>
         <ConfirmarActivacion />

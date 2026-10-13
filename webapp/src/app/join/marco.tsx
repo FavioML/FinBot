@@ -13,7 +13,7 @@ import { WA_INVITACION } from '@/lib/atribucion';
  */
 export function MarcoInvitacion({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-[#0E0E0C] flex items-center justify-center p-4">
+    <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className={`w-full max-w-sm ${ENTRADA_TARJETA} animation-duration-400`}>
         <div className="flex items-center justify-center gap-3 mb-8">
           <Image
@@ -24,7 +24,7 @@ export function MarcoInvitacion({ children }: { children: React.ReactNode }) {
             priority
             className="h-14 w-14 rounded-xl object-contain"
           />
-          <span className="text-xl font-bold text-[#F0EFE8]">NETO</span>
+          <span className="text-xl font-bold text-foreground">NETO</span>
         </div>
         {children}
       </div>
@@ -35,18 +35,18 @@ export function MarcoInvitacion({ children }: { children: React.ReactNode }) {
 /** El pie de "¿No tienes cuenta NETO?" — va en gasto, deuda y espacio; la meta nunca lo tuvo. */
 export function PieSinCuenta() {
   return (
-    <div className="pt-3 border-t border-[rgba(255,255,255,0.05)] text-center">
-      <p className="text-xs text-[#8A877D] mb-2">¿No tienes cuenta NETO?</p>
+    <div className="pt-3 border-t border-border text-center">
+      <p className="text-xs text-muted-foreground mb-2">¿No tienes cuenta NETO?</p>
       <div className="flex items-center justify-center gap-2 text-xs">
-        <a href="/login" className="text-[#1D9E75] hover:underline">
+        <a href="/login" className="text-primary hover:underline">
           Regístrate en la app
         </a>
-        <span className="text-[#8A877D]">o</span>
+        <span className="text-muted-foreground">o</span>
         <a
           href={WA_INVITACION}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-[#1D9E75] hover:underline"
+          className="text-primary hover:underline"
         >
           por WhatsApp
         </a>

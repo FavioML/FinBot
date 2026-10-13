@@ -47,7 +47,7 @@ export function AccionConfirmarDeuda({ code }: { code: string }) {
 
   if (listo) {
     return (
-      <div className="flex items-center justify-center gap-2 py-3 text-[#1D9E75]">
+      <div className="flex items-center justify-center gap-2 py-3 text-primary">
         <Check className="h-5 w-5" />
         <span className="text-sm font-medium">Deuda confirmada</span>
       </div>
@@ -56,16 +56,16 @@ export function AccionConfirmarDeuda({ code }: { code: string }) {
 
   return (
     <div className="space-y-3">
-      {error && <p className="text-xs text-[#D85A30] text-center">{error}</p>}
+      {error && <p className="text-xs text-negative text-center">{error}</p>}
       <Button
         onClick={confirmar}
         disabled={enviando}
-        className="w-full bg-[#D85A30] hover:bg-[#D85A30]/90 text-white"
+        className="w-full bg-negative hover:bg-negative/90 text-negative-foreground"
       >
         {enviando ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Coins className="h-4 w-4 mr-2" />}
         Confirmar deuda
       </Button>
-      <p className="text-[10px] text-[#8A877D] text-center">
+      <p className="text-[10px] text-muted-foreground text-center">
         Se agregara como deuda pendiente en tu cuenta NETO
       </p>
     </div>

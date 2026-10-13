@@ -24,7 +24,7 @@ export default async function JoinMetaPage({ params }: { params: Promise<{ code:
     return (
       <MarcoInvitacion>
         <div className="glass-card p-8 text-center">
-          <p className="text-sm text-[#D85A30] mb-4">Invitacion invalida o expirada</p>
+          <p className="text-sm text-negative mb-4">Invitacion invalida o expirada</p>
           <Button variant="outline" nativeButton={false} render={<Link href="/dashboard" />}>
             Ir al dashboard
           </Button>
@@ -38,9 +38,9 @@ export default async function JoinMetaPage({ params }: { params: Promise<{ code:
       <div className="glass-card glass-card-glow p-6 space-y-5">
         <div className="text-center">
           <span className="text-4xl">{preview.icono}</span>
-          <h1 className="text-lg font-semibold text-[#F0EFE8] mt-3">{preview.nombre}</h1>
-          <p className="text-xs text-[#8A877D] mt-1">
-            Creada por <span className="text-[#C8C6BC]">{preview.creador}</span>
+          <h1 className="text-lg font-semibold text-foreground mt-3">{preview.nombre}</h1>
+          <p className="text-xs text-muted-foreground mt-1">
+            Creada por <span className="text-foreground-soft">{preview.creador}</span>
           </p>
         </div>
 
@@ -61,22 +61,22 @@ export default async function JoinMetaPage({ params }: { params: Promise<{ code:
           */}
         <div>
           <div className="flex items-center justify-between text-xs mb-1.5">
-            <span className="text-[#8A877D]">Progreso</span>
-            <span className="text-[#1D9E75] font-medium">{preview.porcentaje}%</span>
+            <span className="text-muted-foreground">Progreso</span>
+            <span className="text-primary font-medium">{preview.porcentaje}%</span>
           </div>
-          <div className="h-2 rounded-full bg-[rgba(255,255,255,0.06)] overflow-hidden">
+          <div className="h-2 rounded-full bg-foreground/6 overflow-hidden">
             <div
-              className="h-full rounded-full bg-[#1D9E75] animate-barra-progreso"
+              className="h-full rounded-full bg-primary animate-barra-progreso"
               style={{ width: `${preview.porcentaje}%` }}
             />
           </div>
-          <div className="flex items-center justify-between text-[10px] text-[#8A877D] mt-1">
+          <div className="flex items-center justify-between text-[10px] text-muted-foreground mt-1">
             <span>{formatCurrency(preview.monto_actual)}</span>
             <span>{formatCurrency(preview.monto_objetivo)}</span>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 text-xs text-[#8A877D]">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <Users className="h-4 w-4" />
           <span>
             {preview.participantes} participante{preview.participantes !== 1 ? 's' : ''}
