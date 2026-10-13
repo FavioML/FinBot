@@ -292,11 +292,11 @@ const PAGINA_BAJA = (titulo, cuerpo) =>
   '<!doctype html><html lang="es"><head><meta charset="utf-8">'
   + '<meta name="viewport" content="width=device-width,initial-scale=1"><title>Neto</title></head>'
   + '<body style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif;'
-  + 'background:#f4f4f0;margin:0;padding:48px 16px;color:#1a1a18">'
+  + 'background:#EDF5F0;margin:0;padding:48px 16px;color:#0A1D15">'
   + '<div style="max-width:460px;margin:0 auto;background:#fff;border-radius:12px;padding:32px">'
-  + '<div style="color:#1D9E75;font-weight:700;margin-bottom:14px">Neto</div>'
+  + '<div style="color:#117C59;font-weight:700;margin-bottom:14px">Neto</div>'
   + '<h1 style="font-size:20px;margin:0 0 10px">' + titulo + '</h1>'
-  + '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0">' + cuerpo + '</p>'
+  + '<p style="font-size:15px;line-height:1.6;color:#2C463A;margin:0">' + cuerpo + '</p>'
   + '</div></body></html>';
 
 /**
@@ -329,7 +329,7 @@ function paginaConfirmarBaja(token) {
     + 'Puedes volver a prenderlos cuando quieras desde Configuración en app.neto.pe.'
     + '<form method="POST" action="/baja-recordatorios" style="margin-top:20px">'
     + '<input type="hidden" name="t" value="' + escaparHtml(token) + '">'
-    + '<button type="submit" style="background:#1D9E75;color:#fff;border:0;padding:12px 22px;'
+    + '<button type="submit" style="background:#117C59;color:#fff;border:0;padding:12px 22px;'
     + 'border-radius:8px;font-weight:600;font-size:15px;cursor:pointer">Sí, dejar de recibirlos'
     + '</button></form>');
 }
