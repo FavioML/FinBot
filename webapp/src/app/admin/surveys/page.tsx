@@ -77,7 +77,7 @@ function userLabel(e: SurveyEvent): string {
 function YesNo({ value }: { value: boolean }) {
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+      className={`inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${
         value
           ? 'bg-primary/14 text-primary-ink'
           : 'bg-foreground/4 text-muted-foreground'
@@ -225,13 +225,16 @@ export default function AdminSurveysPage() {
       )}
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as string)}>
-        <TabsList className="glass-card border-0">
-          <TabsTrigger value="reminders">Recordatorios</TabsTrigger>
-          <TabsTrigger value="invites">Webapp invites</TabsTrigger>
-          <TabsTrigger value="feedback">Feedback abierto</TabsTrigger>
-          <TabsTrigger value="nps">NPS in-app</TabsTrigger>
-          <TabsTrigger value="upsell">Pro upsell</TabsTrigger>
-        </TabsList>
+        {/* En celular no entran las cinco y la página se arrastraba de costado. */}
+        <div className="overflow-x-auto">
+          <TabsList className="glass-card w-max border-0">
+            <TabsTrigger value="reminders">Recordatorios</TabsTrigger>
+            <TabsTrigger value="invites">Webapp invites</TabsTrigger>
+            <TabsTrigger value="feedback">Feedback abierto</TabsTrigger>
+            <TabsTrigger value="nps">NPS in-app</TabsTrigger>
+            <TabsTrigger value="upsell">Pro upsell</TabsTrigger>
+          </TabsList>
+        </div>
 
         {/* ===== Reminders ===== */}
         <TabsContent value="reminders" className="mt-5 space-y-4">
@@ -421,7 +424,7 @@ function RemindersTab({
                   <td className="px-4 py-3 text-foreground">{userLabel(r)}</td>
                   <td className="px-4 py-3">
                     {isInactivity ? (
-                      <span className="inline-flex items-center rounded-full bg-warning/14 px-2 py-0.5 text-xs font-medium text-warning-ink">
+                      <span className="inline-flex items-center whitespace-nowrap rounded-full bg-warning/14 px-2 py-0.5 text-xs font-medium text-warning-ink">
                         {inactivityLabel}
                       </span>
                     ) : (
@@ -610,7 +613,7 @@ function FeedbackTab({
                   </td>
                   <td className="px-4 py-3">
                     <span
-                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                      className={`inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${
                         isRead
                           ? 'bg-primary/14 text-primary-ink'
                           : 'bg-warning/14 text-warning-ink'
@@ -1034,7 +1037,7 @@ function ProUpsellTab({
                   </td>
                   <td className="px-4 py-3">
                     {wasAlreadyPro ? (
-                      <span className="inline-flex items-center rounded-full bg-foreground/4 px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                      <span className="inline-flex items-center whitespace-nowrap rounded-full bg-foreground/4 px-2 py-0.5 text-xs font-medium text-muted-foreground">
                         Ya era Pro
                       </span>
                     ) : (
@@ -1046,19 +1049,19 @@ function ProUpsellTab({
                   </td>
                   <td className="px-4 py-3">
                     {isOptedOut ? (
-                      <span className="inline-flex items-center rounded-full bg-negative/14 px-2 py-0.5 text-xs font-medium text-negative-ink">
+                      <span className="inline-flex items-center whitespace-nowrap rounded-full bg-negative/14 px-2 py-0.5 text-xs font-medium text-negative-ink">
                         Silenciado
                       </span>
                     ) : isConverted ? (
-                      <span className="inline-flex items-center rounded-full bg-primary/14 px-2 py-0.5 text-xs font-medium text-primary-ink">
+                      <span className="inline-flex items-center whitespace-nowrap rounded-full bg-primary/14 px-2 py-0.5 text-xs font-medium text-primary-ink">
                         Convertido
                       </span>
                     ) : u.responded_at ? (
-                      <span className="inline-flex items-center rounded-full bg-info/14 px-2 py-0.5 text-xs font-medium text-info-ink">
+                      <span className="inline-flex items-center whitespace-nowrap rounded-full bg-info/14 px-2 py-0.5 text-xs font-medium text-info-ink">
                         Respondió
                       </span>
                     ) : (
-                      <span className="inline-flex items-center rounded-full bg-warning/14 px-2 py-0.5 text-xs font-medium text-warning-ink">
+                      <span className="inline-flex items-center whitespace-nowrap rounded-full bg-warning/14 px-2 py-0.5 text-xs font-medium text-warning-ink">
                         Pendiente
                       </span>
                     )}

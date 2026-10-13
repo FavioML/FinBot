@@ -221,12 +221,12 @@ function PlanBadge({ estado, bajaAt }: { estado: EstadoComercial; bajaAt?: strin
     <span className="inline-flex flex-wrap items-center gap-1">
       <span
         title={ESTADO_HINT[estado]}
-        className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${ESTADO_COLOR[estado]}`}
+        className={`inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${ESTADO_COLOR[estado]}`}
       >
         {ESTADO_LABEL[estado]}
       </span>
       {bajaAt && (
-        <span className="inline-flex items-center rounded-full bg-negative/15 px-2 py-0.5 text-xs font-medium text-negative-ink">
+        <span className="inline-flex items-center whitespace-nowrap rounded-full bg-negative/15 px-2 py-0.5 text-xs font-medium text-negative-ink">
           Baja
         </span>
       )}
@@ -269,7 +269,7 @@ function CanalBadge({ canal }: { canal: 'whatsapp' | 'google' | 'magic_link' }) 
     magic_link: 'Magic Link',
   };
   return (
-    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${styles[canal]}`}>
+    <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${styles[canal]}`}>
       {labels[canal]}
     </span>
   );
@@ -475,7 +475,7 @@ function PagoEstadoBadge({ estado }: { estado: string }) {
     rechazado: 'bg-negative/15 text-negative-ink',
   };
   return (
-    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${styles[estado] || 'bg-foreground/5 text-muted-foreground'}`}>
+    <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${styles[estado] || 'bg-foreground/5 text-muted-foreground'}`}>
       {estado}
     </span>
   );
@@ -637,7 +637,7 @@ function PaymentsModal({
                     </span>
                     <span className="text-xs text-muted-foreground">{p.tipo_plan || '—'} · {p.metodo_pago || '—'}</span>
                     {p.origen && (
-                      <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-xs font-medium ${p.origen === 'webapp' ? 'bg-primary/15 text-primary-ink' : 'bg-warning/15 text-warning-ink'}`}>
+                      <span className={`inline-flex items-center whitespace-nowrap rounded-full px-1.5 py-0.5 text-xs font-medium ${p.origen === 'webapp' ? 'bg-primary/15 text-primary-ink' : 'bg-warning/15 text-warning-ink'}`}>
                         {p.origen === 'webapp' ? 'webapp' : 'whatsapp'}
                       </span>
                     )}
@@ -1080,9 +1080,9 @@ export default function AdminOperacionPage() {
           href="/admin/pagos"
           className="glass-card block rounded-xl p-4 transition-colors hover:border-primary/35"
         >
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2">
             <span className="text-xs text-muted-foreground">Caja del mes</span>
-            <span className="text-xs text-primary">Ver pagos →</span>
+            <span className="whitespace-nowrap text-xs text-primary">Ver pagos →</span>
           </div>
           <div className="mt-1 text-2xl font-semibold text-foreground">
             S/{stats?.kpis.cajaMes ?? '—'}
@@ -1236,54 +1236,56 @@ export default function AdminOperacionPage() {
         </>
       )}
 
-      {/* Tabs */}
-      <div className="mb-4 flex gap-1 rounded-lg bg-foreground/[0.03] p-1 w-fit">
-        <button
-          onClick={() => setTab('users')}
-          className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
-            tab === 'users'
-              ? 'bg-primary/20 text-primary-ink'
-              : 'text-muted-foreground hover:text-foreground'
-          }`}
-        >
-          Usuarios ({usersFallo ? '—' : users.length})
-        </button>
-        <button
-          onClick={() => setTab('feedback')}
-          className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
-            tab === 'feedback'
-              ? 'bg-primary/20 text-primary-ink'
-              : 'text-muted-foreground hover:text-foreground'
-          }`}
-        >
-          Feedback ({nlpFallo ? '—' : nlpDeGente.length})
-        </button>
-        <button
-          onClick={() => setTab('nlp')}
-          className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
-            tab === 'nlp'
-              ? 'bg-primary/20 text-primary-ink'
-              : 'text-muted-foreground hover:text-foreground'
-          }`}
-        >
-          {/* El contador del tab también miente en el fallo: "NLP Errors (0)" se lee como
-              "no hay ninguno". Con la lectura caída no hay número que dar. */}
-          Errores NLP ({nlpFallo ? '—' : nlpDeMaquina.length})
-        </button>
-        <button
-          onClick={() => setTab('tickets')}
-          className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
-            tab === 'tickets'
-              ? 'bg-primary/20 text-primary-ink'
-              : 'text-muted-foreground hover:text-foreground'
-          }`}
-        >
-          Tickets (
-          {ticketsFallo
-            ? '—'
-            : tickets.filter((t) => t.estado === 'pendiente' || t.estado === 'esperando_mensaje').length}
-          )
-        </button>
+      {/* Tabs: en celular no entran las cuatro y la página se arrastraba de costado. */}
+      <div className="mb-4 overflow-x-auto">
+        <div className="flex w-max gap-1 rounded-lg bg-foreground/[0.03] p-1">
+          <button
+            onClick={() => setTab('users')}
+            className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+              tab === 'users'
+                ? 'bg-primary/20 text-primary-ink'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            Usuarios ({usersFallo ? '—' : users.length})
+          </button>
+          <button
+            onClick={() => setTab('feedback')}
+            className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+              tab === 'feedback'
+                ? 'bg-primary/20 text-primary-ink'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            Feedback ({nlpFallo ? '—' : nlpDeGente.length})
+          </button>
+          <button
+            onClick={() => setTab('nlp')}
+            className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+              tab === 'nlp'
+                ? 'bg-primary/20 text-primary-ink'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {/* El contador del tab también miente en el fallo: "NLP Errors (0)" se lee como
+                "no hay ninguno". Con la lectura caída no hay número que dar. */}
+            Errores NLP ({nlpFallo ? '—' : nlpDeMaquina.length})
+          </button>
+          <button
+            onClick={() => setTab('tickets')}
+            className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+              tab === 'tickets'
+                ? 'bg-primary/20 text-primary-ink'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            Tickets (
+            {ticketsFallo
+              ? '—'
+              : tickets.filter((t) => t.estado === 'pendiente' || t.estado === 'esperando_mensaje').length}
+            )
+          </button>
+        </div>
       </div>
 
       {/* Users Tab */}
@@ -1785,7 +1787,7 @@ export default function AdminOperacionPage() {
             cerrado: 'Cerrado',
           };
           return (
-            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${styles[estado] || 'bg-foreground/5 text-muted-foreground'}`}>
+            <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${styles[estado] || 'bg-foreground/5 text-muted-foreground'}`}>
               {labels[estado] || estado}
             </span>
           );
