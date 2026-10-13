@@ -1145,7 +1145,7 @@ export default function AdminOperacionPage() {
             <h3 className="mb-3 text-sm font-medium text-foreground">Crecimiento Usuarios (12 semanas)</h3>
             <div className="h-48">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={stats.userGrowth} margin={{ top: 4, right: 12, bottom: 0, left: -20 }}>
+                <AreaChart data={stats.userGrowth} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
                   <defs>
                     <linearGradient id="gradFree" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="var(--foreground)" stopOpacity={0.15} />
@@ -1212,7 +1212,7 @@ export default function AdminOperacionPage() {
             <h3 className="mb-3 text-sm font-medium text-foreground">Errores NLP (30 dias)</h3>
             <div className="h-48">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={stats.nlpActivity} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+                <LineChart data={stats.nlpActivity} margin={{ top: 4, right: 12, bottom: 0, left: -20 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="color-mix(in srgb, var(--foreground) 5%, transparent)" />
                   <XAxis
                     dataKey="date"
