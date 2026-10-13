@@ -4,8 +4,8 @@
   "description": "Dashboard financiero personal. Controla tus gastos, ingresos y presupuestos.",
   "start_url": "/dashboard",
   "display": "standalone",
-  "background_color": "#0E0E0C",
-  "theme_color": "#0E0E0C",
+  "background_color": "#07120E",
+  "theme_color": "#07120E",
   "orientation": "portrait-primary",
   "icons": [
     {

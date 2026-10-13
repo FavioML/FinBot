@@ -38,7 +38,8 @@ const nextConfig: NextConfig = {
     // inyección de <base>/plugins (base-uri/object-src) y form-action. script-src mantiene
     // 'unsafe-inline' porque Next.js inyecta scripts inline de hidratación/streaming sin nonce;
     // el hardening con nonce-middleware queda como fase 2. En dev se agrega 'unsafe-eval' para
-    // el HMR de Turbopack (no se envía en producción).
+    // el HMR de Turbopack (no se envía en producción). Al pasar a nonces, el script de tema de
+    // `app/layout.tsx` (ScriptTema) también necesita el suyo: sin él la app pinta en claro siempre.
     const csp = [
       "default-src 'self'",
       `script-src 'self' 'unsafe-inline' https://us-assets.i.posthog.com${isDev ? " 'unsafe-eval'" : ''}`,

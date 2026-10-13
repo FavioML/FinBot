@@ -1,7 +1,8 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Space_Grotesk } from "next/font/google";
 import { PostHogProvider } from "@/components/PostHogProvider";
 import { AppToaster } from "@/components/shared/app-toaster";
+import { SCRIPT_TEMA, THEME_COLOR } from "@/lib/tema";
 import "./globals.css";
 
 // Todo lo que se monte acá entra al bundle de TODA ruta, incluida `/login` — la primera
@@ -23,6 +24,12 @@ import "./globals.css";
 //   precio de que un aviso de éxito no desaparezca en silencio.
 // - `PostHogProvider`: la analítica tiene que ver el login. El SDK ya se carga perezoso
 //   (chunk aparte, fuera de la primera carga), así que su costo no es de este layout.
+//
+// El tema claro/oscuro NO es un provider: es un script inline en <head> (`lib/tema.ts`). Va inline
+// y no en un componente porque tiene que correr antes del primer pintado: el dashboard es un shell
+// estático y sin él se vería un destello del otro tema. Medido el 12-oct-2026 contra HEAD: mismos
+// 14 `<script src>` en `/login`, +663 B gzip de JS (el `useTema` de `AppToaster`, que sonner
+// necesita para pintar sus colores internos con el tema resuelto) y +754 B gzip de HTML.
 
 const spaceGrotesk = Space_Grotesk({
   variable: "--font-sans",
@@ -38,7 +45,9 @@ export const metadata: Metadata = {
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
-    statusBarStyle: "black-translucent",
+    // `default` y no `black-translucent`: con translucent la hora del iPhone es blanca y en el
+    // tema claro no se ve. Con `default` iOS toma el theme-color de abajo.
+    statusBarStyle: "default",
     title: "NETO",
   },
   other: {
@@ -46,14 +55,41 @@ export const metadata: Metadata = {
   },
 };
 
+// Cada <meta> lleva el color del esquema del SISTEMA; el script de tema los pisa cuando el usuario
+// eligió lo contrario.
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: THEME_COLOR.light },
+    { media: "(prefers-color-scheme: dark)", color: THEME_COLOR.dark },
+  ],
+  colorScheme: "light dark",
+};
+
+// Patrón de `node_modules/next/dist/docs/01-app/02-guides/preventing-flash-before-hydration.md`:
+// `text/plain` en el cliente para que React no avise por renderizar un <script>, y
+// `suppressHydrationWarning` para esa diferencia. Con la CSP actual (`'unsafe-inline'`) corre;
+// si la CSP pasa a nonces, este script necesita el suyo.
+function ScriptTema() {
+  return (
+    <script
+      type={typeof window === "undefined" ? "text/javascript" : "text/plain"}
+      suppressHydrationWarning
+      dangerouslySetInnerHTML={{ __html: SCRIPT_TEMA }}
+    />
+  );
+}
+
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="es" className={`${spaceGrotesk.variable} h-full antialiased`}>
-      <body className="min-h-full flex flex-col bg-[#0E0E0C]">
+    <html lang="es" className={`${spaceGrotesk.variable} h-full antialiased`} suppressHydrationWarning>
+      <head>
+        <ScriptTema />
+      </head>
+      <body className="min-h-full flex flex-col bg-background">
         <PostHogProvider>{children}</PostHogProvider>
         <AppToaster />
       </body>

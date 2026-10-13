@@ -2,11 +2,16 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-@custom-variant dark (&:is(.dark *));
+/* Tema dual (paleta B "Verde protagonista", 12-oct-2026).
+ * El tema vive en `data-theme` de <html>: lo pone el script inline de `lib/tema.ts` ANTES del
+ * primer pintado. No se usa la clase `.dark` porque el `className` de <html> lo maneja React.
+ * `[data-theme=light]` existe para forzar claro en un subarbol (el export PDF de Reportes). */
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *):not(:where([data-theme=light], [data-theme=light] *)));
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-foreground-soft: var(--foreground-soft);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
@@ -18,6 +23,9 @@
   --color-sidebar-primary: var(--sidebar-primary);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar: var(--sidebar);
+  --color-chart-8: var(--chart-8);
+  --color-chart-7: var(--chart-7);
+  --color-chart-6: var(--chart-6);
   --color-chart-5: var(--chart-5);
   --color-chart-4: var(--chart-4);
   --color-chart-3: var(--chart-3);
@@ -27,6 +35,7 @@
   --color-input: var(--input);
   --color-border: var(--border);
   --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -39,6 +48,41 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  /* Semanticos propios de Neto. `primary` es ACCION y `positive` es PLATA A FAVOR: hoy valen
+   * lo mismo, pero son decisiones distintas. Igual `warning` (alerta) y `accent-pro` (Pro, beta,
+   * gasto compartido, referidos): un badge Pro no es una alerta. */
+  --color-surface-elevated: var(--surface-elevated);
+  --color-positive: var(--positive);
+  --color-positive-foreground: var(--positive-foreground);
+  --color-negative: var(--negative);
+  --color-negative-foreground: var(--negative-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-accent-pro: var(--accent-pro);
+  --color-accent-pro-foreground: var(--accent-pro-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  /* Texto de color SOBRE SU PROPIO TINTE (`bg-primary/12 text-primary-ink`). En claro, el color
+   * base sobre su tinte cae a 3.3-4.4:1 (medido el 12-oct en produccion local); el -ink es el mismo
+   * tono mas oscuro y da >= 4.8:1 hasta con tinte al 25% sobre surface-elevated. En oscuro vale
+   * lo mismo que el base salvo negative/info, que tambien caian. */
+  --color-primary-ink: var(--primary-ink);
+  --color-positive-ink: var(--positive-ink);
+  --color-negative-ink: var(--negative-ink);
+  --color-destructive-ink: var(--negative-ink);
+  --color-warning-ink: var(--warning-ink);
+  --color-accent-pro-ink: var(--accent-pro-ink);
+  --color-info-ink: var(--info-ink);
+  --color-track: var(--track);
+  --color-nav: var(--nav);
+  --color-scrim: var(--scrim);
+  /* El bloque verde de B: SOLO la tarjeta de ahorro del dashboard y el boton principal.
+   * Usarlo en mas sitios es lo que hace que la paleta canse. */
+  --color-hero-from: var(--hero-from);
+  --color-hero-to: var(--hero-to);
+  --color-hero-foreground: var(--hero-foreground);
+  --color-hero-muted: var(--hero-muted);
+  --color-hero-bar: var(--hero-bar);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -46,24 +90,6 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
-  /* NETO brand colors */
-  --color-neto-green: #1D9E75;
-  --color-neto-green-light: #68dbae;
-  --color-neto-green-dark: #0F6E56;
-  --color-neto-amber: #EF9F27;
-  --color-neto-red: #D85A30;
-  --color-neto-blue: #378ADD;
-  /* NETO mi-reporte surface colors */
-  --color-neto-bg: #0E0E0C;
-  --color-neto-bg2: #131311;
-  --color-neto-bg3: #1C1C19;
-  --color-neto-bg4: #20201d;
-  --color-neto-bg5: #2A2A28;
-  --color-neto-bg6: #353532;
-  /* NETO mi-reporte text colors */
-  --color-neto-txt: #e5e2de;
-  --color-neto-txt2: #bccac1;
-  --color-neto-txt3: #87948c;
   /* Mobile-first typographic scale — hero number first, UI chrome second.
    * Used by the new dashboard hero balance (fix 1) and onwards.
    */
@@ -73,44 +99,152 @@
   --text-label: 0.75rem;   /* 12px — labels, min mobile-legible size */
 }
 
-/* NETO — "Nocturnal Precision" dark-only theme */
+/* Lo que no cambia con el tema. */
 :root {
-  color-scheme: dark;
-  --background: #0E0E0C;
-  --foreground: #F0EFE8;
-  --card: rgba(255, 255, 255, 0.03);
-  --card-foreground: #F0EFE8;
-  --popover: #141412;
-  --popover-foreground: #F0EFE8;
-  --primary: #1D9E75;
-  --primary-foreground: #F0EFE8;
-  --secondary: #1A1A17;
-  --secondary-foreground: #C8C6BC;
-  --muted: #1A1A17;
-  --muted-foreground: #8A877D;
-  --accent: rgba(29, 158, 117, 0.12);
-  --accent-foreground: #1D9E75;
-  --destructive: #D85A30;
-  --border: rgba(255, 255, 255, 0.06);
-  --input: rgba(255, 255, 255, 0.08);
-  --ring: #1D9E75;
-  --chart-1: #1D9E75;
-  --chart-2: #EF9F27;
-  --chart-3: #378ADD;
-  --chart-4: #D85A30;
-  --chart-5: #8A877D;
   --radius: 0.75rem;
   /* Motion — strong custom easings. CSS built-ins are too weak to feel intentional. */
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
-  --sidebar: #0E0E0C;
-  --sidebar-foreground: #C8C6BC;
-  --sidebar-primary: #1D9E75;
-  --sidebar-primary-foreground: #F0EFE8;
-  --sidebar-accent: rgba(255, 255, 255, 0.04);
-  --sidebar-accent-foreground: #F0EFE8;
-  --sidebar-border: rgba(255, 255, 255, 0.06);
-  --sidebar-ring: #1D9E75;
+}
+
+/* CLARO. Todo par texto/fondo >= 4.5:1, medido el 12-oct. Ojo: el texto DE COLOR (primary,
+ * negative, warning) sobre `surface-elevated` baja a 4.2-4.4:1; va sobre card o background. */
+:root,
+[data-theme=light] {
+  color-scheme: light;
+  --background: #EDF5F0;
+  --foreground: #0A1D15;
+  --foreground-soft: #2C463A;
+  --card: #FFFFFF;
+  --card-foreground: #0A1D15;
+  --popover: #FFFFFF;
+  --popover-foreground: #0A1D15;
+  --surface-elevated: #E1EDE6;
+  --primary: #117C59;
+  --primary-foreground: #FFFFFF;
+  --secondary: #E1EDE6;
+  --secondary-foreground: #2C463A;
+  --muted: #E1EDE6;
+  --muted-foreground: #486155;
+  --accent: color-mix(in srgb, #117C59 10%, transparent);
+  --accent-foreground: #117C59;
+  --positive: #117C59;
+  --positive-foreground: #FFFFFF;
+  --negative: #BE421B;
+  --negative-foreground: #FFFFFF;
+  --destructive: #BE421B;
+  --destructive-foreground: #FFFFFF;
+  --warning: #A35E00;
+  --warning-foreground: #FFFFFF;
+  --accent-pro: #A35E00;
+  --accent-pro-foreground: #FFFFFF;
+  --info: #1F66B8;
+  --info-foreground: #FFFFFF;
+  --primary-ink: #0A5A40;
+  --positive-ink: #0A5A40;
+  --negative-ink: #8F2D11;
+  --warning-ink: #734200;
+  --accent-pro-ink: #734200;
+  --info-ink: #164B88;
+  --border: #D1E1D8;
+  --input: #D1E1D8;
+  --ring: #117C59;
+  --track: #DCE8E1;
+  --nav: #FFFFFF;
+  --scrim: rgb(10 29 21 / 0.45);
+  --shadow-color: rgb(10 29 21 / 0.08);
+  --hero-from: #117A59;
+  --hero-to: #0D6A4D;
+  --hero-foreground: #FFFFFF;
+  --hero-muted: #EEFAF4;
+  --hero-bar: #FFFFFF;
+  /* Graficos: todos >= 3:1 contra card y background. */
+  --chart-1: #117C59;
+  --chart-2: #A35E00;
+  --chart-3: #1F66B8;
+  --chart-4: #BE421B;
+  --chart-5: #6E4FD1;
+  --chart-6: #0E7C8A;
+  --chart-7: #B23B7A;
+  --chart-8: #5E7A6D;
+  --sidebar: #FFFFFF;
+  --sidebar-foreground: #2C463A;
+  --sidebar-primary: #117C59;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #E1EDE6;
+  --sidebar-accent-foreground: #0A1D15;
+  --sidebar-border: #D1E1D8;
+  --sidebar-ring: #117C59;
+}
+
+/* OSCURO. Fuera de `@media print`: al imprimir rige el bloque claro COMPLETO de arriba, sin
+ * duplicarlo (antes se restablecian 13 de 56 tokens a mano y el resto quedaba oscuro en papel). */
+@media not print {
+[data-theme=dark] {
+  color-scheme: dark;
+  --background: #07120E;
+  --foreground: #EEF8F3;
+  --foreground-soft: #C9DED3;
+  --card: #0F1D17;
+  --card-foreground: #EEF8F3;
+  --popover: #0F1D17;
+  --popover-foreground: #EEF8F3;
+  --surface-elevated: #172A21;
+  --primary: #3BE0A6;
+  --primary-foreground: #03211A;
+  --secondary: #172A21;
+  --secondary-foreground: #C9DED3;
+  --muted: #172A21;
+  --muted-foreground: #9DBAAC;
+  --accent: color-mix(in srgb, #3BE0A6 12%, transparent);
+  --accent-foreground: #3BE0A6;
+  --positive: #3BE0A6;
+  --positive-foreground: #03211A;
+  --negative: #FF7D55;
+  --negative-foreground: #2A0B00;
+  --destructive: #FF7D55;
+  --destructive-foreground: #2A0B00;
+  --warning: #FFB84D;
+  --warning-foreground: #2A1700;
+  --accent-pro: #FFB84D;
+  --accent-pro-foreground: #2A1700;
+  --info: #6CB4FF;
+  --info-foreground: #04172E;
+  --primary-ink: #3BE0A6;
+  --positive-ink: #3BE0A6;
+  --negative-ink: #FF9C7C;
+  --warning-ink: #FFB84D;
+  --accent-pro-ink: #FFB84D;
+  --info-ink: #8DC5FF;
+  --border: #21382D;
+  --input: #21382D;
+  --ring: #3BE0A6;
+  --track: #21382D;
+  --nav: #0A1712;
+  --scrim: rgb(0 0 0 / 0.6);
+  --shadow-color: rgb(0 0 0 / 0.35);
+  --hero-from: #0A5A40;
+  --hero-to: #117A58;
+  --hero-foreground: #FFFFFF;
+  --hero-muted: #E6F8F0;
+  --hero-bar: #B8F5DC;
+  --chart-1: #3BE0A6;
+  --chart-2: #FFB84D;
+  --chart-3: #6CB4FF;
+  --chart-4: #FF7D55;
+  --chart-5: #B79CFF;
+  --chart-6: #4FD1E0;
+  --chart-7: #F28BC0;
+  --chart-8: #9DBAAC;
+  --sidebar: #0A1712;
+  --sidebar-foreground: #C9DED3;
+  --sidebar-primary: #3BE0A6;
+  --sidebar-primary-foreground: #03211A;
+  --sidebar-accent: #172A21;
+  --sidebar-accent-foreground: #EEF8F3;
+  --sidebar-border: #21382D;
+  --sidebar-ring: #3BE0A6;
+}
 }
 
 @layer base {
@@ -141,61 +275,53 @@
   }
 }
 
-/* Solid card surface (Nocturnal, no glassmorphism)
- * Reason: blur(12px) on 20+ elements is expensive on mobile GPUs,
- * and rgba(255,255,255,0.03) over #0E0E0C is nearly invisible —
- * cards looked borderless. Two-tier solid surfaces using brand tokens
- * (--color-neto-bg2 / bg3) give clear depth without GPU cost.
- */
+/* Solid card surface (no glassmorphism).
+ * Reason: blur(12px) on 20+ elements is expensive on mobile GPUs. Two-tier solid surfaces
+ * (card / surface-elevated) give clear depth without GPU cost. The class keeps its old name
+ * for backwards compatibility. */
 .glass-card {
-  background: var(--color-neto-bg2); /* #131311 */
-  border: 1px solid rgba(240, 239, 232, 0.08);
+  background: var(--card);
+  border: 1px solid var(--border);
   border-radius: 1rem;
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.03) inset,
-    0 4px 16px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 4px 16px var(--shadow-color);
 }
 
 .glass-card:hover {
-  background: var(--color-neto-bg3); /* #1C1C19 */
-  border-color: rgba(240, 239, 232, 0.12);
+  border-color: color-mix(in srgb, var(--foreground) 16%, transparent);
 }
 
 /* Elevated variant for nested cards or modals */
 .glass-card-elevated {
-  background: var(--color-neto-bg3); /* #1C1C19 */
-  border: 1px solid rgba(240, 239, 232, 0.1);
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
   border-radius: 1rem;
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.04) inset,
-    0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 8px 24px var(--shadow-color);
 }
 
 /* Form input surface — consistent with solid card tiers.
  * Use on <input>, <select triggers>, and <textarea> in all dialogs.
  */
 .form-input {
-  background: #1A1A17;
-  border: 1px solid rgba(240, 239, 232, 0.08);
-  color: #F0EFE8;
+  background: var(--card);
+  border: 1px solid var(--input);
+  color: var(--foreground);
   border-radius: 0.75rem;
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 .form-input::placeholder {
-  color: #8A877D;
+  color: var(--muted-foreground);
 }
 .form-input:hover {
-  border-color: rgba(240, 239, 232, 0.14);
+  border-color: color-mix(in srgb, var(--foreground) 24%, transparent);
 }
 .form-input:focus,
 .form-input:focus-visible {
   outline: none;
-  border-color: #1D9E75;
-  background: #1C1C19;
-  box-shadow: 0 0 0 3px rgba(29, 158, 117, 0.15);
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 20%, transparent);
 }
 
-/* Scrollbar styling — dark theme */
+/* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -204,16 +330,16 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.08);
+  background: color-mix(in srgb, var(--foreground) 12%, transparent);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.15);
+  background: color-mix(in srgb, var(--foreground) 22%, transparent);
 }
 /* Firefox scrollbar */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.08) transparent;
+  scrollbar-color: color-mix(in srgb, var(--foreground) 12%, transparent) transparent;
 }
 
 /* Scrollbar inside dialogs/panels */
@@ -221,7 +347,7 @@
   width: 4px;
 }
 .overflow-y-auto::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.06);
+  background: color-mix(in srgb, var(--foreground) 10%, transparent);
   border-radius: 2px;
 }
 
@@ -234,15 +360,15 @@
 .skeleton-shimmer {
   background: linear-gradient(
     90deg,
-    rgba(255, 255, 255, 0.03) 0%,
-    rgba(255, 255, 255, 0.06) 20%,
-    rgba(255, 255, 255, 0.1) 50%,
-    rgba(255, 255, 255, 0.06) 80%,
-    rgba(255, 255, 255, 0.03) 100%
+    color-mix(in srgb, var(--foreground) 4%, transparent) 0%,
+    color-mix(in srgb, var(--foreground) 7%, transparent) 20%,
+    color-mix(in srgb, var(--foreground) 11%, transparent) 50%,
+    color-mix(in srgb, var(--foreground) 7%, transparent) 80%,
+    color-mix(in srgb, var(--foreground) 4%, transparent) 100%
   );
   background-size: 300% 100%;
   animation: shimmer 2s ease-in-out infinite;
-  border: 1px solid rgba(255, 255, 255, 0.04);
+  border: 1px solid color-mix(in srgb, var(--foreground) 5%, transparent);
 }
 
 /* Safe area for bottom nav (iOS notch) */
@@ -285,7 +411,7 @@
   inset: -1px;
   border-radius: inherit;
   padding: 1px;
-  background: linear-gradient(135deg, rgba(29,158,117,0.3), transparent 50%, rgba(239,159,39,0.2));
+  background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 30%, transparent), transparent 50%, color-mix(in srgb, var(--warning) 20%, transparent));
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
@@ -299,15 +425,15 @@
 
 /* Focus visible ring for keyboard navigation */
 :focus-visible {
-  outline: 2px solid rgba(29, 158, 117, 0.5);
+  outline: 2px solid color-mix(in srgb, var(--ring) 50%, transparent);
   outline-offset: 2px;
   border-radius: 4px;
 }
 
 /* Selection color */
 ::selection {
-  background: rgba(29, 158, 117, 0.3);
-  color: #F0EFE8;
+  background: color-mix(in srgb, var(--primary) 30%, transparent);
+  color: var(--foreground);
 }
 
 /* Scrollable content region. Contain overscroll so the inner scroll never
@@ -376,13 +502,13 @@ main {
 
 /* Subtle inner shadow for depth on cards */
 .glass-card-depth {
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), 0 1px 3px rgba(0,0,0,0.2);
+  box-shadow: 0 1px 3px var(--shadow-color);
 }
 
 /* Ambient glow effect for highlighted elements */
-.glow-green { box-shadow: 0 0 40px rgba(29,158,117,0.08); }
-.glow-amber { box-shadow: 0 0 40px rgba(239,159,39,0.08); }
-.glow-red   { box-shadow: 0 0 40px rgba(216,90,48,0.08); }
+.glow-green { box-shadow: 0 0 40px color-mix(in srgb, var(--primary) 8%, transparent); }
+.glow-amber { box-shadow: 0 0 40px color-mix(in srgb, var(--warning) 8%, transparent); }
+.glow-red   { box-shadow: 0 0 40px color-mix(in srgb, var(--negative) 8%, transparent); }
 
 /* Scrollbar-none utility */
 .scrollbar-none::-webkit-scrollbar { display: none; }
@@ -437,4 +563,24 @@ main {
 .animate-barra-progreso {
   transform-origin: left;
   animation: barra-progreso 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Reporte impreso (Ctrl+P en /dashboard/reportes). Vivia como <style jsx> en esa pagina y se
+ * movio aca para que los .tsx no lleven colores. Imprime en el tema claro (el bloque oscuro esta
+ * dentro de `@media not print`); aca solo se ajusta lo propio del papel. */
+@media print {
+  :root,
+  [data-theme] {
+    --background: #FFFFFF;
+    --surface-elevated: #FFFFFF;
+    --border: #CCCCCC;
+  }
+  nav, aside, .sidebar, button, [data-slot="dialog"], header { display: none !important; }
+  main, [class*="ml-"] { margin-left: 0 !important; padding: 16px !important; }
+  .glass-card {
+    box-shadow: none !important;
+    break-inside: avoid;
+    margin-bottom: 12px !important;
+  }
+  svg { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
 }
