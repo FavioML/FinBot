@@ -28,17 +28,25 @@ import { HeaderActions } from '@/components/dashboard/topbar';
 
 const ICONOS = ['🎯', '✈️', '🏠', '🚗', '💻', '📱', '🎓', '💍', '🏖️', '💰', '🛡️', '🎮'];
 
+// Los tipos que existen son los que graba el backend (`registrarLogro`): milestone_25/50/75,
+// meta_cumplida y racha_N, con N múltiplo de 3 (handlers/intents/metas.js). La racha se arma
+// con su número en vez de listarse, y un tipo que no se conozca nunca muestra el id crudo.
 const LOGRO_LABELS: Record<string, { emoji: string; label: string }> = {
   milestone_25: { emoji: '🥉', label: '25% alcanzado' },
   milestone_50: { emoji: '🥈', label: '50% alcanzado' },
   milestone_75: { emoji: '🥇', label: '75% alcanzado' },
   meta_cumplida: { emoji: '🏆', label: 'Meta cumplida' },
-  primera_meta: { emoji: '🌟', label: 'Primera meta' },
-  primer_abono: { emoji: '💫', label: 'Primer aporte' },
-  racha_3: { emoji: '🔥', label: '3 semanas seguidas' },
-  racha_5: { emoji: '🔥', label: '5 semanas seguidas' },
-  racha_10: { emoji: '💎', label: '10 semanas seguidas' },
 };
+
+function logroInfo(tipo: string): { emoji: string; label: string } {
+  if (LOGRO_LABELS[tipo]) return LOGRO_LABELS[tipo];
+  const racha = /^racha_(\d+)$/.exec(tipo);
+  if (racha) {
+    const semanas = Number(racha[1]);
+    return { emoji: semanas >= 12 ? '💎' : '🔥', label: `${semanas} semanas seguidas` };
+  }
+  return { emoji: '⭐', label: 'Logro' };
+}
 
 const QUICK_AMOUNTS = [50, 100, 200, 500];
 
@@ -643,7 +651,7 @@ export default function MetasPage() {
           </h2>
           <div className="flex flex-wrap gap-2">
             {achievements.map((logro) => {
-              const info = LOGRO_LABELS[logro.tipo] || { emoji: '⭐', label: logro.tipo };
+              const info = logroInfo(logro.tipo);
               return (
                 <div key={logro.id} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-warning/8 text-xs">
                   <span>{info.emoji}</span>

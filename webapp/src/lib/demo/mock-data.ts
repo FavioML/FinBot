@@ -203,9 +203,9 @@ export const DEMO_GOAL_CONTRIBUTIONS: MetaAporte[] = [
 // ─── Logros ───────────────────────────────────────────────────────────────────
 
 export const DEMO_ACHIEVEMENTS: Logro[] = [
-  { id: 'log-01', usuario_id: DEMO_USER_ID, tipo: 'first_goal', meta_id: 'goal-01', datos: { nombre: 'MacBook Pro M4' }, fecha: dateStr(60), created_at: dateStr(60) },
-  { id: 'log-02', usuario_id: DEMO_USER_ID, tipo: 'streak_7', meta_id: null, datos: { dias: 7 }, fecha: dateStr(20), created_at: dateStr(20) },
-  { id: 'log-03', usuario_id: DEMO_USER_ID, tipo: '50_percent', meta_id: 'goal-02', datos: { nombre: 'Viaje a Cusco', porcentaje: 50 }, fecha: dateStr(10), created_at: dateStr(10) },
+  { id: 'log-01', usuario_id: DEMO_USER_ID, tipo: 'milestone_25', meta_id: 'goal-01', datos: {}, fecha: dateStr(60), created_at: dateStr(60) },
+  { id: 'log-02', usuario_id: DEMO_USER_ID, tipo: 'racha_6', meta_id: 'goal-01', datos: { semanas: 6 }, fecha: dateStr(20), created_at: dateStr(20) },
+  { id: 'log-03', usuario_id: DEMO_USER_ID, tipo: 'milestone_50', meta_id: 'goal-02', datos: {}, fecha: dateStr(10), created_at: dateStr(10) },
 ];
 
 // ─── Deudas ───────────────────────────────────────────────────────────────────
