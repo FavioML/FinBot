@@ -99,6 +99,9 @@ function MonthlySubscriptionCard({
   const totalPen = pagos.reduce((s, p) => s + p.monto_pen, 0);
   const extrasPen = pagos.filter((p) => !p.recurrente).reduce((s, p) => s + p.monto_pen, 0);
   const hasExtras = extrasPen > 0;
+  const detalle = hasExtras
+    ? `cuota S/${(totalPen - extrasPen).toFixed(2)} + S/${extrasPen.toFixed(2)} extra`
+    : `Pago en ${monthLabel}`;
 
   return (
     <div className="glass-card p-4">
@@ -118,21 +121,16 @@ function MonthlySubscriptionCard({
               </span>
             )}
           </div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
-            <span>{tipoInfo.emoji} {tipoInfo.label}</span>
-            <span>·</span>
-            <span>{pagos.length} pago{pagos.length !== 1 ? 's' : ''}</span>
+          <div className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground mt-0.5">
+            <span className="whitespace-nowrap">{tipoInfo.emoji} {tipoInfo.label}</span>
+            <span className="whitespace-nowrap"><span className="mr-2">·</span>{pagos.length} pago{pagos.length !== 1 ? 's' : ''}</span>
           </div>
         </div>
         <div className="text-right shrink-0">
-          <p className="text-foreground-soft font-medium">
+          <p className="whitespace-nowrap text-foreground-soft font-medium">
             S/{totalPen.toFixed(2)}
           </p>
-          <p className="text-xs text-muted-foreground">
-            {hasExtras
-              ? `cuota S/${(totalPen - extrasPen).toFixed(2)} + S/${extrasPen.toFixed(2)} extra`
-              : `Pago en ${monthLabel}`}
-          </p>
+          <p className="hidden text-xs text-muted-foreground md:block">{detalle}</p>
         </div>
         <button
           onClick={() => onEdit(sub)}
@@ -141,6 +139,13 @@ function MonthlySubscriptionCard({
         >
           <Pencil className="h-3.5 w-3.5" />
         </button>
+      </div>
+      {/* En celular el detalle va debajo, a todo el ancho: al lado del monto dejaba el nombre en
+          dos letras y la fila de tipo montada sobre el monto. La copia invisible del ícono lo
+          alinea con el nombre (un emoji no mide lo mismo en todos los sistemas). */}
+      <div className="mt-1 flex gap-3 md:hidden">
+        <span aria-hidden className="invisible block h-0 shrink-0 text-2xl">{sub.icono}</span>
+        <p className="min-w-0 text-xs text-muted-foreground">{detalle}</p>
       </div>
       {pagos.length > 1 && (
         <div className="mt-2 pt-2 border-t border-border space-y-1">
