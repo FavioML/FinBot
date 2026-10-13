@@ -362,7 +362,7 @@ export default function AdminEconomicsPage() {
           Comparativa con la competencia
         </h3>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full whitespace-nowrap text-sm">
             <thead>
               <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
                 <th className="px-3 py-2">Producto</th>
