@@ -1065,7 +1065,8 @@ function PnlSection() {
 
       {!isLoading && months && months.length > 0 && (
         <div className="mt-4 overflow-x-auto">
-          <table className="w-full text-sm">
+          {/* Mes y montos sin partir: si no entran, la tabla scrollea. */}
+          <table className="w-full whitespace-nowrap text-sm">
             <thead>
               <tr className="text-left text-xs uppercase tracking-wider text-muted-foreground">
                 <th className="pb-2 pr-4 font-medium">Mes</th>
