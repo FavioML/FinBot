@@ -43,17 +43,17 @@ function StatCard({
 }) {
   const valueColor =
     tone === 'good'
-      ? 'text-[#1D9E75]'
+      ? 'text-primary'
       : tone === 'warn'
-      ? 'text-[#EF9F27]'
+      ? 'text-warning'
       : tone === 'bad'
-      ? 'text-[#D85A30]'
-      : 'text-[#F0EFE8]';
+      ? 'text-negative'
+      : 'text-foreground';
   return (
     <div className="glass-card p-4">
-      <p className="text-[11px] uppercase tracking-wider text-[#8A877D]">{label}</p>
+      <p className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</p>
       <p className={`mt-1 text-2xl font-semibold tabular-nums ${valueColor}`}>{value}</p>
-      {hint && <p className="mt-1 text-xs text-[#8A877D]">{hint}</p>}
+      {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
     </div>
   );
 }
@@ -61,8 +61,8 @@ function StatCard({
 function SectionHeader({ title, subtitle }: { title: string; subtitle: string }) {
   return (
     <div>
-      <h3 className="text-base font-semibold text-[#F0EFE8]">{title}</h3>
-      <p className="mt-0.5 text-xs text-[#8A877D]">{subtitle}</p>
+      <h3 className="text-base font-semibold text-foreground">{title}</h3>
+      <p className="mt-0.5 text-xs text-muted-foreground">{subtitle}</p>
     </div>
   );
 }
@@ -71,11 +71,11 @@ function SectionHeader({ title, subtitle }: { title: string; subtitle: string })
 // Retención por cohorte (heatmap)
 // ===================================================================
 function retentionCellStyle(rate: number | null): React.CSSProperties {
-  if (rate === null) return { background: 'transparent', color: '#5A584F' };
+  if (rate === null) return { background: 'transparent', color: 'var(--muted-foreground)' };
   const alpha = Math.min(0.9, 0.06 + (rate / 100) * 0.7);
   return {
-    background: `rgba(29,158,117,${alpha.toFixed(3)})`,
-    color: rate >= 45 ? '#0E0E0C' : '#F0EFE8',
+    background: `color-mix(in srgb, var(--primary) ${(alpha * 100).toFixed(1)}%, transparent)`,
+    color: rate >= 45 ? 'var(--background)' : 'var(--foreground)',
   };
 }
 
@@ -88,12 +88,12 @@ function RetentionSection({ retention }: { retention: AdminRetention }) {
         subtitle="% de cada cohorte de registro que hizo ≥1 transacción en cada ventana de 30 días desde su alta. Vacío = la ventana aún no transcurrió."
       />
       {cohorts.length === 0 ? (
-        <div className="glass-card p-6 text-sm text-[#8A877D]">Sin cohortes todavía.</div>
+        <div className="glass-card p-6 text-sm text-muted-foreground">Sin cohortes todavía.</div>
       ) : (
         <div className="glass-card overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-[rgba(255,255,255,0.06)] text-left text-xs uppercase tracking-wider text-[#8A877D]">
+              <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
                 <th className="px-4 py-3 font-medium">Cohorte</th>
                 <th className="px-4 py-3 font-medium text-right">Users</th>
                 {periods.map((p) => (
@@ -109,10 +109,10 @@ function RetentionSection({ retention }: { retention: AdminRetention }) {
                 return (
                   <tr
                     key={c.cohort}
-                    className="border-b border-[rgba(255,255,255,0.04)] last:border-0"
+                    className="border-b border-border last:border-0"
                   >
-                    <td className="px-4 py-2.5 font-medium text-[#F0EFE8]">{c.cohort}</td>
-                    <td className="px-4 py-2.5 text-right tabular-nums text-[#C8C6BC]">
+                    <td className="px-4 py-2.5 font-medium text-foreground">{c.cohort}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-foreground-soft">
                       {c.size}
                     </td>
                     {periods.map((p) => {
@@ -175,26 +175,26 @@ function EngagementSection({ engagement }: { engagement: AdminEngagement }) {
         <StatCard label="Usuarios reales" value={total} hint="Excluye cuentas internas" />
       </div>
       <div className="glass-card p-4">
-        <p className="mb-3 text-sm font-medium text-[#F0EFE8]">Usuarios por rango de transacciones</p>
+        <p className="mb-3 text-sm font-medium text-foreground">Usuarios por rango de transacciones</p>
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={data}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-              <XAxis dataKey="bucket" stroke="#8A877D" fontSize={12} />
-              <YAxis stroke="#8A877D" fontSize={12} allowDecimals={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke="color-mix(in srgb, var(--foreground) 5%, transparent)" />
+              <XAxis dataKey="bucket" stroke="var(--muted-foreground)" fontSize={12} />
+              <YAxis stroke="var(--muted-foreground)" fontSize={12} allowDecimals={false} />
               <Tooltip
-                cursor={{ fill: 'rgba(255,255,255,0.03)' }}
+                cursor={{ fill: 'color-mix(in srgb, var(--foreground) 3%, transparent)' }}
                 contentStyle={{
-                  background: '#1C1C19',
-                  border: '1px solid rgba(255,255,255,0.08)',
+                  background: 'var(--surface-elevated)',
+                  border: '1px solid var(--border)',
                   borderRadius: 8,
                   fontSize: 12,
-                  color: '#F0EFE8',
+                  color: 'var(--foreground)',
                 }}
               />
               <Bar dataKey="usuarios" radius={[4, 4, 0, 0]}>
                 {data.map((d, i) => (
-                  <Cell key={i} fill={d.isDormant ? '#D85A30' : '#1D9E75'} />
+                  <Cell key={i} fill={d.isDormant ? 'var(--negative)' : 'var(--primary)'} />
                 ))}
               </Bar>
             </BarChart>
@@ -224,16 +224,16 @@ function AdoptionSection({
       <div className="glass-card space-y-3 p-4">
         {adoption.map((f) => {
           const tone =
-            f.pct >= 40 ? '#1D9E75' : f.pct >= 15 ? '#EF9F27' : '#D85A30';
+            f.pct >= 40 ? 'var(--primary)' : f.pct >= 15 ? 'var(--warning)' : 'var(--negative)';
           return (
             <div key={f.feature}>
               <div className="mb-1 flex items-center justify-between text-xs">
-                <span className="text-[#C8C6BC]">{FEATURE_LABEL[f.feature] ?? f.feature}</span>
-                <span className="tabular-nums text-[#8A877D]">
-                  {f.users} <span className="text-[#5A584F]">({f.pct}%)</span>
+                <span className="text-foreground-soft">{FEATURE_LABEL[f.feature] ?? f.feature}</span>
+                <span className="tabular-nums text-muted-foreground">
+                  {f.users} <span className="text-muted-foreground">({f.pct}%)</span>
                 </span>
               </div>
-              <div className="h-2 w-full overflow-hidden rounded-full bg-[rgba(255,255,255,0.05)]">
+              <div className="h-2 w-full overflow-hidden rounded-full bg-foreground/5">
                 <div
                   className="h-full rounded-full transition-all"
                   style={{ width: `${Math.min(100, f.pct)}%`, backgroundColor: tone }}
@@ -260,7 +260,7 @@ function AdoptionSection({
 function CupoGmailSection({ gastados }: { gastados: number }) {
   const CAP = 100;
   const pct = Math.min(100, Math.round((gastados / CAP) * 1000) / 10);
-  const tone = pct >= 80 ? '#D85A30' : pct >= 50 ? '#EF9F27' : '#1D9E75';
+  const tone = pct >= 80 ? 'var(--negative)' : pct >= 50 ? 'var(--warning)' : 'var(--primary)';
   return (
     <section className="space-y-3">
       <SectionHeader
@@ -269,19 +269,19 @@ function CupoGmailSection({ gastados }: { gastados: number }) {
       />
       <div className="glass-card space-y-3 p-4">
         <div className="flex items-baseline justify-between">
-          <span className="text-sm text-[#C8C6BC]">Cupos gastados</span>
-          <span className="tabular-nums text-[#F0EFE8]">
+          <span className="text-sm text-foreground-soft">Cupos gastados</span>
+          <span className="tabular-nums text-foreground">
             <span className="text-2xl font-semibold" style={{ color: tone }}>{gastados}</span>
-            <span className="text-sm text-[#5A584F]"> / {CAP}</span>
+            <span className="text-sm text-muted-foreground"> / {CAP}</span>
           </span>
         </div>
-        <div className="h-2 w-full overflow-hidden rounded-full bg-[rgba(255,255,255,0.05)]">
+        <div className="h-2 w-full overflow-hidden rounded-full bg-foreground/5">
           <div
             className="h-full rounded-full transition-all"
             style={{ width: `${pct}%`, backgroundColor: tone }}
           />
         </div>
-        <p className="text-xs text-[#8A877D]">
+        <p className="text-xs text-muted-foreground">
           Incluye cuentas internas a propósito: gastan cupo igual que cualquier otra.
         </p>
       </div>
@@ -294,7 +294,7 @@ export default function AdminProductoPage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-20 text-[#8A877D]">
+      <div className="flex items-center justify-center py-20 text-muted-foreground">
         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
         Cargando métricas de producto…
       </div>
@@ -303,7 +303,7 @@ export default function AdminProductoPage() {
 
   if (isError || !data) {
     return (
-      <div className="glass-card p-6 text-sm text-[#D85A30]">
+      <div className="glass-card p-6 text-sm text-negative">
         Error cargando métricas de producto. Refresca la página.
       </div>
     );
@@ -312,8 +312,8 @@ export default function AdminProductoPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h2 className="text-xl font-semibold text-[#F0EFE8]">Producto & Retención</h2>
-        <p className="mt-1 text-sm text-[#8A877D]">
+        <h2 className="text-xl font-semibold text-foreground">Producto & Retención</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
           Activación, retención y adopción sobre usuarios reales (excluye cuentas internas). Lo que
           el embudo y el promedio no muestran.
         </p>

@@ -79,8 +79,8 @@ function YesNo({ value }: { value: boolean }) {
     <span
       className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${
         value
-          ? 'bg-[rgba(29,158,117,0.14)] text-[#1D9E75]'
-          : 'bg-[rgba(255,255,255,0.04)] text-[#8A877D]'
+          ? 'bg-primary/14 text-primary-ink'
+          : 'bg-foreground/4 text-muted-foreground'
       }`}
     >
       {value ? 'Sí' : 'No'}
@@ -101,21 +101,21 @@ function StatCard({
 }) {
   const valueColor =
     tone === 'good'
-      ? 'text-[#1D9E75]'
+      ? 'text-primary'
       : tone === 'warn'
-      ? 'text-[#EF9F27]'
+      ? 'text-warning'
       : tone === 'bad'
-      ? 'text-[#D85A30]'
-      : 'text-[#F0EFE8]';
+      ? 'text-negative'
+      : 'text-foreground';
   return (
     <div className="glass-card p-4">
-      <p className="text-[11px] uppercase tracking-wider text-[#8A877D]">
+      <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
         {label}
       </p>
       <p className={`mt-1 text-2xl font-semibold tabular-nums ${valueColor}`}>
         {value}
       </p>
-      {hint && <p className="mt-1 text-xs text-[#8A877D]">{hint}</p>}
+      {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
     </div>
   );
 }
@@ -123,9 +123,9 @@ function StatCard({
 function EmptyTab({ title, hint }: { title: string; hint: string }) {
   return (
     <div className="glass-card flex flex-col items-center justify-center px-6 py-14 text-center">
-      <MessageSquare className="mb-3 h-8 w-8 text-[#8A877D]/60" />
-      <p className="text-sm font-medium text-[#F0EFE8]">{title}</p>
-      <p className="mt-1 max-w-sm text-xs text-[#8A877D]">{hint}</p>
+      <MessageSquare className="mb-3 h-8 w-8 text-muted-foreground/60" />
+      <p className="text-sm font-medium text-foreground">{title}</p>
+      <p className="mt-1 max-w-sm text-xs text-muted-foreground">{hint}</p>
     </div>
   );
 }
@@ -190,7 +190,7 @@ export default function AdminSurveysPage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-20 text-[#8A877D]">
+      <div className="flex items-center justify-center py-20 text-muted-foreground">
         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
         Cargando encuestas…
       </div>
@@ -199,7 +199,7 @@ export default function AdminSurveysPage() {
 
   if (isError || !data) {
     return (
-      <div className="glass-card p-6 text-sm text-[#D85A30]">
+      <div className="glass-card p-6 text-sm text-negative">
         Error cargando encuestas. Refresca la página.
       </div>
     );
@@ -208,16 +208,16 @@ export default function AdminSurveysPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-semibold text-[#F0EFE8]">
+        <h2 className="text-xl font-semibold text-foreground">
           Encuestas & Feedback
         </h2>
-        <p className="mt-1 text-sm text-[#8A877D]">
+        <p className="mt-1 text-sm text-muted-foreground">
           Recordatorios WhatsApp, invites a webapp, feedback abierto y NPS in-app.
         </p>
       </div>
 
       {hasMore && (
-        <div className="rounded-lg border border-[rgba(239,159,39,0.2)] bg-[rgba(239,159,39,0.06)] px-4 py-3 text-xs text-[#EF9F27]">
+        <div className="rounded-lg border border-warning/20 bg-warning/6 px-4 py-3 text-xs text-warning-ink">
           Las tablas muestran los {events.length} eventos más recientes de {total}. Los
           porcentajes de arriba salen del total (se calculan en la base), pero para ver eventos
           más antiguos usa los filtros por tipo o fecha.
@@ -373,15 +373,15 @@ function RemindersTab({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs text-[#8A877D]">Filtrar:</span>
+        <span className="text-xs text-muted-foreground">Filtrar:</span>
         {(['all', ...REMINDER_TYPES] as const).map((t) => (
           <button
             key={t}
             onClick={() => setFilter(t)}
             className={`rounded-full px-3 py-1 text-xs transition-colors ${
               filter === t
-                ? 'bg-[rgba(29,158,117,0.16)] text-[#1D9E75]'
-                : 'bg-[rgba(255,255,255,0.04)] text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.08)]'
+                ? 'bg-primary/16 text-primary-ink'
+                : 'bg-foreground/4 text-foreground-soft hover:bg-foreground/8'
             }`}
           >
             {t === 'all' ? 'Todos' : REMINDER_LABEL[t as SurveyEventType]}
@@ -392,7 +392,7 @@ function RemindersTab({
       <div className="glass-card overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-[rgba(255,255,255,0.06)] text-left text-xs uppercase tracking-wider text-[#8A877D]">
+            <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
               <th className="px-4 py-3 font-medium">Usuario</th>
               <th className="px-4 py-3 font-medium">Tipo</th>
               <th className="px-4 py-3 font-medium">Enviado</th>
@@ -416,21 +416,21 @@ function RemindersTab({
               return (
                 <tr
                   key={r.id}
-                  className="border-b border-[rgba(255,255,255,0.04)] last:border-0"
+                  className="border-b border-border last:border-0"
                 >
-                  <td className="px-4 py-3 text-[#F0EFE8]">{userLabel(r)}</td>
+                  <td className="px-4 py-3 text-foreground">{userLabel(r)}</td>
                   <td className="px-4 py-3">
                     {isInactivity ? (
-                      <span className="inline-flex items-center rounded-full bg-[rgba(239,159,39,0.14)] px-2 py-0.5 text-[11px] font-medium text-[#EF9F27]">
+                      <span className="inline-flex items-center rounded-full bg-warning/14 px-2 py-0.5 text-[11px] font-medium text-warning-ink">
                         {inactivityLabel}
                       </span>
                     ) : (
-                      <span className="text-[#C8C6BC]">
+                      <span className="text-foreground-soft">
                         {REMINDER_LABEL[r.event_type]}
                       </span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-[#C8C6BC]">
+                  <td className="px-4 py-3 text-foreground-soft">
                     {formatDateTimeLima(r.sent_at)}
                   </td>
                   <td className="px-4 py-3">
@@ -489,7 +489,7 @@ function InvitesTab({
       </div>
 
       {stats?.conversion_rate !== undefined && (
-        <p className="text-xs text-[#8A877D]">
+        <p className="text-xs text-muted-foreground">
           Tasa de conversión global: {stats.conversion_rate}%
         </p>
       )}
@@ -497,7 +497,7 @@ function InvitesTab({
       <div className="glass-card overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-[rgba(255,255,255,0.06)] text-left text-xs uppercase tracking-wider text-[#8A877D]">
+            <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
               <th className="px-4 py-3 font-medium">Usuario</th>
               <th className="px-4 py-3 font-medium">Enviado</th>
               <th className="px-4 py-3 font-medium">Activó webapp</th>
@@ -520,16 +520,16 @@ function InvitesTab({
               return (
                 <tr
                   key={i.id}
-                  className="border-b border-[rgba(255,255,255,0.04)] last:border-0"
+                  className="border-b border-border last:border-0"
                 >
-                  <td className="px-4 py-3 text-[#F0EFE8]">{userLabel(i)}</td>
-                  <td className="px-4 py-3 text-[#C8C6BC]">
+                  <td className="px-4 py-3 text-foreground">{userLabel(i)}</td>
+                  <td className="px-4 py-3 text-foreground-soft">
                     {formatDateTimeLima(i.sent_at)}
                   </td>
                   <td className="px-4 py-3">
                     <YesNo value={i.conversion_within_7d} />
                   </td>
-                  <td className="px-4 py-3 text-[#C8C6BC]">
+                  <td className="px-4 py-3 text-foreground-soft">
                     {days !== null ? `${days}d` : '—'}
                   </td>
                 </tr>
@@ -581,7 +581,7 @@ function FeedbackTab({
       </div>
 
       {stats?.response_rate !== undefined && (
-        <p className="text-xs text-[#8A877D]">
+        <p className="text-xs text-muted-foreground">
           Tasa de respuesta: {stats.response_rate}%
         </p>
       )}
@@ -589,7 +589,7 @@ function FeedbackTab({
       <div className="glass-card overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-[rgba(255,255,255,0.06)] text-left text-xs uppercase tracking-wider text-[#8A877D]">
+            <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
               <th className="px-4 py-3 font-medium">Usuario</th>
               <th className="px-4 py-3 font-medium">Enviado</th>
               <th className="px-4 py-3 font-medium">Estado</th>
@@ -602,18 +602,18 @@ function FeedbackTab({
               return (
                 <tr
                   key={f.id}
-                  className="border-b border-[rgba(255,255,255,0.04)] last:border-0"
+                  className="border-b border-border last:border-0"
                 >
-                  <td className="px-4 py-3 text-[#F0EFE8]">{userLabel(f)}</td>
-                  <td className="px-4 py-3 text-[#C8C6BC]">
+                  <td className="px-4 py-3 text-foreground">{userLabel(f)}</td>
+                  <td className="px-4 py-3 text-foreground-soft">
                     {formatDateTimeLima(f.sent_at)}
                   </td>
                   <td className="px-4 py-3">
                     <span
                       className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${
                         isRead
-                          ? 'bg-[rgba(29,158,117,0.14)] text-[#1D9E75]'
-                          : 'bg-[rgba(239,159,39,0.14)] text-[#EF9F27]'
+                          ? 'bg-primary/14 text-primary-ink'
+                          : 'bg-warning/14 text-warning-ink'
                       }`}
                     >
                       {isRead ? 'Leído' : 'Pendiente'}
@@ -623,7 +623,7 @@ function FeedbackTab({
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => onOpenChat(f.id)}
-                        className="inline-flex items-center gap-1 rounded-lg border border-[rgba(255,255,255,0.08)] bg-[#1A1A17] px-2.5 py-1 text-xs text-[#C8C6BC] transition-colors hover:bg-[#222220] hover:text-[#F0EFE8]"
+                        className="inline-flex items-center gap-1 rounded-lg border border-border bg-surface-elevated px-2.5 py-1 text-xs text-foreground-soft transition-colors hover:bg-foreground/6 hover:text-foreground"
                       >
                         <Eye className="h-3 w-3" /> Ver chat
                       </button>
@@ -642,7 +642,7 @@ function FeedbackTab({
                             }
                           }}
                           disabled={markRead.isPending}
-                          className="inline-flex items-center gap-1 rounded-lg bg-[rgba(29,158,117,0.14)] px-2.5 py-1 text-xs text-[#1D9E75] transition-colors hover:bg-[rgba(29,158,117,0.22)] disabled:opacity-50"
+                          className="inline-flex items-center gap-1 rounded-lg bg-primary/14 px-2.5 py-1 text-xs text-primary-ink transition-colors hover:bg-primary/22 disabled:opacity-50"
                         >
                           <Check className="h-3 w-3" /> Marcar leído
                         </button>
@@ -782,48 +782,48 @@ function NpsTab({
       </div>
 
       <div className="glass-card p-4">
-        <p className="mb-3 text-sm font-medium text-[#F0EFE8]">
+        <p className="mb-3 text-sm font-medium text-foreground">
           Distribución de respuestas (1-5)
         </p>
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={distribution}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-              <XAxis dataKey="score" stroke="#8A877D" fontSize={12} />
-              <YAxis stroke="#8A877D" fontSize={12} allowDecimals={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke="color-mix(in srgb, var(--foreground) 5%, transparent)" />
+              <XAxis dataKey="score" stroke="var(--muted-foreground)" fontSize={12} />
+              <YAxis stroke="var(--muted-foreground)" fontSize={12} allowDecimals={false} />
               <Tooltip
                 contentStyle={{
-                  background: '#1C1C19',
-                  border: '1px solid rgba(255,255,255,0.08)',
+                  background: 'var(--surface-elevated)',
+                  border: '1px solid var(--border)',
                   borderRadius: 8,
                   fontSize: 12,
-                  color: '#F0EFE8',
+                  color: 'var(--foreground)',
                 }}
               />
-              <Bar dataKey="Facilidad" fill="#1D9E75" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="Utilidad" fill="#3B9DDB" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="Recomendación" fill="#EF9F27" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="Facilidad" fill="var(--primary)" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="Utilidad" fill="var(--info)" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="Recomendación" fill="var(--warning)" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        <label className="flex items-center gap-2 text-xs text-[#C8C6BC]">
+        <label className="flex items-center gap-2 text-xs text-foreground-soft">
           <span>Desde</span>
           <input
             type="date"
             value={fromDate}
             onChange={(e) => setFromDate(e.target.value)}
-            className="form-input rounded-lg border border-[rgba(255,255,255,0.08)] bg-[#1A1A17] px-2 py-1 text-xs text-[#F0EFE8]"
+            className="form-input rounded-lg border border-border bg-surface-elevated px-2 py-1 text-xs text-foreground"
           />
         </label>
-        <label className="flex items-center gap-2 text-xs text-[#C8C6BC]">
+        <label className="flex items-center gap-2 text-xs text-foreground-soft">
           <input
             type="checkbox"
             checked={commentOnly}
             onChange={(e) => setCommentOnly(e.target.checked)}
-            className="accent-[#1D9E75]"
+            className="accent-primary"
           />
           Solo con comentario
         </label>
@@ -832,7 +832,7 @@ function NpsTab({
       <div className="glass-card overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-[rgba(255,255,255,0.06)] text-left text-xs uppercase tracking-wider text-[#8A877D]">
+            <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
               <th className="px-4 py-3 font-medium">Usuario</th>
               <th className="px-4 py-3 font-medium">Respondido</th>
               <th className="px-4 py-3 font-medium">Facilidad</th>
@@ -848,28 +848,28 @@ function NpsTab({
               return (
                 <tr
                   key={e.id}
-                  className="border-b border-[rgba(255,255,255,0.04)] last:border-0"
+                  className="border-b border-border last:border-0"
                 >
-                  <td className="px-4 py-3 text-[#F0EFE8]">{userLabel(e)}</td>
-                  <td className="px-4 py-3 text-[#C8C6BC]">
+                  <td className="px-4 py-3 text-foreground">{userLabel(e)}</td>
+                  <td className="px-4 py-3 text-foreground-soft">
                     {isPending
                       ? e.dismissed_at
                         ? `Dismiss · ${formatDateTimeLima(e.dismissed_at)}`
                         : 'Pendiente'
                       : formatDateTimeLima(e.responded_at)}
                   </td>
-                  <td className="px-4 py-3 tabular-nums text-[#C8C6BC]">
+                  <td className="px-4 py-3 tabular-nums text-foreground-soft">
                     {d?.ease ?? '—'}
                   </td>
-                  <td className="px-4 py-3 tabular-nums text-[#C8C6BC]">
+                  <td className="px-4 py-3 tabular-nums text-foreground-soft">
                     {d?.usefulness ?? '—'}
                   </td>
-                  <td className="px-4 py-3 tabular-nums text-[#C8C6BC]">
+                  <td className="px-4 py-3 tabular-nums text-foreground-soft">
                     {d?.recommend ?? '—'}
                   </td>
-                  <td className="max-w-md px-4 py-3 text-[#C8C6BC]">
+                  <td className="max-w-md px-4 py-3 text-foreground-soft">
                     {d?.comment || (
-                      <span className="text-[#5A584F]">—</span>
+                      <span className="text-muted-foreground">—</span>
                     )}
                   </td>
                 </tr>
@@ -967,29 +967,29 @@ function ProUpsellTab({
       </div>
 
       {globalRate !== undefined && (
-        <p className="text-xs text-[#8A877D]">
+        <p className="text-xs text-muted-foreground">
           Tasa global histórica: {globalRate}%
           {typeof globalConverted === 'number' && ` · ${globalConverted} conversiones totales`}
         </p>
       )}
 
       <div className="flex flex-wrap items-center gap-3">
-        <label className="flex items-center gap-2 text-xs text-[#C8C6BC]">
+        <label className="flex items-center gap-2 text-xs text-foreground-soft">
           <span>Desde</span>
           <input
             type="date"
             value={fromDate}
             onChange={(e) => setFromDate(e.target.value)}
-            className="form-input rounded-lg border border-[rgba(255,255,255,0.08)] bg-[#1A1A17] px-2 py-1 text-xs text-[#F0EFE8]"
+            className="form-input rounded-lg border border-border bg-surface-elevated px-2 py-1 text-xs text-foreground"
           />
         </label>
-        <label className="flex items-center gap-2 text-xs text-[#C8C6BC]">
+        <label className="flex items-center gap-2 text-xs text-foreground-soft">
           <span>Hasta</span>
           <input
             type="date"
             value={toDate}
             onChange={(e) => setToDate(e.target.value)}
-            className="form-input rounded-lg border border-[rgba(255,255,255,0.08)] bg-[#1A1A17] px-2 py-1 text-xs text-[#F0EFE8]"
+            className="form-input rounded-lg border border-border bg-surface-elevated px-2 py-1 text-xs text-foreground"
           />
         </label>
         {(fromDate || toDate) && (
@@ -998,7 +998,7 @@ function ProUpsellTab({
               setFromDate('');
               setToDate('');
             }}
-            className="rounded-full bg-[rgba(255,255,255,0.04)] px-3 py-1 text-xs text-[#C8C6BC] transition-colors hover:bg-[rgba(255,255,255,0.08)]"
+            className="rounded-full bg-foreground/4 px-3 py-1 text-xs text-foreground-soft transition-colors hover:bg-foreground/8"
           >
             Limpiar fechas
           </button>
@@ -1008,7 +1008,7 @@ function ProUpsellTab({
       <div className="glass-card overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-[rgba(255,255,255,0.06)] text-left text-xs uppercase tracking-wider text-[#8A877D]">
+            <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
               <th className="px-4 py-3 font-medium">Usuario</th>
               <th className="px-4 py-3 font-medium">Enviado</th>
               <th className="px-4 py-3 font-medium">¿Pasó a Pro?</th>
@@ -1026,39 +1026,39 @@ function ProUpsellTab({
               return (
                 <tr
                   key={u.id}
-                  className="border-b border-[rgba(255,255,255,0.04)] last:border-0"
+                  className="border-b border-border last:border-0"
                 >
-                  <td className="px-4 py-3 text-[#F0EFE8]">{userLabel(u)}</td>
-                  <td className="px-4 py-3 text-[#C8C6BC]">
+                  <td className="px-4 py-3 text-foreground">{userLabel(u)}</td>
+                  <td className="px-4 py-3 text-foreground-soft">
                     {formatDateTimeLima(u.sent_at)}
                   </td>
                   <td className="px-4 py-3">
                     {wasAlreadyPro ? (
-                      <span className="inline-flex items-center rounded-full bg-[rgba(255,255,255,0.04)] px-2 py-0.5 text-[11px] font-medium text-[#8A877D]">
+                      <span className="inline-flex items-center rounded-full bg-foreground/4 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                         Ya era Pro
                       </span>
                     ) : (
                       <YesNo value={isConverted} />
                     )}
                   </td>
-                  <td className="px-4 py-3 text-[#C8C6BC] tabular-nums">
+                  <td className="px-4 py-3 text-foreground-soft tabular-nums">
                     {isConverted && typeof days === 'number' ? `${days}d` : '—'}
                   </td>
                   <td className="px-4 py-3">
                     {isOptedOut ? (
-                      <span className="inline-flex items-center rounded-full bg-[rgba(216,90,48,0.14)] px-2 py-0.5 text-[11px] font-medium text-[#D85A30]">
+                      <span className="inline-flex items-center rounded-full bg-negative/14 px-2 py-0.5 text-[11px] font-medium text-negative-ink">
                         Silenciado
                       </span>
                     ) : isConverted ? (
-                      <span className="inline-flex items-center rounded-full bg-[rgba(29,158,117,0.14)] px-2 py-0.5 text-[11px] font-medium text-[#1D9E75]">
+                      <span className="inline-flex items-center rounded-full bg-primary/14 px-2 py-0.5 text-[11px] font-medium text-primary-ink">
                         Convertido
                       </span>
                     ) : u.responded_at ? (
-                      <span className="inline-flex items-center rounded-full bg-[rgba(59,157,219,0.14)] px-2 py-0.5 text-[11px] font-medium text-[#3B9DDB]">
+                      <span className="inline-flex items-center rounded-full bg-info/14 px-2 py-0.5 text-[11px] font-medium text-info-ink">
                         Respondió
                       </span>
                     ) : (
-                      <span className="inline-flex items-center rounded-full bg-[rgba(239,159,39,0.14)] px-2 py-0.5 text-[11px] font-medium text-[#EF9F27]">
+                      <span className="inline-flex items-center rounded-full bg-warning/14 px-2 py-0.5 text-[11px] font-medium text-warning-ink">
                         Pendiente
                       </span>
                     )}
@@ -1087,16 +1087,16 @@ function ConversationDialog({
 
   return (
     <Dialog open={!!eventId} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="bg-[#1C1C19] border-[rgba(255,255,255,0.08)] text-[#F0EFE8] max-w-lg max-h-[80vh] overflow-y-auto">
+      <DialogContent className="bg-surface-elevated border-border text-foreground max-w-lg max-h-[80vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Conversación post-envío</DialogTitle>
         </DialogHeader>
         {isLoading ? (
-          <div className="flex items-center gap-2 py-6 text-sm text-[#8A877D]">
+          <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" /> Cargando…
           </div>
         ) : !data || data.messages.length === 0 ? (
-          <p className="py-6 text-sm text-[#8A877D]">
+          <p className="py-6 text-sm text-muted-foreground">
             Aún no respondió por chat.
           </p>
         ) : (
@@ -1108,11 +1108,11 @@ function ConversationDialog({
                   key={m.id}
                   className={`rounded-lg px-3 py-2 text-sm ${
                     isUser
-                      ? 'bg-[rgba(29,158,117,0.10)] text-[#F0EFE8]'
-                      : 'bg-[rgba(255,255,255,0.04)] text-[#C8C6BC]'
+                      ? 'bg-primary/10 text-foreground'
+                      : 'bg-foreground/4 text-foreground-soft'
                   }`}
                 >
-                  <p className="mb-1 text-[10px] uppercase tracking-wider text-[#8A877D]">
+                  <p className="mb-1 text-[10px] uppercase tracking-wider text-muted-foreground">
                     {m.rol} · {formatDateTimeLima(m.created_at)}
                   </p>
                   <p className="whitespace-pre-wrap">{m.mensaje}</p>

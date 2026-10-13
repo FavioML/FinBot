@@ -77,26 +77,26 @@ const ESPERAN_RESPUESTA = new Set(['feedback', 'queja']);
  * como no entregado seria inventar un fallo; pintarlo como entregado seria el bug B23 otra vez.
  */
 function EstadoEntrega({ entrega }: { entrega: TicketMensaje['entrega'] }) {
-  if (!entrega) return <span className="text-[#F0EFE8]/25">sin dato de entrega</span>;
-  if (entrega.delivered_at) return <span className="text-[#1D9E75]">entregado</span>;
+  if (!entrega) return <span className="text-foreground/25">sin dato de entrega</span>;
+  if (entrega.delivered_at) return <span className="text-primary">entregado</span>;
   if (entrega.failed_at) {
     // 131047 es la ventana de 24h de Meta, y es el 98% de los fallos. Nombrarla evita que el
     // admin reintente: lo que hay que hacer es esperar a que la persona escriba.
     const ventana = entrega.code === 131047;
     return (
-      <span className="text-amber-400/90">
+      <span className="text-warning/90">
         {ventana ? 'no entregado · fuera de la ventana de 24h' : 'no entregado'}
         {!ventana && entrega.code ? ` (code ${entrega.code})` : ''}
       </span>
     );
   }
-  return <span className="text-[#F0EFE8]/40">enviado, sin confirmacion aun</span>;
+  return <span className="text-foreground/40">enviado, sin confirmacion aun</span>;
 }
 
 function HiloTicket({ ticketId }: { ticketId: string }) {
   const { data, isLoading, isError, refetch } = useAdminTicketThread(ticketId);
 
-  if (isLoading) return <div className="py-2 text-xs text-[#F0EFE8]/30">Cargando conversación…</div>;
+  if (isLoading) return <div className="py-2 text-xs text-foreground/30">Cargando conversación…</div>;
 
   // "Falló la lectura" NO se pinta como "no hay mensajes": eso le diría al admin que la
   // persona nunca escribió, que es la conclusión opuesta a la verdadera.
@@ -117,7 +117,7 @@ function HiloTicket({ ticketId }: { ticketId: string }) {
 
   if (!data || data.length === 0) {
     return (
-      <div className="py-2 text-xs text-[#F0EFE8]/30">
+      <div className="py-2 text-xs text-foreground/30">
         Sin mensajes en el hilo. Las conversaciones anteriores al 28-ago-2026 no se guardaron turno a turno.
       </div>
     );
@@ -130,12 +130,12 @@ function HiloTicket({ ticketId }: { ticketId: string }) {
           key={m.id}
           className={`max-w-[85%] rounded-lg px-3 py-2 text-xs ${
             m.rol === 'admin'
-              ? 'ml-auto bg-[#1D9E75]/15 text-[#F0EFE8]'
-              : 'mr-auto bg-white/[0.04] text-[#F0EFE8]/80'
+              ? 'ml-auto bg-primary/15 text-foreground'
+              : 'mr-auto bg-foreground/[0.04] text-foreground/80'
           }`}
         >
           <div className="whitespace-pre-wrap break-words">{m.mensaje}</div>
-          <div className="mt-1 text-[10px] text-[#F0EFE8]/30">
+          <div className="mt-1 text-[10px] text-foreground/30">
             {m.rol === 'admin' ? 'Neto' : 'Usuario'} · {formatDateTime(m.created_at)}
             {m.rol === 'admin' && <> · <EstadoEntrega entrega={m.entrega} /></>}
           </div>
@@ -205,15 +205,15 @@ function formatDateTime(dateStr: string | null | undefined) {
 // Es el mismo arreglo que /admin/users recibió el 27-ago (commit 1f02357) y que esta
 // pantalla no recibió, porque el panel tiene DOS tablas de usuarios y sólo se tocó una.
 const ESTADO_COLOR: Record<EstadoComercial, string> = {
-  pro_pagado: 'bg-[#1D9E75]/20 text-[#1D9E75]',
+  pro_pagado: 'bg-primary/20 text-primary-ink',
   // Violeta y no verde: tiene Pro, pero no es plata. El verde de la marca queda para quien
   // paga. Tampoco ambar ni celeste, que ya son el pago por aprobar y la prueba.
-  pro_cortesia: 'bg-violet-500/15 text-violet-400',
-  pago_pendiente: 'bg-amber-500/15 text-amber-400',
-  trial: 'bg-sky-500/15 text-sky-400',
-  muro_vencido: 'bg-white/5 text-[#F0EFE8]/60',
-  muro_ex_pagador: 'bg-white/5 text-[#F0EFE8]/60',
-  sin_estrenar: 'bg-white/5 text-[#F0EFE8]/40',
+  pro_cortesia: 'bg-chart-5/15 text-chart-5',
+  pago_pendiente: 'bg-warning/15 text-warning-ink',
+  trial: 'bg-info/15 text-info-ink',
+  muro_vencido: 'bg-foreground/5 text-foreground/60',
+  muro_ex_pagador: 'bg-foreground/5 text-foreground/60',
+  sin_estrenar: 'bg-foreground/5 text-foreground/40',
 };
 
 function PlanBadge({ estado, bajaAt }: { estado: EstadoComercial; bajaAt?: string | null }) {
@@ -226,7 +226,7 @@ function PlanBadge({ estado, bajaAt }: { estado: EstadoComercial; bajaAt?: strin
         {ESTADO_LABEL[estado]}
       </span>
       {bajaAt && (
-        <span className="inline-flex items-center rounded-full bg-red-500/15 px-2 py-0.5 text-xs font-medium text-red-400">
+        <span className="inline-flex items-center rounded-full bg-negative/15 px-2 py-0.5 text-xs font-medium text-negative-ink">
           Baja
         </span>
       )}
@@ -244,7 +244,7 @@ function StatusDot({ active, warn = false, title }: { active: boolean; warn?: bo
     <span
       title={title}
       className={`inline-block h-2 w-2 rounded-full ${
-        active ? (warn ? 'bg-[#EF9F27]' : 'bg-[#1D9E75]') : 'bg-white/20'
+        active ? (warn ? 'bg-warning' : 'bg-primary') : 'bg-foreground/20'
       }`}
     />
   );
@@ -259,9 +259,9 @@ function gmailTitle(u: AdminUser): string {
 
 function CanalBadge({ canal }: { canal: 'whatsapp' | 'google' | 'magic_link' }) {
   const styles = {
-    whatsapp: 'bg-[#25D366]/15 text-[#25D366]',
-    google: 'bg-[#4285F4]/15 text-[#7AAFFF]',
-    magic_link: 'bg-[#6366F1]/15 text-[#818CF8]',
+    whatsapp: 'bg-[#25D366]/15 text-foreground',
+    google: 'bg-info/15 text-info-ink',
+    magic_link: 'bg-chart-5/15 text-chart-5',
   };
   const labels = {
     whatsapp: 'WhatsApp',
@@ -325,7 +325,7 @@ function UserActions({
   const isPro = user.plan === 'premium';
 
   const itemClass =
-    'flex w-full cursor-pointer items-center gap-2 rounded-none px-4 py-2.5 text-left text-sm text-[#F0EFE8]/80 focus:bg-white/5 focus:text-[#F0EFE8]';
+    'flex w-full cursor-pointer items-center gap-2 rounded-none px-4 py-2.5 text-left text-sm text-foreground/80 focus:bg-foreground/5 focus:text-foreground';
 
   return (
     <DropdownMenu
@@ -338,7 +338,7 @@ function UserActions({
       }}
     >
       <DropdownMenuTrigger
-        className="rounded-md p-1.5 text-[#F0EFE8]/40 transition-colors hover:bg-white/5 hover:text-[#F0EFE8]"
+        className="rounded-md p-1.5 text-foreground/40 transition-colors hover:bg-foreground/5 hover:text-foreground"
         title="Acciones"
       >
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
@@ -351,11 +351,11 @@ function UserActions({
       <DropdownMenuContent
         align="end"
         sideOffset={4}
-        className="w-56 rounded-xl border border-white/10 bg-[#1A1A18] p-0 py-1 text-[#F0EFE8] shadow-xl shadow-black/40"
+        className="w-56 rounded-xl border border-border bg-surface-elevated p-0 py-1 text-foreground shadow-xl shadow-scrim/60"
       >
         {confirming && (
           <div className="p-3">
-            <p className="mb-3 text-xs text-[#F0EFE8]/70">
+            <p className="mb-3 text-xs text-foreground/70">
               {confirming === 'delete'
                 ? `Eliminar a ${etiquetaUsuario(user)}? Se borran TODOS sus datos. Irreversible.`
                 : confirming === 'deactivate'
@@ -367,7 +367,7 @@ function UserActions({
                 closeOnClick={false}
                 onClick={() => setConfirming(null)}
                 disabled={busy}
-                className="flex-1 justify-center rounded-lg border border-white/10 px-3 py-1.5 text-xs text-[#F0EFE8]/60 focus:bg-white/5"
+                className="flex-1 justify-center rounded-lg border border-border px-3 py-1.5 text-xs text-foreground/60 focus:bg-foreground/5"
               >
                 Cancelar
               </DropdownMenuItem>
@@ -382,10 +382,10 @@ function UserActions({
                 closeOnClick={false}
                 onClick={() => exec(confirming)}
                 disabled={busy}
-                className={`flex-1 justify-center rounded-lg px-3 py-1.5 text-xs font-medium text-white ${
+                className={`flex-1 justify-center rounded-lg px-3 py-1.5 text-xs font-medium ${
                   confirming === 'delete'
-                    ? 'bg-red-600 focus:bg-red-700'
-                    : 'bg-amber-600 focus:bg-amber-700'
+                    ? 'bg-negative text-negative-foreground focus:bg-negative/90'
+                    : 'bg-warning text-warning-foreground focus:bg-warning/90'
                 }`}
               >
                 {busy ? 'Procesando...' : 'Confirmar'}
@@ -401,11 +401,11 @@ function UserActions({
               disabled={busy}
               className={itemClass}
             >
-              <span className="text-[#F0EFE8]/40">&#128179;</span> Ver pagos / comprobante
-              {user.pago_pendiente && <span className="ml-auto rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-400">pendiente</span>}
+              <span className="text-foreground/40">&#128179;</span> Ver pagos / comprobante
+              {user.pago_pendiente && <span className="ml-auto rounded-full bg-warning/15 px-1.5 py-0.5 text-[10px] text-warning-ink">pendiente</span>}
             </DropdownMenuItem>
 
-            <DropdownMenuSeparator className="my-1 bg-white/5" />
+            <DropdownMenuSeparator className="my-1 bg-foreground/5" />
 
             {!isPro && (
               <DropdownMenuItem
@@ -413,7 +413,7 @@ function UserActions({
                 disabled={busy}
                 className={itemClass}
               >
-                <span className="text-[#1D9E75]">&#9733;</span> Activar Pro (30 dias)
+                <span className="text-primary">&#9733;</span> Activar Pro (30 dias)
               </DropdownMenuItem>
             )}
             {isPro && (
@@ -423,32 +423,32 @@ function UserActions({
                   disabled={busy}
                   className={itemClass}
                 >
-                  <span className="text-[#25D366]">&#128172;</span> Notificar Pro por WhatsApp
+                  <span className="text-positive">&#128172;</span> Notificar Pro por WhatsApp
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => exec('extend_premium', { days: 30 })}
                   disabled={busy}
                   className={itemClass}
                 >
-                  <span className="text-[#1D9E75]">+</span> Extender +30 dias
+                  <span className="text-primary">+</span> Extender +30 dias
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => exec('set_plan', { plan: 'free' })}
                   disabled={busy}
                   className={itemClass}
                 >
-                  <span className="text-[#F0EFE8]/40">&#9744;</span> Pasar a Free
+                  <span className="text-foreground/40">&#9744;</span> Pasar a Free
                 </DropdownMenuItem>
               </>
             )}
 
-            <DropdownMenuSeparator className="my-1 bg-white/5" />
+            <DropdownMenuSeparator className="my-1 bg-foreground/5" />
 
             <DropdownMenuItem
               closeOnClick={false}
               onClick={() => setConfirming('deactivate')}
               disabled={busy}
-              className={`${itemClass} text-amber-400/80 focus:text-amber-400`}
+              className={`${itemClass} text-warning/80 focus:text-warning`}
             >
               <span>&#9888;</span> Desactivar cuenta
             </DropdownMenuItem>
@@ -457,7 +457,7 @@ function UserActions({
               closeOnClick={false}
               onClick={() => setConfirming('delete')}
               disabled={busy}
-              className={`${itemClass} text-red-400/80 focus:text-red-400`}
+              className={`${itemClass} text-negative/80 focus:text-negative`}
             >
               <span>&#10005;</span> Eliminar usuario
             </DropdownMenuItem>
@@ -470,12 +470,12 @@ function UserActions({
 
 function PagoEstadoBadge({ estado }: { estado: string }) {
   const styles: Record<string, string> = {
-    aprobado: 'bg-[#1D9E75]/20 text-[#1D9E75]',
-    pendiente: 'bg-amber-500/15 text-amber-400',
-    rechazado: 'bg-red-500/15 text-red-400',
+    aprobado: 'bg-primary/20 text-primary-ink',
+    pendiente: 'bg-warning/15 text-warning-ink',
+    rechazado: 'bg-negative/15 text-negative-ink',
   };
   return (
-    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${styles[estado] || 'bg-white/5 text-[#F0EFE8]/50'}`}>
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${styles[estado] || 'bg-foreground/5 text-foreground/50'}`}>
       {estado}
     </span>
   );
@@ -550,15 +550,15 @@ function PaymentsModal({
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-scrim p-4" onClick={onClose}>
       <div
-        className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-white/10 bg-[#1A1A18] p-5 shadow-xl shadow-black/40"
+        className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-border bg-surface-elevated p-5 shadow-xl shadow-scrim/60"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-start justify-between">
           <div>
-            <h3 className="text-base font-semibold text-[#F0EFE8]">Pagos de {etiquetaUsuario(user)}</h3>
-            <p className="text-xs text-[#F0EFE8]/40">
+            <h3 className="text-base font-semibold text-foreground">Pagos de {etiquetaUsuario(user)}</h3>
+            <p className="text-xs text-foreground/40">
               {ESTADO_LABEL[estadoComercial(user)]}
               {estadoComercial(user) === 'pro_pagado' && user.premium_vence
                 ? ` · vence ${formatDate(user.premium_vence)}`
@@ -568,7 +568,7 @@ function PaymentsModal({
                 : ''}
             </p>
           </div>
-          <button onClick={onClose} className="rounded-md p-1 text-[#F0EFE8]/40 hover:bg-white/5 hover:text-[#F0EFE8]">
+          <button onClick={onClose} className="rounded-md p-1 text-foreground/40 hover:bg-foreground/5 hover:text-foreground">
             &#10005;
           </button>
         </div>
@@ -584,9 +584,9 @@ function PaymentsModal({
           se muestra cuando algo falla.
         */}
         {avisos.length > 0 && (
-          <div className="mb-4 space-y-1 rounded-xl border border-[#1D9E75]/20 bg-[#1D9E75]/[0.06] p-3 text-xs text-[#F0EFE8]/80">
+          <div className="mb-4 space-y-1 rounded-xl border border-primary/20 bg-primary/[0.06] p-3 text-xs text-foreground/80">
             {avisos.map((a, i) => (
-              <div key={i} className={a.tono === 'advertencia' ? 'font-medium text-amber-300' : undefined}>
+              <div key={i} className={a.tono === 'advertencia' ? 'font-medium text-warning' : undefined}>
                 {a.tono === 'advertencia' ? '\u26A0\uFE0F ' : '\u2022 '}{a.texto}
               </div>
             ))}
@@ -594,58 +594,58 @@ function PaymentsModal({
         )}
 
         {hasPending && (
-          <div className="mb-4 rounded-xl border border-amber-500/20 bg-amber-500/[0.06] p-3">
-            <div className="mb-2 text-sm font-medium text-amber-300">Pago pendiente de aprobación</div>
+          <div className="mb-4 rounded-xl border border-warning/20 bg-warning/[0.06] p-3">
+            <div className="mb-2 text-sm font-medium text-warning">Pago pendiente de aprobación</div>
             <div className="flex flex-wrap items-center gap-2">
               <select
                 value={planSel}
                 onChange={(e) => setPlanSel(e.target.value)}
                 className="form-input px-3 py-2 text-sm"
               >
-                <option value="mensual" className="bg-[#1A1A18]">Mensual (S/{PRO_PRICE_MONTHLY_PEN})</option>
-                <option value="anual" className="bg-[#1A1A18]">Anual (S/{PRO_PRICE_YEARLY_PEN})</option>
+                <option value="mensual" className="bg-surface-elevated">Mensual (S/{PRO_PRICE_MONTHLY_PEN})</option>
+                <option value="anual" className="bg-surface-elevated">Anual (S/{PRO_PRICE_YEARLY_PEN})</option>
               </select>
               <button
                 onClick={approve}
                 disabled={busy}
-                className="rounded-lg bg-[#1D9E75] px-4 py-2 text-sm font-medium text-white hover:bg-[#1D9E75]/80 disabled:opacity-50"
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/80 disabled:opacity-50"
               >
                 {busy ? 'Activando...' : 'Aprobar y notificar'}
               </button>
             </div>
-            <p className="mt-2 text-xs text-[#F0EFE8]/40">Activa Pro y le manda el WhatsApp de confirmación + link de Gmail.</p>
+            <p className="mt-2 text-xs text-foreground/40">Activa Pro y le manda el WhatsApp de confirmación + link de Gmail.</p>
           </div>
         )}
 
         {loading ? (
-          <div className="py-8 text-center text-sm text-[#F0EFE8]/40">Cargando...</div>
+          <div className="py-8 text-center text-sm text-foreground/40">Cargando...</div>
         ) : errorCarga ? (
-          <div className="py-8 text-center text-sm font-medium text-amber-300">
+          <div className="py-8 text-center text-sm font-medium text-warning">
             {'\u26A0\uFE0F '}No se pudo leer el historial de pagos. No es que no haya: reintenta antes de aprobar.
           </div>
         ) : pagos.length === 0 ? (
-          <div className="py-8 text-center text-sm text-[#F0EFE8]/40">Sin pagos registrados todavía.</div>
+          <div className="py-8 text-center text-sm text-foreground/40">Sin pagos registrados todavía.</div>
         ) : (
           <div className="space-y-3">
             {pagos.map((p) => (
-              <div key={p.id} className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
+              <div key={p.id} className="rounded-xl border border-border bg-foreground/[0.02] p-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <PagoEstadoBadge estado={p.estado} />
                     <span className="text-sm font-medium">
                       {p.monto != null ? `S/ ${Number(p.monto).toFixed(2)}` : '—'}
                     </span>
-                    <span className="text-xs text-[#F0EFE8]/40">{p.tipo_plan || '—'} · {p.metodo_pago || '—'}</span>
+                    <span className="text-xs text-foreground/40">{p.tipo_plan || '—'} · {p.metodo_pago || '—'}</span>
                     {p.origen && (
-                      <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${p.origen === 'webapp' ? 'bg-[#1D9E75]/15 text-[#1D9E75]' : 'bg-[#EF9F27]/15 text-[#EF9F27]'}`}>
+                      <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${p.origen === 'webapp' ? 'bg-primary/15 text-primary' : 'bg-warning/15 text-warning'}`}>
                         {p.origen === 'webapp' ? 'webapp' : 'whatsapp'}
                       </span>
                     )}
                   </div>
-                  <span className="text-xs text-[#F0EFE8]/30">{formatDateTime(p.created_at)}</span>
+                  <span className="text-xs text-foreground/30">{formatDateTime(p.created_at)}</span>
                 </div>
                 {(p.premium_desde || p.premium_vence) && (
-                  <div className="mt-1 text-xs text-[#F0EFE8]/40">
+                  <div className="mt-1 text-xs text-foreground/40">
                     {p.premium_desde ? `Desde ${formatDate(p.premium_desde)}` : ''}
                     {p.premium_vence ? ` · Vence ${formatDate(p.premium_vence)}` : ''}
                   </div>
@@ -661,11 +661,11 @@ function PaymentsModal({
                     <img
                       src={p.comprobante_signed_url}
                       alt="Comprobante de pago"
-                      className="max-h-40 rounded-lg border border-white/10 object-contain"
+                      className="max-h-40 rounded-lg border border-border object-contain"
                     />
                   </a>
                 ) : (
-                  <div className="mt-2 text-xs text-[#F0EFE8]/30">Sin comprobante adjunto</div>
+                  <div className="mt-2 text-xs text-foreground/30">Sin comprobante adjunto</div>
                 )}
               </div>
             ))}
@@ -683,7 +683,7 @@ function Toast({ message, onClose }: { message: string; onClose: () => void }) {
   }, [onClose]);
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 rounded-xl border border-white/10 bg-[#1A1A18] px-4 py-3 text-sm text-[#F0EFE8] shadow-xl shadow-black/40">
+    <div className="fixed bottom-6 right-6 z-50 rounded-xl border border-border bg-surface-elevated px-4 py-3 text-sm text-foreground shadow-xl shadow-scrim/60">
       {message}
     </div>
   );
@@ -694,7 +694,7 @@ function OperacionKpiSkeleton() {
     <>
       <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
+          <div key={i} className="rounded-xl border border-border bg-foreground/[0.02] p-4">
             <Skeleton className="h-3 w-16" />
             <Skeleton className="mt-2 h-7 w-24" />
             <Skeleton className="mt-2 h-3 w-20" />
@@ -703,7 +703,7 @@ function OperacionKpiSkeleton() {
       </div>
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
+          <div key={i} className="rounded-xl border border-border bg-foreground/[0.02] p-3">
             <Skeleton className="h-3 w-16" />
             <Skeleton className="mt-2 h-5 w-16" />
           </div>
@@ -1029,8 +1029,8 @@ export default function AdminOperacionPage() {
   return (
     <>
       <div className="mb-6">
-        <h2 className="text-xl font-semibold text-[#F0EFE8]">Operación</h2>
-        <p className="mt-1 text-sm text-[#8A877D]">
+        <h2 className="text-xl font-semibold text-foreground">Operación</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
           Usuarios, KPIs, embudo de onboarding, errores NLP y tickets de soporte.
         </p>
       </div>
@@ -1052,24 +1052,24 @@ export default function AdminOperacionPage() {
       <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div className="glass-card rounded-xl p-4">
           <div className="flex items-center justify-between">
-            <span className="text-xs text-[#8A877D]">MRR</span>
-            <span className="text-[10px] text-[#8A877D]" title="Ingreso anual recurrente">
+            <span className="text-xs text-muted-foreground">MRR</span>
+            <span className="text-[10px] text-muted-foreground" title="Ingreso anual recurrente">
               ARR S/{(stats?.kpis.arr ?? 0).toLocaleString('es-PE')}
             </span>
           </div>
-          <div className="mt-1 text-2xl font-semibold text-[#1D9E75]">
+          <div className="mt-1 text-2xl font-semibold text-primary">
             S/{stats?.kpis.mrr ?? '—'}
           </div>
-          <div className="mt-0.5 flex flex-wrap gap-x-2 text-xs text-[#8A877D]">
+          <div className="mt-0.5 flex flex-wrap gap-x-2 text-xs text-muted-foreground">
             <span>{stats?.kpis.proReal ?? totalPro ?? '—'} Pro</span>
-            <span className="text-[#5A584F]">·</span>
+            <span className="text-muted-foreground">·</span>
             <span>{stats?.kpis.proYearly ?? 0} anual</span>
             <span>{stats?.kpis.proMonthly ?? 0} mensual</span>
             {/* Sin esto, el MRR de esta pantalla baja S/18 sin ninguna explicación al lado y
                 se lee como un bug del panel. La misma nota vive pegada al KPI de MRR en
                 /admin/economics; acá faltaba, que es donde se mira todos los días. */}
             {(stats?.kpis.bajasDeclaradas ?? 0) > 0 && (
-              <span className="text-red-400">
+              <span className="text-negative">
                 {stats!.kpis.bajasDeclaradas} de baja sin contar
               </span>
             )}
@@ -1078,63 +1078,63 @@ export default function AdminOperacionPage() {
         {/* El detalle de este número (quién pagó) vive en /admin/pagos. */}
         <Link
           href="/admin/pagos"
-          className="glass-card block rounded-xl p-4 transition-colors hover:border-[rgba(29,158,117,0.35)]"
+          className="glass-card block rounded-xl p-4 transition-colors hover:border-primary/35"
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs text-[#8A877D]">Caja del mes</span>
-            <span className="text-[10px] text-[#1D9E75]">Ver pagos →</span>
+            <span className="text-xs text-muted-foreground">Caja del mes</span>
+            <span className="text-[10px] text-primary">Ver pagos →</span>
           </div>
-          <div className="mt-1 text-2xl font-semibold text-[#F0EFE8]">
+          <div className="mt-1 text-2xl font-semibold text-foreground">
             S/{stats?.kpis.cajaMes ?? '—'}
           </div>
-          <div className="mt-0.5 text-xs text-[#8A877D]">
+          <div className="mt-0.5 text-xs text-muted-foreground">
             Conversion {stats?.kpis.conversionRate ?? 0}% · {stats?.kpis.proReal ?? totalPro ?? '—'} de {numeroKpi(users.length)}
           </div>
         </Link>
         <div className="glass-card rounded-xl p-4">
-          <div className="text-xs text-[#8A877D]">Usuarios Activos</div>
+          <div className="text-xs text-muted-foreground">Usuarios Activos</div>
           <div className="mt-1 flex items-baseline gap-2">
             <span className="text-2xl font-semibold">{stats?.kpis.mau ?? '—'}</span>
-            <span className="text-xs text-[#8A877D]">MAU</span>
+            <span className="text-xs text-muted-foreground">MAU</span>
           </div>
-          <div className="mt-0.5 flex gap-3 text-xs text-[#8A877D]">
+          <div className="mt-0.5 flex gap-3 text-xs text-muted-foreground">
             <span>WAU: {stats?.kpis.wau ?? '—'}</span>
             <span>DAU: {stats?.kpis.dau ?? '—'}</span>
           </div>
         </div>
         <div className="glass-card rounded-xl p-4">
-          <div className="text-xs text-[#8A877D]">Txs / Usuario Activo</div>
+          <div className="text-xs text-muted-foreground">Txs / Usuario Activo</div>
           <div className="mt-1 text-2xl font-semibold">{stats?.kpis.txPerActiveUser ?? '—'}</div>
-          <div className="mt-0.5 text-xs text-[#8A877D]">{numeroKpi(totalTx)} txs total</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">{numeroKpi(totalTx)} txs total</div>
         </div>
       </div>
 
       {/* KPI Cards — Row 2: Secondary metrics */}
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div className="glass-card rounded-xl p-3">
-          <div className="text-xs text-[#8A877D]">Churn Rate</div>
-          <div className={`mt-1 text-lg font-semibold ${(stats?.kpis.churnRate ?? 0) > 10 ? 'text-[#D85A30]' : 'text-[#F0EFE8]'}`}>
+          <div className="text-xs text-muted-foreground">Churn Rate</div>
+          <div className={`mt-1 text-lg font-semibold ${(stats?.kpis.churnRate ?? 0) > 10 ? 'text-negative' : 'text-foreground'}`}>
             {stats?.kpis.churnRate ?? '—'}%
           </div>
         </div>
         <div className="glass-card rounded-xl p-3">
-          <div className="text-xs text-[#8A877D]">Avg 1a Transaccion</div>
+          <div className="text-xs text-muted-foreground">Avg 1a Transaccion</div>
           <div className="mt-1 text-lg font-semibold">
-            {stats?.kpis.avgTimeToFirstTx ?? '—'} <span className="text-xs font-normal text-[#8A877D]">dias</span>
+            {stats?.kpis.avgTimeToFirstTx ?? '—'} <span className="text-xs font-normal text-muted-foreground">dias</span>
           </div>
         </div>
         <div className="glass-card rounded-xl p-3">
-          <div className="text-xs text-[#8A877D]">Canales Webapp</div>
+          <div className="text-xs text-muted-foreground">Canales Webapp</div>
           <div className="mt-1 text-lg font-semibold">{numeroKpi(totalWebapp)}</div>
-          <div className="flex gap-2 text-xs text-[#8A877D]">
+          <div className="flex gap-2 text-xs text-muted-foreground">
             <span>Google: {numeroKpi(users.filter(u => u.canal === 'google').length)}</span>
             <span>ML: {numeroKpi(users.filter(u => u.canal === 'magic_link').length)}</span>
           </div>
         </div>
         <div className="glass-card rounded-xl p-3">
-          <div className="text-xs text-[#8A877D]">Total Usuarios</div>
+          <div className="text-xs text-muted-foreground">Total Usuarios</div>
           <div className="mt-1 text-lg font-semibold">{numeroKpi(users.length)}</div>
-          <div className="text-xs text-[#8A877D]">Onboarding: {stats?.funnel.onboardingComplete ?? '—'}</div>
+          <div className="text-xs text-muted-foreground">Onboarding: {stats?.funnel.onboardingComplete ?? '—'}</div>
         </div>
       </div>
 
@@ -1142,51 +1142,51 @@ export default function AdminOperacionPage() {
       {stats && (
         <div className="mb-6 grid gap-4 lg:grid-cols-3">
           <div className="glass-card rounded-xl p-4">
-            <h3 className="mb-3 text-sm font-medium text-[#F0EFE8]">Crecimiento Usuarios (12 semanas)</h3>
+            <h3 className="mb-3 text-sm font-medium text-foreground">Crecimiento Usuarios (12 semanas)</h3>
             <div className="h-48">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={stats.userGrowth} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
                   <defs>
                     <linearGradient id="gradFree" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#F0EFE8" stopOpacity={0.15} />
-                      <stop offset="95%" stopColor="#F0EFE8" stopOpacity={0} />
+                      <stop offset="5%" stopColor="var(--foreground)" stopOpacity={0.15} />
+                      <stop offset="95%" stopColor="var(--foreground)" stopOpacity={0} />
                     </linearGradient>
                     <linearGradient id="gradPro" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#1D9E75" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#1D9E75" stopOpacity={0} />
+                      <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="var(--primary)" stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                  <XAxis dataKey="week" tick={{ fill: '#F0EFE840', fontSize: 10 }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fill: '#F0EFE840', fontSize: 10 }} axisLine={false} tickLine={false} allowDecimals={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="color-mix(in srgb, var(--foreground) 5%, transparent)" />
+                  <XAxis dataKey="week" tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }} axisLine={false} tickLine={false} allowDecimals={false} />
                   <Tooltip
-                    contentStyle={{ background: '#1A1A17', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 12 }}
-                    labelStyle={{ color: '#F0EFE8' }}
+                    contentStyle={{ background: 'var(--surface-elevated)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }}
+                    labelStyle={{ color: 'var(--foreground)' }}
                   />
-                  <Area type="monotone" dataKey="free" stackId="1" stroke="#F0EFE860" fill="url(#gradFree)" name="Free" />
-                  <Area type="monotone" dataKey="pro" stackId="1" stroke="#1D9E75" fill="url(#gradPro)" name="Pro" />
+                  <Area type="monotone" dataKey="free" stackId="1" stroke="var(--muted-foreground)" fill="url(#gradFree)" name="Free" />
+                  <Area type="monotone" dataKey="pro" stackId="1" stroke="var(--primary)" fill="url(#gradPro)" name="Pro" />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
           </div>
 
           <div className="glass-card rounded-xl p-4">
-            <h3 className="mb-3 text-sm font-medium text-[#F0EFE8]">Embudo de Onboarding</h3>
+            <h3 className="mb-3 text-sm font-medium text-foreground">Embudo de Onboarding</h3>
             <div className="space-y-2.5">
               {[
-                { label: 'Registrados', value: stats.funnel.registered, color: '#F0EFE8' },
-                { label: 'Onboarding OK', value: stats.funnel.onboardingComplete, color: '#E8A838' },
-                { label: '1a Transaccion', value: stats.funnel.firstTransaction, color: '#D85A30' },
-                { label: 'Pro', value: stats.funnel.pro, color: '#1D9E75' },
+                { label: 'Registrados', value: stats.funnel.registered, color: 'var(--foreground)' },
+                { label: 'Onboarding OK', value: stats.funnel.onboardingComplete, color: 'var(--warning)' },
+                { label: '1a Transaccion', value: stats.funnel.firstTransaction, color: 'var(--negative)' },
+                { label: 'Pro', value: stats.funnel.pro, color: 'var(--primary)' },
               ].map((step) => {
                 const pct = stats.funnel.registered > 0 ? Math.round((step.value / stats.funnel.registered) * 100) : 0;
                 return (
                   <div key={step.label}>
                     <div className="mb-1 flex items-center justify-between text-xs">
-                      <span className="text-[#F0EFE8]/60">{step.label}</span>
-                      <span className="font-mono text-[#F0EFE8]/80">{step.value} <span className="text-[#F0EFE8]/30">({pct}%)</span></span>
+                      <span className="text-foreground/60">{step.label}</span>
+                      <span className="font-mono text-foreground/80">{step.value} <span className="text-foreground/30">({pct}%)</span></span>
                     </div>
-                    <div className="h-2 w-full overflow-hidden rounded-full bg-white/5">
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-foreground/5">
                       <div
                         className="h-full rounded-full transition-all duration-500"
                         style={{ width: `${pct}%`, backgroundColor: step.color }}
@@ -1197,11 +1197,11 @@ export default function AdminOperacionPage() {
               })}
             </div>
             {/* Webapp: métrica transversal (no downstream de 1a tx), fuera del embudo. */}
-            <div className="mt-3 flex items-center justify-between border-t border-white/5 pt-3 text-xs">
-              <span className="text-[#F0EFE8]/40">Cobertura webapp (Google + ML)</span>
-              <span className="font-mono text-[#818CF8]">
+            <div className="mt-3 flex items-center justify-between border-t border-border pt-3 text-xs">
+              <span className="text-foreground/40">Cobertura webapp (Google + ML)</span>
+              <span className="font-mono text-chart-5">
                 {stats.webappCoverage}
-                <span className="text-[#F0EFE8]/30">
+                <span className="text-foreground/30">
                   {' '}({stats.funnel.registered > 0 ? Math.round((stats.webappCoverage / stats.funnel.registered) * 100) : 0}%)
                 </span>
               </span>
@@ -1209,24 +1209,24 @@ export default function AdminOperacionPage() {
           </div>
 
           <div className="glass-card rounded-xl p-4">
-            <h3 className="mb-3 text-sm font-medium text-[#F0EFE8]">Errores NLP (30 dias)</h3>
+            <h3 className="mb-3 text-sm font-medium text-foreground">Errores NLP (30 dias)</h3>
             <div className="h-48">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={stats.nlpActivity} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="color-mix(in srgb, var(--foreground) 5%, transparent)" />
                   <XAxis
                     dataKey="date"
-                    tick={{ fill: '#F0EFE840', fontSize: 10 }}
+                    tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }}
                     axisLine={false}
                     tickLine={false}
                     interval={6}
                   />
-                  <YAxis tick={{ fill: '#F0EFE840', fontSize: 10 }} axisLine={false} tickLine={false} allowDecimals={false} />
+                  <YAxis tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }} axisLine={false} tickLine={false} allowDecimals={false} />
                   <Tooltip
-                    contentStyle={{ background: '#1A1A17', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 12 }}
-                    labelStyle={{ color: '#F0EFE8' }}
+                    contentStyle={{ background: 'var(--surface-elevated)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }}
+                    labelStyle={{ color: 'var(--foreground)' }}
                   />
-                  <Line type="monotone" dataKey="errors" stroke="#D85A30" strokeWidth={1.5} dot={false} name="Errores" />
+                  <Line type="monotone" dataKey="errors" stroke="var(--negative)" strokeWidth={1.5} dot={false} name="Errores" />
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -1237,13 +1237,13 @@ export default function AdminOperacionPage() {
       )}
 
       {/* Tabs */}
-      <div className="mb-4 flex gap-1 rounded-lg bg-white/[0.03] p-1 w-fit">
+      <div className="mb-4 flex gap-1 rounded-lg bg-foreground/[0.03] p-1 w-fit">
         <button
           onClick={() => setTab('users')}
           className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
             tab === 'users'
-              ? 'bg-[#1D9E75]/20 text-[#1D9E75]'
-              : 'text-[#F0EFE8]/50 hover:text-[#F0EFE8]'
+              ? 'bg-primary/20 text-primary-ink'
+              : 'text-foreground/50 hover:text-foreground'
           }`}
         >
           Usuarios ({usersFallo ? '—' : users.length})
@@ -1252,8 +1252,8 @@ export default function AdminOperacionPage() {
           onClick={() => setTab('feedback')}
           className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
             tab === 'feedback'
-              ? 'bg-[#1D9E75]/20 text-[#1D9E75]'
-              : 'text-[#F0EFE8]/50 hover:text-[#F0EFE8]'
+              ? 'bg-primary/20 text-primary-ink'
+              : 'text-foreground/50 hover:text-foreground'
           }`}
         >
           Feedback ({nlpFallo ? '—' : nlpDeGente.length})
@@ -1262,8 +1262,8 @@ export default function AdminOperacionPage() {
           onClick={() => setTab('nlp')}
           className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
             tab === 'nlp'
-              ? 'bg-[#1D9E75]/20 text-[#1D9E75]'
-              : 'text-[#F0EFE8]/50 hover:text-[#F0EFE8]'
+              ? 'bg-primary/20 text-primary-ink'
+              : 'text-foreground/50 hover:text-foreground'
           }`}
         >
           {/* El contador del tab también miente en el fallo: "NLP Errors (0)" se lee como
@@ -1274,8 +1274,8 @@ export default function AdminOperacionPage() {
           onClick={() => setTab('tickets')}
           className={`rounded-md px-4 py-2 text-sm font-medium transition-colors ${
             tab === 'tickets'
-              ? 'bg-[#1D9E75]/20 text-[#1D9E75]'
-              : 'text-[#F0EFE8]/50 hover:text-[#F0EFE8]'
+              ? 'bg-primary/20 text-primary-ink'
+              : 'text-foreground/50 hover:text-foreground'
           }`}
         >
           Tickets (
@@ -1309,7 +1309,7 @@ export default function AdminOperacionPage() {
               />
               <button
                 onClick={handleExportCSV}
-                className="rounded-lg border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm text-[#F0EFE8]/70 hover:bg-white/5 hover:text-[#F0EFE8] transition-colors"
+                className="rounded-lg border border-border bg-foreground/[0.03] px-4 py-2.5 text-sm text-foreground/70 hover:bg-foreground/5 hover:text-foreground transition-colors"
               >
                 Exportar CSV
               </button>
@@ -1320,59 +1320,59 @@ export default function AdminOperacionPage() {
                 onChange={(e) => setUserPlanFilter(e.target.value)}
                 className="form-input px-3 py-2 text-sm"
               >
-                <option value="todos" className="bg-[#1A1A18]">Estado: Todos</option>
-                <option value="pro" className="bg-[#1A1A18]">Pro pagado</option>
-                <option value="cortesia" className="bg-[#1A1A18]">Pro cortesía</option>
-                <option value="trial" className="bg-[#1A1A18]">En prueba</option>
-                <option value="muro" className="bg-[#1A1A18]">En el muro</option>
+                <option value="todos" className="bg-surface-elevated">Estado: Todos</option>
+                <option value="pro" className="bg-surface-elevated">Pro pagado</option>
+                <option value="cortesia" className="bg-surface-elevated">Pro cortesía</option>
+                <option value="trial" className="bg-surface-elevated">En prueba</option>
+                <option value="muro" className="bg-surface-elevated">En el muro</option>
               </select>
               <select
                 value={userOnboardingFilter}
                 onChange={(e) => setUserOnboardingFilter(e.target.value)}
                 className="form-input px-3 py-2 text-sm"
               >
-                <option value="todos" className="bg-[#1A1A18]">Onboarding: Todos</option>
-                <option value="completado" className="bg-[#1A1A18]">Completado</option>
-                <option value="pendiente" className="bg-[#1A1A18]">Pendiente</option>
+                <option value="todos" className="bg-surface-elevated">Onboarding: Todos</option>
+                <option value="completado" className="bg-surface-elevated">Completado</option>
+                <option value="pendiente" className="bg-surface-elevated">Pendiente</option>
               </select>
               <select
                 value={userGmailFilter}
                 onChange={(e) => setUserGmailFilter(e.target.value)}
                 className="form-input px-3 py-2 text-sm"
               >
-                <option value="todos" className="bg-[#1A1A18]">Gmail: Todos</option>
-                <option value="conectado" className="bg-[#1A1A18]">Conectado</option>
-                <option value="no conectado" className="bg-[#1A1A18]">No conectado</option>
+                <option value="todos" className="bg-surface-elevated">Gmail: Todos</option>
+                <option value="conectado" className="bg-surface-elevated">Conectado</option>
+                <option value="no conectado" className="bg-surface-elevated">No conectado</option>
               </select>
               <select
                 value={userWebappFilter}
                 onChange={(e) => setUserWebappFilter(e.target.value)}
                 className="form-input px-3 py-2 text-sm"
               >
-                <option value="todos" className="bg-[#1A1A18]">Webapp: Todos</option>
-                <option value="conectado" className="bg-[#1A1A18]">Conectado</option>
-                <option value="no conectado" className="bg-[#1A1A18]">No conectado</option>
+                <option value="todos" className="bg-surface-elevated">Webapp: Todos</option>
+                <option value="conectado" className="bg-surface-elevated">Conectado</option>
+                <option value="no conectado" className="bg-surface-elevated">No conectado</option>
               </select>
               <select
                 value={userCanalFilter}
                 onChange={(e) => setUserCanalFilter(e.target.value)}
                 className="form-input px-3 py-2 text-sm"
               >
-                <option value="todos" className="bg-[#1A1A18]">Canal: Todos</option>
-                <option value="whatsapp" className="bg-[#1A1A18]">Solo WhatsApp</option>
-                <option value="google" className="bg-[#1A1A18]">Google OAuth</option>
-                <option value="magic_link" className="bg-[#1A1A18]">Magic Link</option>
+                <option value="todos" className="bg-surface-elevated">Canal: Todos</option>
+                <option value="whatsapp" className="bg-surface-elevated">Solo WhatsApp</option>
+                <option value="google" className="bg-surface-elevated">Google OAuth</option>
+                <option value="magic_link" className="bg-surface-elevated">Magic Link</option>
               </select>
               {(userPlanFilter !== 'todos' || userOnboardingFilter !== 'todos' || userGmailFilter !== 'todos' || userWebappFilter !== 'todos' || userCanalFilter !== 'todos') && (
                 <button
                   onClick={() => { setUserPlanFilter('todos'); setUserOnboardingFilter('todos'); setUserGmailFilter('todos'); setUserWebappFilter('todos'); setUserCanalFilter('todos'); }}
-                  className="rounded-lg border border-white/10 px-3 py-2 text-xs text-[#F0EFE8]/50 hover:bg-white/5 hover:text-[#F0EFE8]"
+                  className="rounded-lg border border-border px-3 py-2 text-xs text-foreground/50 hover:bg-foreground/5 hover:text-foreground"
                 >
                   Limpiar filtros
                 </button>
               )}
             </div>
-            <div className="text-xs text-[#8A877D]">
+            <div className="text-xs text-muted-foreground">
               {filteredUsers.length} de {users.length} usuarios
               {filteredUsers.length > USERS_PAGE_SIZE && (
                 <>
@@ -1388,21 +1388,21 @@ export default function AdminOperacionPage() {
           <div className="hidden glass-card md:block overflow-hidden">
             <div className="max-h-[65vh] overflow-auto">
             <table className="w-full text-sm">
-              <thead className="sticky top-0 z-10 bg-[#131311]">
-                <tr className="border-b border-white/10">
-                  <th className="px-4 py-3 text-left text-xs font-medium text-[#F0EFE8]/40">Usuario</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-[#F0EFE8]/40">WhatsApp</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-[#F0EFE8]/40">Plan</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-[#F0EFE8]/40">Pago</th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-[#F0EFE8]/40">Gmail</th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-[#F0EFE8]/40">Webapp</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-[#F0EFE8]/40">Txs</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-[#F0EFE8]/40">Canal</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-[#F0EFE8]/40">Registro</th>
+              <thead className="sticky top-0 z-10 bg-card">
+                <tr className="border-b border-border">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-foreground/40">Usuario</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-foreground/40">WhatsApp</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-foreground/40">Plan</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-foreground/40">Pago</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-foreground/40">Gmail</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-foreground/40">Webapp</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-foreground/40">Txs</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-foreground/40">Canal</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-foreground/40">Registro</th>
                   <th className="w-10 px-2 py-3" />
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/5">
+              <tbody className="divide-y divide-border">
                 {usersQuery.isLoading && users.length === 0 &&
                   Array.from({ length: 8 }).map((_, i) => (
                     <tr key={`sk-${i}`}>
@@ -1412,36 +1412,36 @@ export default function AdminOperacionPage() {
                     </tr>
                   ))}
                 {pagedUsers.map((u) => (
-                  <tr key={u.id} className="hover:bg-white/[0.02] transition-colors">
+                  <tr key={u.id} className="hover:bg-foreground/[0.02] transition-colors">
                     <td className="px-4 py-3">
                       <div className="font-medium">{u.nombre || 'Sin nombre'}</div>
-                      <div className="text-xs text-[#F0EFE8]/40">{u.email || '—'}</div>
+                      <div className="text-xs text-foreground/40">{u.email || '—'}</div>
                     </td>
                     <td className="px-4 py-3 font-mono text-xs">{u.whatsapp}</td>
                     <td className="px-4 py-3">
                       <PlanBadge estado={estadoComercial(u)} bajaAt={u.cuenta_borrada_at} />
                       {/* El tipo de plan es del que PAGA: "Anual" sobre una prueba no significa nada. */}
                       {estadoComercial(u) === 'pro_pagado' && (
-                        <div className="mt-1 text-[10px] uppercase tracking-wide text-[#F0EFE8]/40">
+                        <div className="mt-1 text-[10px] uppercase tracking-wide text-foreground/40">
                           {u.tipo_plan === 'anual' ? 'Anual' : 'Mensual'}
                         </div>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-xs text-[#F0EFE8]/50">
+                    <td className="px-4 py-3 text-xs text-foreground/50">
                       {estadoComercial(u) === 'pro_pagado' ? (
                         <div>
                           <div>{u.fecha_pago ? `Pagó ${formatDate(u.fecha_pago)}` : (u.estado_pago || '—')}</div>
                           {u.premium_vence && (() => {
                             const daysLeft = Math.ceil((new Date(u.premium_vence).getTime() - Date.now()) / 86400000);
                             return (
-                              <div className={daysLeft <= 7 ? 'text-[#E85D3A] font-medium' : 'text-[#F0EFE8]/30'}>
+                              <div className={daysLeft <= 7 ? 'text-negative font-medium' : 'text-foreground/30'}>
                                 {daysLeft <= 0 ? 'Vencido' : daysLeft <= 7 ? `Vence en ${daysLeft}d` : `Vence: ${formatDate(u.premium_vence)}`}
                               </div>
                             );
                           })()}
                         </div>
                       ) : u.pago_pendiente ? (
-                        <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-amber-400">Pendiente</span>
+                        <span className="rounded-full bg-warning/15 px-2 py-0.5 text-warning-ink">Pendiente</span>
                       ) : (
                         '—'
                       )}
@@ -1450,7 +1450,7 @@ export default function AdminOperacionPage() {
                     <td className="px-4 py-3 text-center"><StatusDot active={u.tiene_webapp} /></td>
                     <td className="px-4 py-3 text-right font-mono text-xs">{u.transacciones}</td>
                     <td className="px-4 py-3"><CanalBadge canal={u.canal} /></td>
-                    <td className="px-4 py-3 text-xs text-[#F0EFE8]/40">{formatDateTime(u.created_at)}</td>
+                    <td className="px-4 py-3 text-xs text-foreground/40">{formatDateTime(u.created_at)}</td>
                     <td className="px-2 py-3"><UserActions user={u} onAction={handleUserAction} /></td>
                   </tr>
                 ))}
@@ -1467,7 +1467,7 @@ export default function AdminOperacionPage() {
                 <div className="flex items-start justify-between">
                   <div>
                     <div className="font-medium">{u.nombre || 'Sin nombre'}</div>
-                    <div className="text-xs text-[#F0EFE8]/40">{u.email || '—'}</div>
+                    <div className="text-xs text-foreground/40">{u.email || '—'}</div>
                   </div>
                   <div className="flex items-center gap-2">
                     <PlanBadge estado={estadoComercial(u)} bajaAt={u.cuenta_borrada_at} />
@@ -1475,21 +1475,21 @@ export default function AdminOperacionPage() {
                   </div>
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                  <div><span className="text-[#F0EFE8]/40">WhatsApp:</span> <span className="font-mono">{u.whatsapp}</span></div>
-                  <div><span className="text-[#F0EFE8]/40">Txs:</span> {u.transacciones}</div>
-                  <div className="flex items-center gap-1.5"><StatusDot active={u.tiene_gmail} warn={u.gmail_caido} title={gmailTitle(u)} /><span className="text-[#F0EFE8]/40">Gmail</span></div>
-                  <div className="flex items-center gap-1.5"><StatusDot active={u.tiene_webapp} /><span className="text-[#F0EFE8]/40">Webapp</span></div>
+                  <div><span className="text-foreground/40">WhatsApp:</span> <span className="font-mono">{u.whatsapp}</span></div>
+                  <div><span className="text-foreground/40">Txs:</span> {u.transacciones}</div>
+                  <div className="flex items-center gap-1.5"><StatusDot active={u.tiene_gmail} warn={u.gmail_caido} title={gmailTitle(u)} /><span className="text-foreground/40">Gmail</span></div>
+                  <div className="flex items-center gap-1.5"><StatusDot active={u.tiene_webapp} /><span className="text-foreground/40">Webapp</span></div>
                   <div className="flex items-center gap-1.5"><CanalBadge canal={u.canal} /></div>
                   {estadoComercial(u) === 'pro_pagado' && u.premium_vence && (() => {
                     const daysLeft = Math.ceil((new Date(u.premium_vence).getTime() - Date.now()) / 86400000);
                     return (
-                      <div className={`col-span-2 ${daysLeft <= 7 ? 'text-[#E85D3A] font-medium' : ''}`}>
-                        <span className="text-[#F0EFE8]/40">Vence:</span>{' '}
+                      <div className={`col-span-2 ${daysLeft <= 7 ? 'text-negative font-medium' : ''}`}>
+                        <span className="text-foreground/40">Vence:</span>{' '}
                         {daysLeft <= 0 ? 'Vencido' : daysLeft <= 7 ? `en ${daysLeft} dias` : formatDate(u.premium_vence)}
                       </div>
                     );
                   })()}
-                  <div className="col-span-2 text-[#F0EFE8]/30">Registro: {formatDateTime(u.created_at)}</div>
+                  <div className="col-span-2 text-foreground/30">Registro: {formatDateTime(u.created_at)}</div>
                 </div>
               </div>
             ))}
@@ -1500,17 +1500,17 @@ export default function AdminOperacionPage() {
               <button
                 onClick={() => setUserPage(Math.max(0, userPage - 1))}
                 disabled={userPage === 0}
-                className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-[#8A877D] hover:bg-white/5 hover:text-[#F0EFE8] disabled:opacity-30"
+                className="rounded-lg border border-border px-3 py-1.5 text-xs text-muted-foreground hover:bg-foreground/5 hover:text-foreground disabled:opacity-30"
               >
                 Anterior
               </button>
-              <span className="text-xs text-[#8A877D]">
+              <span className="text-xs text-muted-foreground">
                 Página {userPage + 1} de {totalUserPages}
               </span>
               <button
                 onClick={() => setUserPage(Math.min(totalUserPages - 1, userPage + 1))}
                 disabled={userPage >= totalUserPages - 1}
-                className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-[#8A877D] hover:bg-white/5 hover:text-[#F0EFE8] disabled:opacity-30"
+                className="rounded-lg border border-border px-3 py-1.5 text-xs text-muted-foreground hover:bg-foreground/5 hover:text-foreground disabled:opacity-30"
               >
                 Siguiente
               </button>
@@ -1563,9 +1563,9 @@ export default function AdminOperacionPage() {
                 onChange={(e) => setNlpTipoFilter(e.target.value)}
                 className="form-input px-3 py-2 text-sm"
               >
-                <option value="all" className="bg-[#1A1A18]">Todos los tipos</option>
+                <option value="all" className="bg-surface-elevated">Todos los tipos</option>
                 {tiposUnicos.map((t) => (
-                  <option key={t} value={t} className="bg-[#1A1A18]">{t}</option>
+                  <option key={t} value={t} className="bg-surface-elevated">{t}</option>
                 ))}
               </select>
               <select
@@ -1573,15 +1573,15 @@ export default function AdminOperacionPage() {
                 onChange={(e) => setNlpUserFilter(e.target.value)}
                 className="form-input px-3 py-2 text-sm"
               >
-                <option value="all" className="bg-[#1A1A18]">Todos los usuarios</option>
+                <option value="all" className="bg-surface-elevated">Todos los usuarios</option>
                 {usersUnicos.map((w) => (
-                  <option key={w} value={w} className="bg-[#1A1A18]">{whatsappToName[w] || w}</option>
+                  <option key={w} value={w} className="bg-surface-elevated">{whatsappToName[w] || w}</option>
                 ))}
               </select>
               {(nlpSearch || nlpTipoFilter !== 'all' || nlpUserFilter !== 'all') && (
                 <button
                   onClick={() => { setNlpSearch(''); setNlpTipoFilter('all'); setNlpUserFilter('all'); }}
-                  className="rounded-lg border border-white/10 px-3 py-2 text-xs text-[#F0EFE8]/50 hover:bg-white/5 hover:text-[#F0EFE8]"
+                  className="rounded-lg border border-border px-3 py-2 text-xs text-foreground/50 hover:bg-foreground/5 hover:text-foreground"
                 >
                   Limpiar filtros
                 </button>
@@ -1591,7 +1591,7 @@ export default function AdminOperacionPage() {
             {/* Este contador quedaba FUERA del ternario de abajo, así que con la lectura
                 caída imprimía "0 de 0 errores NLP reales" justo encima del ErrorState que
                 dice que falló: la página se contradecía en dos líneas seguidas. */}
-            <div className="flex flex-wrap items-center gap-2 text-xs text-[#F0EFE8]/40">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-foreground/40">
               {nlpFallo ? (
                 <span>No se pudo leer el conteo de {esFeedback ? 'los mensajes' : 'errores NLP'}</span>
               ) : (
@@ -1599,7 +1599,7 @@ export default function AdminOperacionPage() {
               )}
               {/* El rate-limit es infra del parser: no tiene nada que hacer en Feedback. */}
               {!nlpFallo && !esFeedback && nlpRateLimit > 0 && (
-                <span className="rounded-full bg-white/5 px-2 py-0.5 text-[#F0EFE8]/50" title="Errores 429 de OpenAI (saturación de tokens). Es infra, no NLP. Se muestran aparte.">
+                <span className="rounded-full bg-foreground/5 px-2 py-0.5 text-foreground/50" title="Errores 429 de OpenAI (saturación de tokens). Es infra, no NLP. Se muestran aparte.">
                   + {nlpRateLimit} rate-limit (infra, oculto)
                 </span>
               )}
@@ -1610,7 +1610,7 @@ export default function AdminOperacionPage() {
             {!esFeedback && origen.length > 0 && nlpTipoFilter === 'all' && nlpUserFilter === 'all' && !nlpSearch && (
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="glass-card rounded-xl p-4">
-                  <h4 className="mb-2 text-xs font-medium text-[#F0EFE8]/50">Top 5 mensajes que fallan</h4>
+                  <h4 className="mb-2 text-xs font-medium text-foreground/50">Top 5 mensajes que fallan</h4>
                   {(() => {
                     const msgCounts: Record<string, number> = {};
                     for (const err of nlpErrors) {
@@ -1624,11 +1624,11 @@ export default function AdminOperacionPage() {
                         {sorted.map(([msg, count]) => (
                           <div key={msg}>
                             <div className="flex items-center justify-between text-xs">
-                              <span className="max-w-[200px] truncate text-[#F0EFE8]/60">&ldquo;{msg}&rdquo;</span>
-                              <span className="font-mono text-[#F0EFE8]/40">{count}x</span>
+                              <span className="max-w-[200px] truncate text-foreground/60">&ldquo;{msg}&rdquo;</span>
+                              <span className="font-mono text-foreground/40">{count}x</span>
                             </div>
-                            <div className="mt-0.5 h-1 w-full overflow-hidden rounded-full bg-white/5">
-                              <div className="h-full rounded-full bg-[#E85D3A]/60" style={{ width: `${(count / maxCount) * 100}%` }} />
+                            <div className="mt-0.5 h-1 w-full overflow-hidden rounded-full bg-foreground/5">
+                              <div className="h-full rounded-full bg-negative/60" style={{ width: `${(count / maxCount) * 100}%` }} />
                             </div>
                           </div>
                         ))}
@@ -1638,7 +1638,7 @@ export default function AdminOperacionPage() {
                 </div>
 
                 <div className="glass-card rounded-xl p-4">
-                  <h4 className="mb-2 text-xs font-medium text-[#F0EFE8]/50">Errores por tipo</h4>
+                  <h4 className="mb-2 text-xs font-medium text-foreground/50">Errores por tipo</h4>
                   {(() => {
                     const tipoCounts: Record<string, number> = {};
                     for (const err of nlpErrors) {
@@ -1649,9 +1649,9 @@ export default function AdminOperacionPage() {
                         {Object.entries(tipoCounts).sort((a, b) => b[1] - a[1]).map(([tipo, count]) => (
                           <div key={tipo} className="flex items-center justify-between text-xs">
                             <span className={`rounded-full px-2 py-0.5 ${
-                              tipo === 'error' ? 'bg-red-500/10 text-red-400' : 'bg-amber-500/10 text-amber-400'
+                              tipo === 'error' ? 'bg-negative/10 text-negative-ink' : 'bg-warning/10 text-warning-ink'
                             }`}>{tipo}</span>
-                            <span className="font-mono text-[#F0EFE8]/40">{count}</span>
+                            <span className="font-mono text-foreground/40">{count}</span>
                           </div>
                         ))}
                       </div>
@@ -1671,7 +1671,7 @@ export default function AdminOperacionPage() {
                 onReintentar={() => nlpQuery.refetch()}
               />
             ) : filtered.length === 0 ? (
-              <div className="glass-card rounded-xl p-8 text-center text-[#8A877D]">
+              <div className="glass-card rounded-xl p-8 text-center text-muted-foreground">
                 {origen.length === 0
                   ? (esFeedback ? 'Todavía nadie dejó feedback ni una queja.' : 'No hay errores NLP registrados aun.')
                   : (esFeedback ? 'Ningún mensaje coincide con los filtros.' : 'Ningun error coincide con los filtros.')}
@@ -1687,18 +1687,18 @@ export default function AdminOperacionPage() {
                 <div key={err.id} className="glass-card rounded-xl p-4">
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
-                      <div className="rounded-lg bg-white/[0.03] px-3 py-2 text-sm">&ldquo;{err.mensaje}&rdquo;</div>
+                      <div className="rounded-lg bg-foreground/[0.03] px-3 py-2 text-sm">&ldquo;{err.mensaje}&rdquo;</div>
                       <div className="mt-2 flex flex-wrap gap-2 text-xs">
                         <span className={`rounded-full px-2 py-0.5 ${
-                          err.error_tipo === 'error' ? 'bg-red-500/10 text-red-400' : 'bg-amber-500/10 text-amber-400'
+                          err.error_tipo === 'error' ? 'bg-negative/10 text-negative-ink' : 'bg-warning/10 text-warning-ink'
                         }`}>{err.error_tipo}</span>
                         {err.intencion && (
-                          <span className="rounded-full bg-white/5 px-2 py-0.5 text-[#F0EFE8]/50">Intento: {err.intencion}</span>
+                          <span className="rounded-full bg-foreground/5 px-2 py-0.5 text-foreground/50">Intento: {err.intencion}</span>
                         )}
                         {err.whatsapp && (
                           <button
                             onClick={() => setNlpUserFilter(err.whatsapp!)}
-                            className="font-mono text-[#F0EFE8]/30 hover:text-[#1D9E75] transition-colors"
+                            className="font-mono text-foreground/30 hover:text-primary transition-colors"
                             title="Filtrar por este usuario"
                           >
                             {whatsappToName[err.whatsapp] || err.whatsapp}
@@ -1706,14 +1706,14 @@ export default function AdminOperacionPage() {
                         )}
                       </div>
                       {err.error_detalle && (
-                        <div className="mt-1 text-xs text-[#F0EFE8]/30">{err.error_detalle}</div>
+                        <div className="mt-1 text-xs text-foreground/30">{err.error_detalle}</div>
                       )}
 
                       {/* Solo lo que ESPERA respuesta. Un rate-limit o un "desconocido" son
                           diagnostico, no alguien escribiendo: un boton de responder ahi invita a
                           contestarle a quien no pregunto nada. */}
                       {ESPERAN_RESPUESTA.has(err.error_tipo) && err.whatsapp && (
-                        <div className="mt-3 border-t border-white/5 pt-3">
+                        <div className="mt-3 border-t border-border pt-3">
                           {nlpReplyTo === err.id ? (
                             <div className="space-y-2">
                               <textarea
@@ -1726,7 +1726,7 @@ export default function AdminOperacionPage() {
                               />
                               {/* El checkbox murió: el ticket se crea siempre (es el registro),
                                   y la escucha se cierra sola por inactividad. */}
-                              <p className="text-xs text-[#F0EFE8]/40">
+                              <p className="text-xs text-foreground/40">
                                 Le llega por WhatsApp como Neto y queda guardado en el hilo. Lo que conteste en las
                                 próximas 2 horas te vuelve acá; después su asistente sigue normal.
                               </p>
@@ -1734,13 +1734,13 @@ export default function AdminOperacionPage() {
                                 <button
                                   onClick={() => handleNlpReply(err, whatsappToName[err.whatsapp!] || null)}
                                   disabled={nlpReplyBusy || !nlpReplyText.trim()}
-                                  className="rounded-lg bg-[#1D9E75] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#1D9E75]/80 disabled:opacity-50 transition-colors"
+                                  className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/80 disabled:opacity-50 transition-colors"
                                 >
                                   {nlpReplyBusy ? '...' : 'Enviar'}
                                 </button>
                                 <button
                                   onClick={() => setNlpReplyTo(null)}
-                                  className="rounded-lg bg-white/5 px-3 py-1.5 text-xs text-[#F0EFE8]/60 hover:bg-white/10 transition-colors"
+                                  className="rounded-lg bg-foreground/5 px-3 py-1.5 text-xs text-foreground/60 hover:bg-foreground/10 transition-colors"
                                 >
                                   Cancelar
                                 </button>
@@ -1749,7 +1749,7 @@ export default function AdminOperacionPage() {
                           ) : (
                             <button
                               onClick={() => { setNlpReplyTo(err.id); setNlpReplyText(''); }}
-                              className="rounded-lg bg-white/5 px-3 py-1.5 text-xs text-[#F0EFE8]/70 hover:bg-white/10 transition-colors"
+                              className="rounded-lg bg-foreground/5 px-3 py-1.5 text-xs text-foreground/70 hover:bg-foreground/10 transition-colors"
                             >
                               Responder como Neto
                             </button>
@@ -1757,7 +1757,7 @@ export default function AdminOperacionPage() {
                         </div>
                       )}
                     </div>
-                    <div className="ml-3 whitespace-nowrap text-xs text-[#F0EFE8]/30">{formatDateTime(err.created_at)}</div>
+                    <div className="ml-3 whitespace-nowrap text-xs text-foreground/30">{formatDateTime(err.created_at)}</div>
                   </div>
                 </div>
               ))
@@ -1773,10 +1773,10 @@ export default function AdminOperacionPage() {
 
         const estadoBadge = (estado: string) => {
           const styles: Record<string, string> = {
-            esperando_mensaje: 'bg-yellow-500/10 text-yellow-400',
-            pendiente: 'bg-orange-500/10 text-orange-400',
-            respondido: 'bg-[#1D9E75]/10 text-[#1D9E75]',
-            cerrado: 'bg-white/5 text-[#F0EFE8]/40',
+            esperando_mensaje: 'bg-warning/10 text-warning-ink',
+            pendiente: 'bg-warning/10 text-warning-ink',
+            respondido: 'bg-primary/10 text-primary-ink',
+            cerrado: 'bg-foreground/5 text-foreground/40',
           };
           const labels: Record<string, string> = {
             esperando_mensaje: 'Esperando',
@@ -1785,7 +1785,7 @@ export default function AdminOperacionPage() {
             cerrado: 'Cerrado',
           };
           return (
-            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${styles[estado] || 'bg-white/5 text-[#F0EFE8]/40'}`}>
+            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${styles[estado] || 'bg-foreground/5 text-foreground/40'}`}>
               {labels[estado] || estado}
             </span>
           );
@@ -1811,23 +1811,23 @@ export default function AdminOperacionPage() {
                 onChange={(e) => { setTicketEstadoFilter(e.target.value); setTicketPage(0); }}
                 className="form-input px-3 py-2 text-sm"
               >
-                <option value="todos" className="bg-[#1A1A18]">Todos los estados</option>
-                <option value="esperando_mensaje" className="bg-[#1A1A18]">Esperando mensaje</option>
-                <option value="pendiente" className="bg-[#1A1A18]">Pendiente</option>
-                <option value="respondido" className="bg-[#1A1A18]">Respondido</option>
-                <option value="cerrado" className="bg-[#1A1A18]">Cerrado</option>
+                <option value="todos" className="bg-surface-elevated">Todos los estados</option>
+                <option value="esperando_mensaje" className="bg-surface-elevated">Esperando mensaje</option>
+                <option value="pendiente" className="bg-surface-elevated">Pendiente</option>
+                <option value="respondido" className="bg-surface-elevated">Respondido</option>
+                <option value="cerrado" className="bg-surface-elevated">Cerrado</option>
               </select>
               {(ticketSearch || ticketEstadoFilter !== 'todos') && (
                 <button
                   onClick={() => { setTicketSearch(''); setTicketEstadoFilter('todos'); setTicketPage(0); }}
-                  className="rounded-lg border border-white/10 px-3 py-2 text-xs text-[#F0EFE8]/50 hover:bg-white/5 hover:text-[#F0EFE8]"
+                  className="rounded-lg border border-border px-3 py-2 text-xs text-foreground/50 hover:bg-foreground/5 hover:text-foreground"
                 >
                   Limpiar filtros
                 </button>
               )}
             </div>
 
-            <div className="text-xs text-[#F0EFE8]/40">
+            <div className="text-xs text-foreground/40">
               {ticketsFallo ? (
                 'No se pudo leer el conteo de tickets'
               ) : (
@@ -1848,7 +1848,7 @@ export default function AdminOperacionPage() {
                 onReintentar={() => ticketsQuery.refetch()}
               />
             ) : tickets.length === 0 ? (
-              <div className="glass-card rounded-xl p-8 text-center text-[#8A877D]">
+              <div className="glass-card rounded-xl p-8 text-center text-muted-foreground">
                 No hay tickets de soporte.
               </div>
             ) : (
@@ -1856,36 +1856,36 @@ export default function AdminOperacionPage() {
                 <div className="hidden overflow-x-auto glass-card md:block">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="border-b border-white/5 bg-white/[0.02]">
-                        <th className="px-4 py-3 text-left text-xs font-medium text-[#F0EFE8]/40">Usuario</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-[#F0EFE8]/40">WhatsApp</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-[#F0EFE8]/40">Mensaje</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-[#F0EFE8]/40">Estado</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-[#F0EFE8]/40">Fecha</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-[#F0EFE8]/40">Acciones</th>
+                      <tr className="border-b border-border bg-foreground/[0.02]">
+                        <th className="px-4 py-3 text-left text-xs font-medium text-foreground/40">Usuario</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-foreground/40">WhatsApp</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-foreground/40">Mensaje</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-foreground/40">Estado</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-foreground/40">Fecha</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-foreground/40">Acciones</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-white/5">
+                    <tbody className="divide-y divide-border">
                       {tickets.map((t) => (
-                        <tr key={t.id} className="hover:bg-white/[0.02] transition-colors">
+                        <tr key={t.id} className="hover:bg-foreground/[0.02] transition-colors">
                           <td className="px-4 py-3 text-sm">
                             {t.whatsapp ? (whatsappToName[t.whatsapp] || 'Sin nombre') : '—'}
                           </td>
                           <td className="px-4 py-3 font-mono text-xs">{t.whatsapp || '—'}</td>
                           <td className="max-w-xs px-4 py-3">
-                            <div className="truncate text-sm">{t.mensaje_usuario || <span className="text-[#F0EFE8]/30">(sin mensaje aún)</span>}</div>
+                            <div className="truncate text-sm">{t.mensaje_usuario || <span className="text-foreground/30">(sin mensaje aún)</span>}</div>
                             {t.mensaje_admin && (
-                              <div className="mt-1 truncate text-xs text-[#1D9E75]/70">Respuesta: {t.mensaje_admin}</div>
+                              <div className="mt-1 truncate text-xs text-primary/70">Respuesta: {t.mensaje_admin}</div>
                             )}
                           </td>
                           <td className="px-4 py-3">{estadoBadge(t.estado)}</td>
-                          <td className="px-4 py-3 text-xs text-[#F0EFE8]/40 whitespace-nowrap">{formatDateTime(t.created_at)}</td>
+                          <td className="px-4 py-3 text-xs text-foreground/40 whitespace-nowrap">{formatDateTime(t.created_at)}</td>
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-2">
                               {t.estado !== 'cerrado' && (
                                 <button
                                   onClick={() => { setReplyingTo(replyingTo === t.id ? null : t.id); setReplyText(''); }}
-                                  className="rounded-md px-2 py-1 text-xs text-[#1D9E75] hover:bg-[#1D9E75]/10 transition-colors"
+                                  className="rounded-md px-2 py-1 text-xs text-primary-ink hover:bg-primary/10 transition-colors"
                                 >
                                   Responder
                                 </button>
@@ -1893,14 +1893,14 @@ export default function AdminOperacionPage() {
                               {t.estado !== 'cerrado' && (
                                 <button
                                   onClick={() => handleTicketEstado(t.id, 'cerrado')}
-                                  className="rounded-md px-2 py-1 text-xs text-[#F0EFE8]/40 hover:bg-white/5 transition-colors"
+                                  className="rounded-md px-2 py-1 text-xs text-foreground/40 hover:bg-foreground/5 transition-colors"
                                 >
                                   Cerrar
                                 </button>
                               )}
                             </div>
                             {replyingTo === t.id && (
-                              <div className="mt-2 border-t border-white/5 pt-2">
+                              <div className="mt-2 border-t border-border pt-2">
                                 <HiloTicket ticketId={t.id} />
                               </div>
                             )}
@@ -1918,7 +1918,7 @@ export default function AdminOperacionPage() {
                                 <button
                                   onClick={() => handleTicketReply(t.id)}
                                   disabled={replyBusy || !replyText.trim()}
-                                  className="rounded-lg bg-[#1D9E75] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#1D9E75]/80 disabled:opacity-50 transition-colors"
+                                  className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/80 disabled:opacity-50 transition-colors"
                                 >
                                   {replyBusy ? '...' : 'Enviar'}
                                 </button>
@@ -1937,20 +1937,20 @@ export default function AdminOperacionPage() {
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
                           <div className="text-sm font-medium">{t.whatsapp ? (whatsappToName[t.whatsapp] || t.whatsapp) : 'Sin usuario'}</div>
-                          <div className="mt-1 text-sm text-[#F0EFE8]/70">{t.mensaje_usuario || <span className="text-[#F0EFE8]/30">(sin mensaje aún)</span>}</div>
+                          <div className="mt-1 text-sm text-foreground/70">{t.mensaje_usuario || <span className="text-foreground/30">(sin mensaje aún)</span>}</div>
                           {t.mensaje_admin && (
-                            <div className="mt-1 text-xs text-[#1D9E75]/70">Respuesta: {t.mensaje_admin}</div>
+                            <div className="mt-1 text-xs text-primary/70">Respuesta: {t.mensaje_admin}</div>
                           )}
                         </div>
                         <div className="ml-2">{estadoBadge(t.estado)}</div>
                       </div>
-                      <div className="mt-2 flex items-center justify-between text-xs text-[#F0EFE8]/30">
+                      <div className="mt-2 flex items-center justify-between text-xs text-foreground/30">
                         <span>{formatDateTime(t.created_at)}</span>
                         <div className="flex gap-2">
                           {t.estado !== 'cerrado' && (
                             <button
                               onClick={() => { setReplyingTo(replyingTo === t.id ? null : t.id); setReplyText(''); }}
-                              className="text-[#1D9E75] hover:text-[#1D9E75]/80"
+                              className="text-primary hover:text-primary/80"
                             >
                               Responder
                             </button>
@@ -1958,7 +1958,7 @@ export default function AdminOperacionPage() {
                           {t.estado !== 'cerrado' && (
                             <button
                               onClick={() => handleTicketEstado(t.id, 'cerrado')}
-                              className="text-[#F0EFE8]/40 hover:text-[#F0EFE8]"
+                              className="text-foreground/40 hover:text-foreground"
                             >
                               Cerrar
                             </button>
@@ -1966,7 +1966,7 @@ export default function AdminOperacionPage() {
                         </div>
                       </div>
                       {replyingTo === t.id && (
-                        <div className="mt-2 border-t border-white/5 pt-2">
+                        <div className="mt-2 border-t border-border pt-2">
                           <HiloTicket ticketId={t.id} />
                         </div>
                       )}
@@ -1984,7 +1984,7 @@ export default function AdminOperacionPage() {
                           <button
                             onClick={() => handleTicketReply(t.id)}
                             disabled={replyBusy || !replyText.trim()}
-                            className="rounded-lg bg-[#1D9E75] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#1D9E75]/80 disabled:opacity-50"
+                            className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/80 disabled:opacity-50"
                           >
                             {replyBusy ? '...' : 'Enviar'}
                           </button>
@@ -1999,17 +1999,17 @@ export default function AdminOperacionPage() {
                     <button
                       onClick={() => setTicketPage(Math.max(0, ticketPage - 1))}
                       disabled={ticketPage === 0}
-                      className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-[#F0EFE8]/50 hover:bg-white/5 disabled:opacity-30"
+                      className="rounded-lg border border-border px-3 py-1.5 text-xs text-foreground/50 hover:bg-foreground/5 disabled:opacity-30"
                     >
                       Anterior
                     </button>
-                    <span className="text-xs text-[#F0EFE8]/40">
+                    <span className="text-xs text-foreground/40">
                       Pagina {ticketPage + 1} de {totalPages}
                     </span>
                     <button
                       onClick={() => setTicketPage(Math.min(totalPages - 1, ticketPage + 1))}
                       disabled={ticketPage >= totalPages - 1}
-                      className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-[#F0EFE8]/50 hover:bg-white/5 disabled:opacity-30"
+                      className="rounded-lg border border-border px-3 py-1.5 text-xs text-foreground/50 hover:bg-foreground/5 disabled:opacity-30"
                     >
                       Siguiente
                     </button>

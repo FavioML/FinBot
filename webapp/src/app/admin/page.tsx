@@ -65,23 +65,23 @@ export default function AdminHomePage() {
           <Link
             key={section.href}
             href={section.href}
-            className="group glass-card relative overflow-hidden rounded-xl p-5 transition-all hover:border-[rgba(29,158,117,0.35)]"
+            className="group glass-card relative overflow-hidden rounded-xl p-5 transition-all hover:border-primary/35"
           >
             <div className="flex items-start gap-4">
-              <div className="rounded-lg bg-[rgba(29,158,117,0.12)] p-2.5 text-[#1D9E75]">
+              <div className="rounded-lg bg-primary/12 p-2.5 text-primary-ink">
                 <Icon className="h-5 w-5" />
               </div>
               <div className="min-w-0 flex-1">
-                <h2 className="text-base font-semibold text-[#F0EFE8]">
+                <h2 className="text-base font-semibold text-foreground">
                   {section.title}
                 </h2>
-                <p className="mt-1 text-sm text-[#8A877D]">{section.desc}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{section.desc}</p>
               </div>
               <span
                 className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wider ${
                   isLive
-                    ? 'border-[rgba(29,158,117,0.35)] bg-[rgba(29,158,117,0.10)] text-[#1D9E75]'
-                    : 'border-[rgba(255,255,255,0.08)] text-[#8A877D]'
+                    ? 'border-primary/35 bg-primary/10 text-primary-ink'
+                    : 'border-border text-muted-foreground'
                 }`}
               >
                 {isLive ? 'Activo' : 'Próximo'}

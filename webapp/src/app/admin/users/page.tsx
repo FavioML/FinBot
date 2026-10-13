@@ -28,6 +28,7 @@ import {
   ESTADO_ORDER,
   type EstadoComercial,
 } from '@/lib/admin-user-segments';
+import { conAlfa, tinta } from '@/lib/colores';
 
 // ===================================================================
 // Formato
@@ -63,24 +64,24 @@ const CANAL_LABEL: Record<AdminUser['canal'], string> = {
 };
 
 const SEGMENT_TONE: Record<UserSegment, string> = {
-  power: '#1D9E75',
-  activo: '#68dbae',
-  en_riesgo: '#EF9F27',
-  dormido: '#D85A30',
+  power: 'var(--primary)',
+  activo: 'var(--primary)',
+  en_riesgo: 'var(--warning)',
+  dormido: 'var(--negative)',
 };
 
 // El verde de la marca queda reservado para quien PAGA. La prueba va en ámbar: tiene Pro, pero
 // es plata que todavía no entró y tiene fecha de vencimiento. Los tres muros comparten familia
 // fría porque la acción sobre ellos es distinta entre sí pero ninguna es "cobrar hoy".
 const ESTADO_TONE: Record<EstadoComercial, string> = {
-  pro_pagado: '#1D9E75',
+  pro_pagado: 'var(--primary)',
   // Violeta: tiene Pro, pero no es plata. Ver el comentario de arriba sobre el verde.
-  pro_cortesia: '#A78BFA',
-  pago_pendiente: '#68dbae',
-  trial: '#EF9F27',
-  muro_vencido: '#D85A30',
-  muro_ex_pagador: '#a8705a',
-  sin_estrenar: '#8A877D',
+  pro_cortesia: 'var(--chart-5)',
+  pago_pendiente: 'var(--primary)',
+  trial: 'var(--warning)',
+  muro_vencido: 'var(--negative)',
+  muro_ex_pagador: 'var(--chart-8)',
+  sin_estrenar: 'var(--muted-foreground)',
 };
 
 /**
@@ -109,7 +110,7 @@ function EstadoBadge({ user, hoyLima }: { user: AdminUser; hoyLima: string }) {
   return (
     <span
       className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
-      style={{ backgroundColor: `${tone}22`, color: tone }}
+      style={{ backgroundColor: conAlfa(tone, 13), color: tinta(tone) }}
       title={ESTADO_HINT[estado]}
     >
       {ESTADO_LABEL[estado]}
@@ -149,15 +150,15 @@ function SegmentCard({
     <button
       onClick={onClick}
       className={`glass-card rounded-xl p-4 text-left transition-all ${
-        active ? 'ring-1 ring-[rgba(29,158,117,0.5)]' : ''
+        active ? 'ring-1 ring-primary/50' : ''
       }`}
     >
       <div className="flex items-center justify-between">
-        <span className="text-[11px] uppercase tracking-wider text-[#8A877D]">{label}</span>
+        <span className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</span>
         <span className="h-2 w-2 rounded-full" style={{ backgroundColor: tone }} />
       </div>
-      <div className="mt-1 text-2xl font-semibold tabular-nums text-[#F0EFE8]">{count}</div>
-      <div className="mt-1 text-xs text-[#8A877D]">{hint}</div>
+      <div className="mt-1 text-2xl font-semibold tabular-nums text-foreground">{count}</div>
+      <div className="mt-1 text-xs text-muted-foreground">{hint}</div>
     </button>
   );
 }
@@ -173,9 +174,9 @@ function MiniList({
 }) {
   return (
     <div className="glass-card rounded-xl p-4">
-      <h3 className="mb-3 text-sm font-medium text-[#F0EFE8]">{title}</h3>
+      <h3 className="mb-3 text-sm font-medium text-foreground">{title}</h3>
       {empty ? (
-        <p className="py-4 text-center text-xs text-[#8A877D]">Nada por acá todavía.</p>
+        <p className="py-4 text-center text-xs text-muted-foreground">Nada por acá todavía.</p>
       ) : (
         <ul className="space-y-2">{children}</ul>
       )}
@@ -186,8 +187,8 @@ function MiniList({
 function FeedRow({ name, right }: { name: string; right: string }) {
   return (
     <li className="flex items-center justify-between gap-3 text-sm">
-      <span className="min-w-0 truncate text-[#C8C6BC]">{name}</span>
-      <span className="shrink-0 text-xs tabular-nums text-[#8A877D]">{right}</span>
+      <span className="min-w-0 truncate text-foreground-soft">{name}</span>
+      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{right}</span>
     </li>
   );
 }
@@ -202,8 +203,8 @@ function fmtPen(n: number): string {
 function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-3 py-1.5 text-sm">
-      <span className="text-[#8A877D]">{label}</span>
-      <span className="text-right font-medium text-[#F0EFE8]">{value}</span>
+      <span className="text-muted-foreground">{label}</span>
+      <span className="text-right font-medium text-foreground">{value}</span>
     </div>
   );
 }
@@ -214,14 +215,14 @@ function FeatureChip({ label, count }: { label: string; count: number }) {
     <div
       className={`rounded-lg border px-2.5 py-1.5 ${
         on
-          ? 'border-[rgba(29,158,117,0.3)] bg-[rgba(29,158,117,0.08)]'
-          : 'border-white/5 bg-white/[0.02]'
+          ? 'border-primary/30 bg-primary/8'
+          : 'border-border bg-foreground/[0.02]'
       }`}
     >
-      <div className={`text-sm font-semibold tabular-nums ${on ? 'text-[#F0EFE8]' : 'text-[#5A584F]'}`}>
+      <div className={`text-sm font-semibold tabular-nums ${on ? 'text-foreground' : 'text-muted-foreground'}`}>
         {count}
       </div>
-      <div className={`text-[10px] uppercase tracking-wide ${on ? 'text-[#8A877D]' : 'text-[#5A584F]'}`}>
+      <div className={`text-[10px] uppercase tracking-wide ${on ? 'text-muted-foreground' : 'text-muted-foreground'}`}>
         {label}
       </div>
     </div>
@@ -231,7 +232,7 @@ function FeatureChip({ label, count }: { label: string; count: number }) {
 function SheetSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
-      <h4 className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-[#8A877D]">
+      <h4 className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
         {title}
       </h4>
       {children}
@@ -250,13 +251,13 @@ function UserFichaSheet({ user, onClose }: { user: AdminUser | null; onClose: ()
     <Sheet open={!!user} onOpenChange={(o) => !o && onClose()}>
       <SheetContent
         side="right"
-        className="w-full gap-0 overflow-y-auto border-l border-white/10 bg-[#131311] text-[#F0EFE8] sm:max-w-md"
+        className="w-full gap-0 overflow-y-auto border-l border-border bg-card text-foreground sm:max-w-md"
       >
         {user && (
           <>
-            <SheetHeader className="border-b border-white/5">
-              <SheetTitle className="text-[#F0EFE8]">{userLabel(user)}</SheetTitle>
-              <SheetDescription className="text-[#8A877D]">
+            <SheetHeader className="border-b border-border">
+              <SheetTitle className="text-foreground">{userLabel(user)}</SheetTitle>
+              <SheetDescription className="text-muted-foreground">
                 {user.email || user.whatsapp}
               </SheetDescription>
               <div className="mt-1 flex flex-wrap items-center gap-2">
@@ -265,7 +266,7 @@ function UserFichaSheet({ user, onClose }: { user: AdminUser | null; onClose: ()
                     su Pro si vuelve), así que sin esta chip la ficha decía "Pro · vence 2027"
                     sobre alguien que se fue. Es la misma marca que lo saca del MRR. */}
                 {user.cuenta_borrada_at && (
-                  <span className="inline-flex items-center rounded-full bg-red-500/15 px-2 py-0.5 text-xs font-medium text-red-400">
+                  <span className="inline-flex items-center rounded-full bg-negative/15 px-2 py-0.5 text-xs font-medium text-negative-ink">
                     Pidió borrar su cuenta
                   </span>
                 )}
@@ -273,14 +274,14 @@ function UserFichaSheet({ user, onClose }: { user: AdminUser | null; onClose: ()
                   <span
                     className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
                     style={{
-                      backgroundColor: `${SEGMENT_TONE[seg]}22`,
-                      color: SEGMENT_TONE[seg],
+                      backgroundColor: conAlfa(SEGMENT_TONE[seg], 13),
+                      color: tinta(SEGMENT_TONE[seg]),
                     }}
                   >
                     {SEGMENT_LABEL[seg]}
                   </span>
                 )}
-                <span className="text-xs text-[#8A877D]">{CANAL_LABEL[user.canal]}</span>
+                <span className="text-xs text-muted-foreground">{CANAL_LABEL[user.canal]}</span>
               </div>
             </SheetHeader>
 
@@ -337,7 +338,7 @@ function UserFichaSheet({ user, onClose }: { user: AdminUser | null; onClose: ()
 
               <SheetSection title="Features que usa">
                 {isLoading || !f ? (
-                  <div className="flex items-center gap-2 py-3 text-sm text-[#8A877D]">
+                  <div className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" /> Cargando…
                   </div>
                 ) : (
@@ -368,13 +369,13 @@ function UserFichaSheet({ user, onClose }: { user: AdminUser | null; onClose: ()
                       <FeatureChip label="Recomienda" count={nps.recommend ?? 0} />
                     </div>
                     {nps.comment && (
-                      <p className="rounded-lg border border-white/5 bg-white/[0.02] p-3 text-sm text-[#C8C6BC]">
+                      <p className="rounded-lg border border-border bg-foreground/[0.02] p-3 text-sm text-foreground-soft">
                         “{nps.comment}”
                       </p>
                     )}
                   </div>
                 ) : (
-                  <p className="py-2 text-sm text-[#8A877D]">Sin respuesta NPS todavía.</p>
+                  <p className="py-2 text-sm text-muted-foreground">Sin respuesta NPS todavía.</p>
                 )}
               </SheetSection>
             </div>
@@ -494,7 +495,7 @@ export default function AdminUsersPage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-20 text-[#8A877D]">
+      <div className="flex items-center justify-center py-20 text-muted-foreground">
         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
         Cargando usuarios…
       </div>
@@ -503,7 +504,7 @@ export default function AdminUsersPage() {
 
   if (isError || !data) {
     return (
-      <div className="glass-card p-6 text-sm text-[#D85A30]">
+      <div className="glass-card p-6 text-sm text-negative">
         Error cargando usuarios. Refresca la página.
       </div>
     );
@@ -512,8 +513,8 @@ export default function AdminUsersPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h2 className="text-xl font-semibold text-[#F0EFE8]">Usuarios</h2>
-        <p className="mt-1 text-sm text-[#8A877D]">
+        <h2 className="text-xl font-semibold text-foreground">Usuarios</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
           Salud de la base por segmento, actividad reciente y adquisición. Sobre usuarios reales
           (excluye cuentas internas). La gestión operativa (activar Pro, tickets) vive en Operación.
         </p>
@@ -523,8 +524,8 @@ export default function AdminUsersPage() {
           es la primera pregunta del panel, y hasta hoy no se podía contestar desde acá. */}
       <section className="space-y-3">
         <div className="flex items-baseline justify-between">
-          <h3 className="text-base font-semibold text-[#F0EFE8]">Estado comercial</h3>
-          <span className="text-xs text-[#8A877D]">
+          <h3 className="text-base font-semibold text-foreground">Estado comercial</h3>
+          <span className="text-xs text-muted-foreground">
             Durante la prueba el plan es Pro, así que “Pro” no significa “paga”
           </span>
         </div>
@@ -541,12 +542,12 @@ export default function AdminUsersPage() {
               >
                 {countsEstado[e]}
               </div>
-              <div className="mt-0.5 text-xs font-medium text-[#C8C6BC]">{ESTADO_LABEL[e]}</div>
+              <div className="mt-0.5 text-xs font-medium text-foreground-soft">{ESTADO_LABEL[e]}</div>
             </div>
           ))}
         </div>
         {trialExpiring.length > 0 && (
-          <div className="rounded-xl border border-[rgba(239,159,39,0.35)] bg-[rgba(239,159,39,0.08)] px-4 py-3 text-sm text-[#EF9F27]">
+          <div className="rounded-xl border border-warning/35 bg-warning/8 px-4 py-3 text-sm text-warning-ink">
             {trialExpiring.length}{' '}
             {trialExpiring.length === 1 ? 'prueba termina' : 'pruebas terminan'} en ≤5 días. Al
             vencer caen al muro: siguen anotando gastos, pero dejan de poder leerlos.
@@ -561,7 +562,7 @@ export default function AdminUsersPage() {
             label="Todos"
             count={users.length}
             hint="Usuarios reales"
-            tone="#8A877D"
+            tone="var(--muted-foreground)"
             active={segment === 'todos'}
             onClick={() => setSegment('todos')}
           />
@@ -578,7 +579,7 @@ export default function AdminUsersPage() {
           ))}
         </div>
         {proExpiring.length > 0 && (
-          <div className="rounded-xl border border-[rgba(239,159,39,0.35)] bg-[rgba(239,159,39,0.08)] px-4 py-3 text-sm text-[#EF9F27]">
+          <div className="rounded-xl border border-warning/35 bg-warning/8 px-4 py-3 text-sm text-warning-ink">
             {proExpiring.length} Pro {proExpiring.length === 1 ? 'vence' : 'vencen'} en ≤7 días (o ya
             vencidos). Revisá el feed de la derecha para renovarlos.
           </div>
@@ -588,18 +589,18 @@ export default function AdminUsersPage() {
       {/* Lista del segmento seleccionado */}
       <section className="space-y-3">
         <div className="flex items-baseline justify-between">
-          <h3 className="text-base font-semibold text-[#F0EFE8]">
+          <h3 className="text-base font-semibold text-foreground">
             {segment === 'todos' ? 'Todos los usuarios' : SEGMENT_LABEL[segment]}
           </h3>
-          <span className="text-xs text-[#8A877D]">
+          <span className="text-xs text-muted-foreground">
             {listedUsers.length} usuarios · click para ver la ficha
           </span>
         </div>
         <div className="glass-card overflow-hidden">
           <div className="max-h-[60vh] overflow-auto">
             <table className="w-full text-sm">
-              <thead className="sticky top-0 z-10 bg-[#131311]">
-                <tr className="border-b border-white/10 text-left text-xs uppercase tracking-wider text-[#8A877D]">
+              <thead className="sticky top-0 z-10 bg-card">
+                <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
                   <th className="px-4 py-3 font-medium">Usuario</th>
                   <th className="px-4 py-3 font-medium">Plan</th>
                   <th className="px-4 py-3 font-medium">Canal</th>
@@ -613,26 +614,26 @@ export default function AdminUsersPage() {
                   <tr
                     key={u.id}
                     onClick={() => setFichaUser(u)}
-                    className="cursor-pointer border-b border-[rgba(255,255,255,0.04)] transition-colors last:border-0 hover:bg-white/[0.02]"
+                    className="cursor-pointer border-b border-border transition-colors last:border-0 hover:bg-foreground/[0.02]"
                   >
                     <td className="px-4 py-3">
-                      <div className="font-medium text-[#F0EFE8]">{userLabel(u)}</div>
-                      <div className="text-xs text-[#8A877D]">{u.email || u.whatsapp}</div>
+                      <div className="font-medium text-foreground">{userLabel(u)}</div>
+                      <div className="text-xs text-muted-foreground">{u.email || u.whatsapp}</div>
                     </td>
                     <td className="px-4 py-3">
                       <EstadoBadge user={u} hoyLima={hoyLima} />
                     </td>
-                    <td className="px-4 py-3 text-[#C8C6BC]">{CANAL_LABEL[u.canal]}</td>
-                    <td className="px-4 py-3 text-right font-mono text-xs tabular-nums text-[#C8C6BC]">
+                    <td className="px-4 py-3 text-foreground-soft">{CANAL_LABEL[u.canal]}</td>
+                    <td className="px-4 py-3 text-right font-mono text-xs tabular-nums text-foreground-soft">
                       {u.transacciones}
                     </td>
-                    <td className="px-4 py-3 text-[#C8C6BC]">{daysAgoLabel(u.last_activity_at)}</td>
-                    <td className="px-4 py-3 text-xs text-[#8A877D]">{fmtDate(u.created_at)}</td>
+                    <td className="px-4 py-3 text-foreground-soft">{daysAgoLabel(u.last_activity_at)}</td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">{fmtDate(u.created_at)}</td>
                   </tr>
                 ))}
                 {listedUsers.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-4 py-10 text-center text-sm text-[#8A877D]">
+                    <td colSpan={6} className="px-4 py-10 text-center text-sm text-muted-foreground">
                       Ningún usuario en este segmento.
                     </td>
                   </tr>
@@ -645,7 +646,7 @@ export default function AdminUsersPage() {
 
       {/* Feed de actividad reciente */}
       <section className="space-y-3">
-        <h3 className="text-base font-semibold text-[#F0EFE8]">Actividad reciente</h3>
+        <h3 className="text-base font-semibold text-foreground">Actividad reciente</h3>
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <MiniList title="Nuevos registros" empty={nuevosRegistros.length === 0}>
             {nuevosRegistros.map((u) => (
@@ -694,8 +695,8 @@ export default function AdminUsersPage() {
       {/* Adquisición por canal */}
       <section className="space-y-3">
         <div>
-          <h3 className="text-base font-semibold text-[#F0EFE8]">Adquisición por canal</h3>
-          <p className="mt-0.5 text-xs text-[#8A877D]">
+          <h3 className="text-base font-semibold text-foreground">Adquisición por canal</h3>
+          <p className="mt-0.5 text-xs text-muted-foreground">
             De dónde vienen los usuarios y cómo convierte cada canal a Pro. (Referidos aún sin datos.)
           </p>
         </div>
@@ -704,18 +705,18 @@ export default function AdminUsersPage() {
             {porCanal.map((c) => (
               <div key={c.canal}>
                 <div className="mb-1 flex items-center justify-between text-xs">
-                  <span className="text-[#C8C6BC]">{CANAL_LABEL[c.canal]}</span>
-                  <span className="tabular-nums text-[#8A877D]">
+                  <span className="text-foreground-soft">{CANAL_LABEL[c.canal]}</span>
+                  <span className="tabular-nums text-muted-foreground">
                     {c.total} usuarios · {c.pro} pagan · {c.enPrueba} probando{' '}
-                    <span className="text-[#5A584F]">({c.conv}% conversión)</span>
+                    <span className="text-muted-foreground">({c.conv}% conversión)</span>
                   </span>
                 </div>
-                <div className="h-2 w-full overflow-hidden rounded-full bg-[rgba(255,255,255,0.05)]">
+                <div className="h-2 w-full overflow-hidden rounded-full bg-foreground/5">
                   <div
                     className="h-full rounded-full transition-all"
                     style={{
                       width: `${usersComerciales.length > 0 ? (c.total / usersComerciales.length) * 100 : 0}%`,
-                      backgroundColor: '#1D9E75',
+                      backgroundColor: 'var(--primary)',
                     }}
                   />
                 </div>

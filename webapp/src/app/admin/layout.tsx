@@ -14,11 +14,11 @@ export default async function AdminLayout({
   if (!user || !isAdmin) notFound();
 
   return (
-    <div className="min-h-screen bg-[#0E0E0C] text-[#F0EFE8]">
+    <div className="min-h-screen bg-background text-foreground">
       <div className="mx-auto max-w-7xl px-4 py-6 md:px-8 md:py-10">
         <header className="mb-8 flex items-center justify-between">
           <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-[#8A877D]">
+            <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
               Neto · Admin
             </p>
             <h1 className="mt-1 text-2xl font-semibold tracking-tight md:text-3xl">

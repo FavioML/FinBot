@@ -46,7 +46,7 @@ function PagosSkeleton() {
   return (
     <div className="space-y-4">
       {Array.from({ length: 3 }).map((_, i) => (
-        <div key={i} className="h-28 animate-pulse rounded-xl border border-white/5 bg-white/[0.02]" />
+        <div key={i} className="h-28 animate-pulse rounded-xl border border-border bg-foreground/[0.02]" />
       ))}
     </div>
   );
@@ -78,8 +78,8 @@ function PagosRecibidos() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-lg font-semibold text-[#F0EFE8]">Pagos recibidos</h2>
-        <p className="mt-0.5 text-sm text-[#8A877D]">
+        <h2 className="text-lg font-semibold text-foreground">Pagos recibidos</h2>
+        <p className="mt-0.5 text-sm text-muted-foreground">
           Quién pagó cada mes. El total es la misma caja que &ldquo;Ingresos&rdquo; en Costos: pagos aprobados de
           cuentas reales, por fecha de aprobación en hora Lima.
         </p>
@@ -112,7 +112,7 @@ function Renovaciones() {
     );
   }
   if (isLoading || !data) {
-    return <div className="h-32 animate-pulse rounded-xl border border-white/5 bg-white/[0.02]" />;
+    return <div className="h-32 animate-pulse rounded-xl border border-border bg-foreground/[0.02]" />;
   }
 
   // La hora del servidor, no la del navegador: cambia en cada refetch (al volver a la pestaña), así
@@ -125,14 +125,14 @@ function Renovaciones() {
   return (
     <div className="glass-card rounded-xl p-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="text-sm font-semibold text-[#F0EFE8]">Renovaciones</h3>
-        <span className={`text-xs ${conExcepcion ? 'text-amber-400' : 'text-[#1D9E75]'}`}>
+        <h3 className="text-sm font-semibold text-foreground">Renovaciones</h3>
+        <span className={`text-xs ${conExcepcion ? 'text-warning' : 'text-primary'}`}>
           {conExcepcion
             ? `${contar(conExcepcion, 'cliente', 'clientes')} con algo que revisar`
             : 'Todo en orden'}
         </span>
       </div>
-      <p className="mt-0.5 text-xs text-[#8A877D]">
+      <p className="mt-0.5 text-xs text-muted-foreground">
         Los avisos salen solos: 3 días antes, el día que vence y al vencer, por WhatsApp, la campana y correo. Aquí
         ves si llegaron; solo se marca lo que pide atención.
       </p>
@@ -155,13 +155,13 @@ type FilaMonitor = { r: AdminRenovacion; m: ReturnType<typeof monitorRenovacion>
 function GrupoRenovacion({ titulo, filas, vacio }: { titulo: string; filas: FilaMonitor[]; vacio: string }) {
   return (
     <div className="mt-4">
-      <div className="text-[10px] uppercase tracking-wider text-[#8A877D]">
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
         {titulo} · {filas.length}
       </div>
       {filas.length === 0 ? (
-        <p className="py-3 text-sm text-[#8A877D]">{vacio}</p>
+        <p className="py-3 text-sm text-muted-foreground">{vacio}</p>
       ) : (
-        <ul className="mt-1 divide-y divide-white/5">
+        <ul className="mt-1 divide-y divide-border">
           {filas.map((f) => (
             <FilaRenovacion key={f.r.usuario_id} {...f} />
           ))}
@@ -177,25 +177,25 @@ function FilaRenovacion({ r, m }: FilaMonitor) {
     <li className="py-3">
       <div className="flex flex-wrap items-start gap-x-4 gap-y-1">
         <div className="min-w-[180px] flex-1">
-          <div className="flex flex-wrap items-center gap-2 text-sm text-[#F0EFE8]">
+          <div className="flex flex-wrap items-center gap-2 text-sm text-foreground">
             {nombre}
             {r.pago_pendiente && (
-              <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-400">
+              <span className="rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-medium text-warning-ink">
                 comprobante pendiente
               </span>
             )}
           </div>
-          <div className="mt-0.5 text-xs text-[#8A877D]">
+          <div className="mt-0.5 text-xs text-muted-foreground">
             {r.tipo_plan || 'plan sin tipo'} · {contar(r.n_pagos, 'pago', 'pagos')} · último{' '}
             {formatPen(r.ultimo_monto)}
           </div>
         </div>
-        <div className={`whitespace-nowrap text-sm ${r.estado === 'por_vencer' ? 'text-amber-400' : 'text-[#D85A30]'}`}>
+        <div className={`whitespace-nowrap text-sm ${r.estado === 'por_vencer' ? 'text-warning' : 'text-negative'}`}>
           {etiquetaPlazo(r)}
-          <span className="ml-1.5 text-xs text-[#8A877D]">{formatFecha(r.premium_vence)}</span>
+          <span className="ml-1.5 text-xs text-muted-foreground">{formatFecha(r.premium_vence)}</span>
         </div>
       </div>
-      <ul className="mt-2 space-y-0.5 text-xs text-[#8A877D]">
+      <ul className="mt-2 space-y-0.5 text-xs text-muted-foreground">
         {m.avisos.map((a) => (
           <LineaAviso key={a.tipo} a={a} />
         ))}
@@ -203,7 +203,7 @@ function FilaRenovacion({ r, m }: FilaMonitor) {
       {m.excepciones.length > 0 && (
         <ul className="mt-2 space-y-1">
           {m.excepciones.map((e) => (
-            <li key={e} className="rounded-md bg-amber-500/10 px-2 py-1 text-xs text-amber-400">
+            <li key={e} className="rounded-md bg-warning/10 px-2 py-1 text-xs text-warning-ink">
               {e}
             </li>
           ))}
@@ -214,9 +214,9 @@ function FilaRenovacion({ r, m }: FilaMonitor) {
 }
 
 const TONO: Record<EstadoCanal['tono'], string> = {
-  ok: 'text-[#1D9E75]',
-  neutro: 'text-[#8A877D]',
-  alerta: 'text-amber-400',
+  ok: 'text-primary',
+  neutro: 'text-muted-foreground',
+  alerta: 'text-warning',
 };
 
 function Canal({ nombre, estado }: { nombre: string; estado: EstadoCanal | null }) {
@@ -229,7 +229,7 @@ function Canal({ nombre, estado }: { nombre: string; estado: EstadoCanal | null 
 
 function LineaAviso({ a }: { a: AvisoMonitor }) {
   const cabecera = (
-    <span className="text-[#C8C6BC]">
+    <span className="text-foreground-soft">
       {a.etiqueta} · {diaMes(a.fecha)}
     </span>
   );
@@ -245,7 +245,7 @@ function LineaAviso({ a }: { a: AvisoMonitor }) {
     return (
       <li className="flex flex-wrap gap-x-2">
         {cabecera}
-        <span className={a.estado === 'no_salio' && !a.historia ? 'text-amber-400' : ''}>{texto}</span>
+        <span className={a.estado === 'no_salio' && !a.historia ? 'text-warning' : ''}>{texto}</span>
       </li>
     );
   }
@@ -262,9 +262,9 @@ function LineaAviso({ a }: { a: AvisoMonitor }) {
 function Kpi({ label, value, subtitle }: { label: string; value: string | number; subtitle?: string }) {
   return (
     <div className="glass-card rounded-xl p-4">
-      <div className="text-xs uppercase tracking-wider text-[#8A877D]">{label}</div>
-      <div className="mt-2 text-2xl font-semibold text-[#F0EFE8]">{value}</div>
-      {subtitle && <div className="mt-1 text-xs text-[#8A877D]">{subtitle}</div>}
+      <div className="text-xs uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className="mt-2 text-2xl font-semibold text-foreground">{value}</div>
+      {subtitle && <div className="mt-1 text-xs text-muted-foreground">{subtitle}</div>}
     </div>
   );
 }
@@ -274,7 +274,7 @@ function ResumenDelMes({ mes, resumen }: { mes: string; resumen: AdminPagosMes |
   const nota = r ? notaNoSuma(r) : null;
   return (
     <div>
-      <h3 className="mb-3 text-sm font-semibold text-[#F0EFE8]">{etiquetaMes(mes)}</h3>
+      <h3 className="mb-3 text-sm font-semibold text-foreground">{etiquetaMes(mes)}</h3>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Kpi label="Cobrado" value={formatPen(r?.total_pen ?? 0)} subtitle={contar(r?.n_pagos ?? 0, 'pago', 'pagos')} />
         <Kpi
@@ -285,7 +285,7 @@ function ResumenDelMes({ mes, resumen }: { mes: string; resumen: AdminPagosMes |
         <Kpi label="Mensual" value={r?.n_mensual ?? 0} subtitle={formatPen(r?.total_mensual ?? 0)} />
         <Kpi label="Anual" value={r?.n_anual ?? 0} subtitle={formatPen(r?.total_anual ?? 0)} />
       </div>
-      {nota && <p className="mt-2 text-xs text-[#8A877D]">{nota}</p>}
+      {nota && <p className="mt-2 text-xs text-muted-foreground">{nota}</p>}
     </div>
   );
 }
@@ -297,15 +297,15 @@ function DetalleDelMes({ mes, pagos }: { mes: string; pagos: AdminPagoFila[] }) 
     <div className="glass-card rounded-xl p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold text-[#F0EFE8]">Detalle</h3>
-          <p className="mt-0.5 text-xs text-[#8A877D]">
+          <h3 className="text-sm font-semibold text-foreground">Detalle</h3>
+          <p className="mt-0.5 text-xs text-muted-foreground">
             &ldquo;Primer pago&rdquo; o &ldquo;renovación&rdquo; se cuenta sobre toda la historia de esa cuenta.
           </p>
         </div>
         {pagos.length > 0 && (
           <button
             onClick={exportar}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-[#131311] px-2.5 py-1.5 text-xs text-[#C8C6BC] hover:text-[#F0EFE8]"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs text-foreground-soft hover:text-foreground"
           >
             <Download className="h-3.5 w-3.5" />
             CSV
@@ -314,12 +314,12 @@ function DetalleDelMes({ mes, pagos }: { mes: string; pagos: AdminPagoFila[] }) 
       </div>
 
       {pagos.length === 0 ? (
-        <div className="py-8 text-center text-sm text-[#8A877D]">Nadie pagó este mes.</div>
+        <div className="py-8 text-center text-sm text-muted-foreground">Nadie pagó este mes.</div>
       ) : (
         <div className="mt-4 overflow-x-auto">
           <table className="w-full min-w-[760px] text-sm">
             <thead>
-              <tr className="text-left text-[10px] uppercase tracking-wider text-[#8A877D]">
+              <tr className="text-left text-[10px] uppercase tracking-wider text-muted-foreground">
                 <th className="pb-2 pr-4 font-medium">Fecha</th>
                 <th className="pb-2 pr-4 font-medium">Usuario</th>
                 <th className="pb-2 pr-4 text-right font-medium">Monto</th>
@@ -330,7 +330,7 @@ function DetalleDelMes({ mes, pagos }: { mes: string; pagos: AdminPagoFila[] }) 
                 <th className="pb-2 font-medium">Comprobante</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/5">
+            <tbody className="divide-y divide-border">
               {pagos.map((p) => (
                 <FilaPago key={p.id} p={p} />
               ))}
@@ -347,26 +347,26 @@ function FilaPago({ p }: { p: AdminPagoFila }) {
   const tipo = etiquetaTipoPago(p);
   const tono =
     p.estado !== 'aprobado'
-      ? 'text-amber-400'
+      ? 'text-warning'
       : p.n_pago === 1
-        ? 'text-[#1D9E75]'
+        ? 'text-primary'
         : p.n_pago != null
-          ? 'text-[#C8C6BC]'
-          : 'text-[#8A877D]';
+          ? 'text-foreground-soft'
+          : 'text-muted-foreground';
   return (
     <tr className={suma ? '' : 'opacity-60'}>
-      <td className="whitespace-nowrap py-2 pr-4 text-[#C8C6BC]">{formatFecha(fechaLima(p.cuando))}</td>
-      <td className="py-2 pr-4 text-[#F0EFE8]">
+      <td className="whitespace-nowrap py-2 pr-4 text-foreground-soft">{formatFecha(fechaLima(p.cuando))}</td>
+      <td className="py-2 pr-4 text-foreground">
         {etiquetaPagador(p)}
-        {p.interno && <span className="ml-2 text-[10px] uppercase text-[#8A877D]">interna, no suma</span>}
+        {p.interno && <span className="ml-2 text-[10px] uppercase text-muted-foreground">interna, no suma</span>}
       </td>
-      <td className="whitespace-nowrap py-2 pr-4 text-right text-[#F0EFE8]">{p.monto == null ? '—' : formatPen(p.monto)}</td>
-      <td className="py-2 pr-4 text-[#C8C6BC]">{p.tipo_plan || '—'}</td>
+      <td className="whitespace-nowrap py-2 pr-4 text-right text-foreground">{p.monto == null ? '—' : formatPen(p.monto)}</td>
+      <td className="py-2 pr-4 text-foreground-soft">{p.tipo_plan || '—'}</td>
       <td className={`py-2 pr-4 ${tono}`}>{tipo}</td>
-      <td className="py-2 pr-4 text-[#8A877D]">{p.origen || '—'}</td>
-      <td className="py-2 pr-4 text-[#8A877D]">{formatFecha(p.premium_vence)}</td>
+      <td className="py-2 pr-4 text-muted-foreground">{p.origen || '—'}</td>
+      <td className="py-2 pr-4 text-muted-foreground">{formatFecha(p.premium_vence)}</td>
       <td className="py-2">
-        {p.tiene_comprobante ? <VerComprobante p={p} /> : <span className="text-[#5A584F]">—</span>}
+        {p.tiene_comprobante ? <VerComprobante p={p} /> : <span className="text-muted-foreground">—</span>}
       </td>
     </tr>
   );
@@ -408,19 +408,19 @@ function VerComprobante({ p }: { p: AdminPagoFila }) {
 
   return (
     <>
-      <button onClick={abrir} className="text-xs text-[#1D9E75] hover:underline">
+      <button onClick={abrir} className="text-xs text-primary hover:underline">
         Ver
       </button>
       <Dialog open={abierto} onOpenChange={setAbierto}>
         <DialogContent className="glass-card-elevated border-0 gap-3 p-5 sm:max-w-lg">
-          <DialogTitle className="pr-8 text-base text-[#F0EFE8]">Comprobante de {etiquetaPagador(p)}</DialogTitle>
-          <DialogDescription className="text-xs text-[#8A877D]">
+          <DialogTitle className="pr-8 text-base text-foreground">Comprobante de {etiquetaPagador(p)}</DialogTitle>
+          <DialogDescription className="text-xs text-muted-foreground">
             {formatFecha(fechaLima(p.cuando))} · {p.monto == null ? 'sin monto' : formatPen(p.monto)} ·{' '}
             {p.tipo_plan || 'sin plan'} · {etiquetaTipoPago(p)}
           </DialogDescription>
 
-          <div className="flex min-h-48 items-center justify-center overflow-hidden rounded-lg bg-black/30">
-            {estado === 'cargando' && <span className="text-sm text-[#8A877D]">Cargando comprobante…</span>}
+          <div className="flex min-h-48 items-center justify-center overflow-hidden rounded-lg bg-scrim/50">
+            {estado === 'cargando' && <span className="text-sm text-muted-foreground">Cargando comprobante…</span>}
             {estado === 'error' && (
               <ErrorState
                 titulo="No se pudo cargar el comprobante"
@@ -445,7 +445,7 @@ function VerComprobante({ p }: { p: AdminPagoFila }) {
               href={url}
               target="_blank"
               rel="noopener noreferrer"
-              className="self-end text-xs text-[#8A877D] hover:text-[#F0EFE8]"
+              className="self-end text-xs text-muted-foreground hover:text-foreground"
             >
               Abrir en pestaña nueva ↗
             </a>
@@ -468,13 +468,13 @@ function HistorialMeses({
   if (meses.length === 0) return null;
   return (
     <div className="glass-card rounded-xl p-4">
-      <h3 className="text-sm font-semibold text-[#F0EFE8]">Todos los meses</h3>
+      <h3 className="text-sm font-semibold text-foreground">Todos los meses</h3>
       <div className="mt-4 overflow-x-auto">
         {/* Una columna por dato, números alineados a la derecha con cifras de ancho fijo, y
             aire en los dos bordes para que la fila resaltada no toque el borde de la tarjeta. */}
         <table className="w-full min-w-[560px] text-sm tabular-nums">
           <thead>
-            <tr className="text-left text-[10px] uppercase tracking-wider text-[#8A877D]">
+            <tr className="text-left text-[10px] uppercase tracking-wider text-muted-foreground">
               <th className="pb-2 pl-3 pr-4 font-medium">Mes</th>
               <th className="pb-2 pr-4 text-right font-medium">Cobrado</th>
               <th className="pb-2 pr-4 text-right font-medium">Pagos</th>
@@ -484,24 +484,24 @@ function HistorialMeses({
               <th className="pb-2 pr-3 text-right font-medium">Anual</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-white/5">
+          <tbody className="divide-y divide-border">
             {[...meses].reverse().map((m) => {
               const activo = claveMes(m.mes) === seleccionado;
               return (
                 <tr
                   key={m.mes}
                   onClick={() => onElegir(m.mes)}
-                  className={`cursor-pointer transition-colors hover:bg-white/[0.03] ${activo ? 'bg-[rgba(29,158,117,0.08)]' : ''}`}
+                  className={`cursor-pointer transition-colors hover:bg-foreground/[0.03] ${activo ? 'bg-primary/8' : ''}`}
                 >
-                  <td className={`py-2.5 pl-3 pr-4 ${activo ? 'text-[#1D9E75]' : 'text-[#F0EFE8]'}`}>
+                  <td className={`py-2.5 pl-3 pr-4 ${activo ? 'text-primary' : 'text-foreground'}`}>
                     {etiquetaMes(m.mes)}
                   </td>
-                  <td className="whitespace-nowrap py-2.5 pr-4 text-right text-[#F0EFE8]">{formatPen(m.total_pen)}</td>
-                  <td className="py-2.5 pr-4 text-right text-[#C8C6BC]">{m.n_pagos}</td>
-                  <td className="py-2.5 pr-4 text-right text-[#C8C6BC]">{m.n_primer_pago}</td>
-                  <td className="py-2.5 pr-4 text-right text-[#C8C6BC]">{m.n_renovacion}</td>
-                  <td className="py-2.5 pr-4 text-right text-[#C8C6BC]">{m.n_mensual}</td>
-                  <td className="py-2.5 pr-3 text-right text-[#C8C6BC]">{m.n_anual}</td>
+                  <td className="whitespace-nowrap py-2.5 pr-4 text-right text-foreground">{formatPen(m.total_pen)}</td>
+                  <td className="py-2.5 pr-4 text-right text-foreground-soft">{m.n_pagos}</td>
+                  <td className="py-2.5 pr-4 text-right text-foreground-soft">{m.n_primer_pago}</td>
+                  <td className="py-2.5 pr-4 text-right text-foreground-soft">{m.n_renovacion}</td>
+                  <td className="py-2.5 pr-4 text-right text-foreground-soft">{m.n_mensual}</td>
+                  <td className="py-2.5 pr-3 text-right text-foreground-soft">{m.n_anual}</td>
                 </tr>
               );
             })}

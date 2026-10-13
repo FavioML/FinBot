@@ -42,18 +42,18 @@ function KpiCard({
 }) {
   const valueColor =
     accent === 'green'
-      ? 'text-[#1D9E75]'
+      ? 'text-primary'
       : accent === 'amber'
-        ? 'text-[#EF9F27]'
+        ? 'text-warning'
         : accent === 'red'
-          ? 'text-[#D85A30]'
-          : 'text-[#F0EFE8]';
+          ? 'text-negative'
+          : 'text-foreground';
   return (
     <div className="glass-card rounded-xl p-4">
-      <div className="text-xs uppercase tracking-wider text-[#8A877D]">{label}</div>
+      <div className="text-xs uppercase tracking-wider text-muted-foreground">{label}</div>
       <div className={`mt-2 text-2xl font-semibold ${valueColor}`}>{value}</div>
       {subtitle && (
-        <div className="mt-1 text-xs text-[#8A877D]">{subtitle}</div>
+        <div className="mt-1 text-xs text-muted-foreground">{subtitle}</div>
       )}
     </div>
   );
@@ -70,10 +70,10 @@ function SmallKpi({
 }) {
   return (
     <div className="glass-card rounded-xl p-3">
-      <div className="text-[10px] uppercase tracking-wider text-[#8A877D]">{label}</div>
-      <div className="mt-1.5 text-lg font-semibold text-[#F0EFE8]">{value}</div>
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className="mt-1.5 text-lg font-semibold text-foreground">{value}</div>
       {subtitle && (
-        <div className="mt-0.5 text-[11px] text-[#8A877D]">{subtitle}</div>
+        <div className="mt-0.5 text-[11px] text-muted-foreground">{subtitle}</div>
       )}
     </div>
   );
@@ -85,7 +85,7 @@ function SkeletonGrid({ count, cols }: { count: number; cols: string }) {
       {Array.from({ length: count }).map((_, i) => (
         <div
           key={i}
-          className="h-24 animate-pulse rounded-xl border border-white/5 bg-white/[0.02]"
+          className="h-24 animate-pulse rounded-xl border border-border bg-foreground/[0.02]"
         />
       ))}
     </div>
@@ -97,7 +97,7 @@ export default function AdminEconomicsPage() {
 
   if (error) {
     return (
-      <div className="rounded-xl border border-[rgba(216,90,48,0.35)] bg-[rgba(216,90,48,0.08)] p-4 text-sm text-[#D85A30]">
+      <div className="rounded-xl border border-negative/35 bg-negative/8 p-4 text-sm text-negative-ink">
         Error al cargar economics. {error instanceof Error ? error.message : ''}
       </div>
     );
@@ -131,15 +131,15 @@ export default function AdminEconomicsPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h2 className="text-xl font-semibold text-[#F0EFE8]">Unit Economics</h2>
-        <p className="mt-1 text-sm text-[#8A877D]">
+        <h2 className="text-xl font-semibold text-foreground">Unit Economics</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
           MRR, ARR, breakeven, márgenes, CAC y LTV. Todo sobre datos reales de producción.
         </p>
       </div>
 
       {/* Sección 1: KPI hero */}
       <section>
-        <h3 className="mb-3 text-sm font-medium uppercase tracking-wider text-[#8A877D]">
+        <h3 className="mb-3 text-sm font-medium uppercase tracking-wider text-muted-foreground">
           KPIs principales
         </h3>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -186,7 +186,7 @@ export default function AdminEconomicsPage() {
 
       {/* Sección 2: KPIs secundarios */}
       <section>
-        <h3 className="mb-3 text-sm font-medium uppercase tracking-wider text-[#8A877D]">
+        <h3 className="mb-3 text-sm font-medium uppercase tracking-wider text-muted-foreground">
           Métricas secundarias
         </h3>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -250,7 +250,7 @@ export default function AdminEconomicsPage() {
       {/* Sección 3: Charts */}
       <section className="grid gap-4 md:grid-cols-2">
         <div className="glass-card rounded-xl p-4">
-          <h3 className="mb-3 text-sm font-medium text-[#F0EFE8]">
+          <h3 className="mb-3 text-sm font-medium text-foreground">
             MRR últimos 6 meses
           </h3>
           <div className="h-56">
@@ -261,37 +261,37 @@ export default function AdminEconomicsPage() {
               >
                 <defs>
                   <linearGradient id="gradMrr" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#1D9E75" stopOpacity={0.4} />
-                    <stop offset="95%" stopColor="#1D9E75" stopOpacity={0} />
+                    <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.4} />
+                    <stop offset="95%" stopColor="var(--primary)" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                <CartesianGrid strokeDasharray="3 3" stroke="color-mix(in srgb, var(--foreground) 5%, transparent)" />
                 <XAxis
                   dataKey="month"
-                  tick={{ fill: '#8A877D', fontSize: 11 }}
+                  tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
                   axisLine={false}
                   tickLine={false}
                 />
                 <YAxis
-                  tick={{ fill: '#8A877D', fontSize: 11 }}
+                  tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
                   axisLine={false}
                   tickLine={false}
                   tickFormatter={(v) => formatPenShort(v)}
                 />
                 <Tooltip
                   contentStyle={{
-                    background: '#1C1C19',
-                    border: '1px solid rgba(255,255,255,0.1)',
+                    background: 'var(--surface-elevated)',
+                    border: '1px solid var(--border)',
                     borderRadius: 8,
                     fontSize: 12,
                   }}
-                  labelStyle={{ color: '#F0EFE8' }}
+                  labelStyle={{ color: 'var(--foreground)' }}
                   formatter={(v) => formatPen(Number(v), 0)}
                 />
                 <Area
                   type="monotone"
                   dataKey="mrr"
-                  stroke="#1D9E75"
+                  stroke="var(--primary)"
                   strokeWidth={2}
                   fill="url(#gradMrr)"
                   name="MRR"
@@ -302,7 +302,7 @@ export default function AdminEconomicsPage() {
         </div>
 
         <div className="glass-card rounded-xl p-4">
-          <h3 className="mb-3 text-sm font-medium text-[#F0EFE8]">
+          <h3 className="mb-3 text-sm font-medium text-foreground">
             Crecimiento usuarios (12 semanas)
           </h3>
           <div className="h-56">
@@ -311,33 +311,33 @@ export default function AdminEconomicsPage() {
                 data={data.user_growth_12w}
                 margin={{ top: 4, right: 4, bottom: 0, left: -20 }}
               >
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                <CartesianGrid strokeDasharray="3 3" stroke="color-mix(in srgb, var(--foreground) 5%, transparent)" />
                 <XAxis
                   dataKey="week"
-                  tick={{ fill: '#8A877D', fontSize: 11 }}
+                  tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
                   axisLine={false}
                   tickLine={false}
                   interval={1}
                 />
                 <YAxis
-                  tick={{ fill: '#8A877D', fontSize: 11 }}
+                  tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
                   axisLine={false}
                   tickLine={false}
                   allowDecimals={false}
                 />
                 <Tooltip
                   contentStyle={{
-                    background: '#1C1C19',
-                    border: '1px solid rgba(255,255,255,0.1)',
+                    background: 'var(--surface-elevated)',
+                    border: '1px solid var(--border)',
                     borderRadius: 8,
                     fontSize: 12,
                   }}
-                  labelStyle={{ color: '#F0EFE8' }}
+                  labelStyle={{ color: 'var(--foreground)' }}
                 />
                 <Line
                   type="monotone"
                   dataKey="free"
-                  stroke="#8A877D"
+                  stroke="var(--muted-foreground)"
                   strokeWidth={2}
                   dot={false}
                   name="Free"
@@ -345,7 +345,7 @@ export default function AdminEconomicsPage() {
                 <Line
                   type="monotone"
                   dataKey="pro"
-                  stroke="#1D9E75"
+                  stroke="var(--primary)"
                   strokeWidth={2}
                   dot={false}
                   name="Pro"
@@ -358,39 +358,39 @@ export default function AdminEconomicsPage() {
 
       {/* Sección 4: Comparativa con competencia */}
       <section className="glass-card rounded-xl p-4">
-        <h3 className="mb-3 text-sm font-medium text-[#F0EFE8]">
+        <h3 className="mb-3 text-sm font-medium text-foreground">
           Comparativa con la competencia
         </h3>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-white/5 text-left text-xs uppercase tracking-wider text-[#8A877D]">
+              <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
                 <th className="px-3 py-2">Producto</th>
                 <th className="px-3 py-2">Precio mensual</th>
                 <th className="px-3 py-2">Diferencia vs Neto</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/5">
+            <tbody className="divide-y divide-border">
               <tr>
-                <td className="px-3 py-2 font-medium text-[#1D9E75]">Neto</td>
+                <td className="px-3 py-2 font-medium text-primary">Neto</td>
                 {/* Los precios de la competencia van a mano (son hechos externos); el NUESTRO no. */}
                 <td className="px-3 py-2">S/ {PRO_PRICE_MONTHLY_PEN.toFixed(2)}</td>
-                <td className="px-3 py-2 text-[#8A877D]">—</td>
+                <td className="px-3 py-2 text-muted-foreground">—</td>
               </tr>
               <tr>
                 <td className="px-3 py-2">Pablo</td>
                 <td className="px-3 py-2">S/ 20.00</td>
-                <td className="px-3 py-2 text-[#8A877D]">+100%</td>
+                <td className="px-3 py-2 text-muted-foreground">+100%</td>
               </tr>
               <tr>
                 <td className="px-3 py-2">Foxy</td>
                 <td className="px-3 py-2">S/ 19.90</td>
-                <td className="px-3 py-2 text-[#8A877D]">+99%</td>
+                <td className="px-3 py-2 text-muted-foreground">+99%</td>
               </tr>
             </tbody>
           </table>
         </div>
-        <p className="mt-3 text-xs text-[#C8C6BC]">
+        <p className="mt-3 text-xs text-foreground-soft">
           Neto es el más bajo del mercado peruano: 50% menos que Pablo, 49% menos que Foxy.
         </p>
       </section>
@@ -400,11 +400,11 @@ export default function AdminEconomicsPage() {
         data.costs_overdue > 0 ||
         data.breakeven_gap > 5) && (
         <section className="space-y-3">
-          <h3 className="text-sm font-medium uppercase tracking-wider text-[#8A877D]">
+          <h3 className="text-sm font-medium uppercase tracking-wider text-muted-foreground">
             Alertas operacionales
           </h3>
           {data.costs_due_today > 0 && (
-            <div className="rounded-xl border border-[rgba(239,159,39,0.35)] bg-[rgba(239,159,39,0.08)] p-4 text-sm text-[#EF9F27]">
+            <div className="rounded-xl border border-warning/35 bg-warning/8 p-4 text-sm text-warning-ink">
               {data.costs_due_today} costo
               {data.costs_due_today === 1 ? '' : 's'} vence
               {data.costs_due_today === 1 ? '' : 'n'} HOY — total{' '}
@@ -417,14 +417,14 @@ export default function AdminEconomicsPage() {
             </div>
           )}
           {data.costs_overdue > 0 && (
-            <div className="rounded-xl border border-[rgba(216,90,48,0.35)] bg-[rgba(216,90,48,0.08)] p-4 text-sm text-[#D85A30]">
+            <div className="rounded-xl border border-negative/35 bg-negative/8 p-4 text-sm text-negative-ink">
               {data.costs_overdue} costo
               {data.costs_overdue === 1 ? '' : 's'} atrasado
               {data.costs_overdue === 1 ? '' : 's'}. Revisa la sección de Costos.
             </div>
           )}
           {data.breakeven_gap > 5 && (
-            <div className="rounded-xl border border-[rgba(239,159,39,0.35)] bg-[rgba(239,159,39,0.08)] p-4 text-sm text-[#EF9F27]">
+            <div className="rounded-xl border border-warning/35 bg-warning/8 p-4 text-sm text-warning-ink">
               Breakeven aún no alcanzado, faltan {data.breakeven_gap} usuarios Pro.
             </div>
           )}

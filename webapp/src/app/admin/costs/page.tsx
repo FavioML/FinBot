@@ -89,7 +89,7 @@ function formatDateLima(iso: string | null): string {
 
 function CategoryBadge({ category }: { category: AdminCostCategory }) {
   return (
-    <span className="inline-flex items-center rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-[10px] uppercase tracking-wider text-[#C8C6BC]">
+    <span className="inline-flex items-center rounded-full border border-border bg-foreground/[0.03] px-2 py-0.5 text-[10px] uppercase tracking-wider text-foreground-soft">
       {ADMIN_COST_CATEGORY_LABELS[category]}
     </span>
   );
@@ -99,7 +99,7 @@ function AutoDebitBadge() {
   return (
     <span
       title="Débito automático: se cobra solo, solo aviso informativo"
-      className="inline-flex items-center rounded-full border border-[rgba(29,158,117,0.35)] bg-[rgba(29,158,117,0.12)] px-2 py-0.5 text-[10px] uppercase tracking-wider text-[#1D9E75]"
+      className="inline-flex items-center rounded-full border border-primary/35 bg-primary/12 px-2 py-0.5 text-[10px] uppercase tracking-wider text-primary-ink"
     >
       Auto
     </span>
@@ -109,7 +109,7 @@ function AutoDebitBadge() {
 function DueBadge({ cost, today }: { cost: AdminCost; today: string }) {
   if (!cost.active) {
     return (
-      <span className="inline-flex items-center rounded-full bg-white/5 px-2 py-0.5 text-[10px] uppercase tracking-wider text-[#8A877D]">
+      <span className="inline-flex items-center rounded-full bg-foreground/5 px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
         Pausado
       </span>
     );
@@ -119,21 +119,21 @@ function DueBadge({ cost, today }: { cost: AdminCost; today: string }) {
   const days = diffDaysUTC(today, cost.next_due_date);
   if (days < 0) {
     return (
-      <span className="inline-flex items-center rounded-full bg-[rgba(216,90,48,0.12)] px-2 py-0.5 text-[10px] uppercase tracking-wider text-[#D85A30]">
+      <span className="inline-flex items-center rounded-full bg-negative/12 px-2 py-0.5 text-[10px] uppercase tracking-wider text-negative-ink">
         Atrasado
       </span>
     );
   }
   if (days === 0) {
     return (
-      <span className="inline-flex items-center rounded-full bg-[rgba(216,90,48,0.12)] px-2 py-0.5 text-[10px] uppercase tracking-wider text-[#D85A30]">
+      <span className="inline-flex items-center rounded-full bg-negative/12 px-2 py-0.5 text-[10px] uppercase tracking-wider text-negative-ink">
         Vence HOY
       </span>
     );
   }
   if (days <= 7) {
     return (
-      <span className="inline-flex items-center rounded-full bg-[rgba(239,159,39,0.12)] px-2 py-0.5 text-[10px] uppercase tracking-wider text-[#EF9F27]">
+      <span className="inline-flex items-center rounded-full bg-warning/12 px-2 py-0.5 text-[10px] uppercase tracking-wider text-warning-ink">
         En {days} {days === 1 ? 'día' : 'días'}
       </span>
     );
@@ -154,7 +154,7 @@ function AmountCell({ cost }: { cost: AdminCost }) {
     return (
       <div>
         <div className="text-sm">{formatPen(Number(cost.amount_pen))}</div>
-        <div className="text-[11px] text-[#8A877D]">
+        <div className="text-[11px] text-muted-foreground">
           ${Number(cost.amount_original).toFixed(2)}
         </div>
       </div>
@@ -298,7 +298,7 @@ function CostFormModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4"
       onClick={onClose}
     >
       <form
@@ -306,13 +306,13 @@ function CostFormModal({
         onClick={(e) => e.stopPropagation()}
         className="glass-card-elevated max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl p-5"
       >
-        <h3 className="mb-4 text-lg font-semibold text-[#F0EFE8]">
+        <h3 className="mb-4 text-lg font-semibold text-foreground">
           {isEdit ? 'Editar costo' : 'Añadir costo'}
         </h3>
 
         <div className="space-y-3">
           <div>
-            <label className="mb-1 block text-xs uppercase tracking-wider text-[#8A877D]">
+            <label className="mb-1 block text-xs uppercase tracking-wider text-muted-foreground">
               Label
             </label>
             <input
@@ -328,7 +328,7 @@ function CostFormModal({
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
-              <label className="mb-1 block text-xs uppercase tracking-wider text-[#8A877D]">
+              <label className="mb-1 block text-xs uppercase tracking-wider text-muted-foreground">
                 Categoría
               </label>
               <select
@@ -342,17 +342,17 @@ function CostFormModal({
                 className="form-input w-full"
               >
                 {CATEGORIES.map((c) => (
-                  <option key={c} value={c} className="bg-[#1A1A17]">
+                  <option key={c} value={c} className="bg-surface-elevated">
                     {ADMIN_COST_CATEGORY_LABELS[c]}
                   </option>
                 ))}
               </select>
             </div>
             <div>
-              <label className="mb-1 block text-xs uppercase tracking-wider text-[#8A877D]">
+              <label className="mb-1 block text-xs uppercase tracking-wider text-muted-foreground">
                 Frecuencia
               </label>
-              <div className="flex rounded-lg border border-white/10 bg-[#1A1A17] p-1">
+              <div className="flex rounded-lg border border-border bg-surface-elevated p-1">
                 {FREQUENCIES.map((f) => (
                   <button
                     key={f}
@@ -360,8 +360,8 @@ function CostFormModal({
                     onClick={() => setForm({ ...form, frequency: f })}
                     className={`flex-1 rounded-md px-2 py-1.5 text-xs transition-colors ${
                       form.frequency === f
-                        ? 'bg-[rgba(29,158,117,0.18)] text-[#1D9E75]'
-                        : 'text-[#8A877D] hover:text-[#F0EFE8]'
+                        ? 'bg-primary/18 text-primary-ink'
+                        : 'text-muted-foreground hover:text-foreground'
                     }`}
                   >
                     {ADMIN_COST_FREQUENCY_LABELS[f]}
@@ -372,7 +372,7 @@ function CostFormModal({
           </div>
 
           <div>
-            <label className="mb-1 flex items-center justify-between text-xs uppercase tracking-wider text-[#8A877D]">
+            <label className="mb-1 flex items-center justify-between text-xs uppercase tracking-wider text-muted-foreground">
               <span>Monto en PEN</span>
               <label className="flex items-center gap-2 normal-case tracking-normal">
                 <input
@@ -381,9 +381,9 @@ function CostFormModal({
                   onChange={(e) =>
                     setForm({ ...form, isUSD: e.target.checked })
                   }
-                  className="h-3.5 w-3.5 accent-[#1D9E75]"
+                  className="h-3.5 w-3.5 accent-primary"
                 />
-                <span className="text-[11px] text-[#C8C6BC]">¿Es en USD?</span>
+                <span className="text-[11px] text-foreground-soft">¿Es en USD?</span>
               </label>
             </label>
             {!form.isUSD && (
@@ -426,15 +426,15 @@ function CostFormModal({
                     placeholder="Tipo de cambio"
                   />
                 </div>
-                <div className="text-xs text-[#8A877D]">
-                  Equivalente: <span className="text-[#1D9E75]">{formatPen(computedPen)}</span>
+                <div className="text-xs text-muted-foreground">
+                  Equivalente: <span className="text-primary">{formatPen(computedPen)}</span>
                 </div>
               </div>
             )}
           </div>
 
           <div>
-            <label className="mb-1 block text-xs uppercase tracking-wider text-[#8A877D]">
+            <label className="mb-1 block text-xs uppercase tracking-wider text-muted-foreground">
               Próximo vencimiento{form.frequency === 'one_time' ? ' (opcional)' : ''}
             </label>
             <input
@@ -448,17 +448,17 @@ function CostFormModal({
           </div>
 
           <div>
-            <label className="mb-1 block text-xs uppercase tracking-wider text-[#8A877D]">
+            <label className="mb-1 block text-xs uppercase tracking-wider text-muted-foreground">
               Cobro
             </label>
-            <div className="flex rounded-lg border border-white/10 bg-[#1A1A17] p-1">
+            <div className="flex rounded-lg border border-border bg-surface-elevated p-1">
               <button
                 type="button"
                 onClick={() => setForm({ ...form, autoDebit: false })}
                 className={`flex-1 rounded-md px-2 py-1.5 text-xs transition-colors ${
                   !form.autoDebit
-                    ? 'bg-[rgba(29,158,117,0.18)] text-[#1D9E75]'
-                    : 'text-[#8A877D] hover:text-[#F0EFE8]'
+                    ? 'bg-primary/18 text-primary-ink'
+                    : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
                 Manual
@@ -468,14 +468,14 @@ function CostFormModal({
                 onClick={() => setForm({ ...form, autoDebit: true })}
                 className={`flex-1 rounded-md px-2 py-1.5 text-xs transition-colors ${
                   form.autoDebit
-                    ? 'bg-[rgba(29,158,117,0.18)] text-[#1D9E75]'
-                    : 'text-[#8A877D] hover:text-[#F0EFE8]'
+                    ? 'bg-primary/18 text-primary-ink'
+                    : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
                 Automático
               </button>
             </div>
-            <p className="mt-1 text-[11px] text-[#8A877D]">
+            <p className="mt-1 text-[11px] text-muted-foreground">
               {form.autoDebit
                 ? 'Se cobra solo (ej. tarjeta). Solo te aviso el día del cobro; se registra y avanza solo.'
                 : 'Te recuerdo por Telegram el día del vencimiento y cada día que siga sin pagarse.'}
@@ -483,7 +483,7 @@ function CostFormModal({
           </div>
 
           <div>
-            <label className="mb-1 block text-xs uppercase tracking-wider text-[#8A877D]">
+            <label className="mb-1 block text-xs uppercase tracking-wider text-muted-foreground">
               Notas
             </label>
             <textarea
@@ -500,13 +500,13 @@ function CostFormModal({
               type="checkbox"
               checked={form.active}
               onChange={(e) => setForm({ ...form, active: e.target.checked })}
-              className="h-4 w-4 accent-[#1D9E75]"
+              className="h-4 w-4 accent-primary"
             />
-            <span className="text-sm text-[#F0EFE8]">Activo</span>
+            <span className="text-sm text-foreground">Activo</span>
           </label>
 
           {error && (
-            <div className="rounded-lg border border-[rgba(216,90,48,0.35)] bg-[rgba(216,90,48,0.08)] p-2 text-xs text-[#D85A30]">
+            <div className="rounded-lg border border-negative/35 bg-negative/8 p-2 text-xs text-negative-ink">
               {error}
             </div>
           )}
@@ -517,14 +517,14 @@ function CostFormModal({
             type="button"
             onClick={onClose}
             disabled={busy}
-            className="rounded-lg border border-white/10 bg-[#131311] px-4 py-2 text-sm text-[#C8C6BC] hover:text-[#F0EFE8] disabled:opacity-50"
+            className="rounded-lg border border-border bg-card px-4 py-2 text-sm text-foreground-soft hover:text-foreground disabled:opacity-50"
           >
             Cancelar
           </button>
           <button
             type="submit"
             disabled={busy}
-            className="rounded-lg bg-[#1D9E75] px-4 py-2 text-sm font-medium text-white hover:bg-[#178a65] disabled:opacity-50"
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
           >
             {busy ? 'Guardando…' : 'Guardar'}
           </button>
@@ -588,35 +588,35 @@ function MarkPaidModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4"
       onClick={onClose}
     >
       <div
         onClick={(e) => e.stopPropagation()}
         className="glass-card-elevated w-full max-w-md rounded-xl p-5"
       >
-        <h3 className="mb-3 text-lg font-semibold text-[#F0EFE8]">
+        <h3 className="mb-3 text-lg font-semibold text-foreground">
           Marcar como pagado
         </h3>
-        <p className="text-sm text-[#C8C6BC]">
-          Estás marcando <span className="font-medium text-[#F0EFE8]">{cost.label}</span> como pagado por{' '}
-          <span className="font-medium text-[#F0EFE8]">{formatPen(Number(cost.amount_pen))}</span>.
+        <p className="text-sm text-foreground-soft">
+          Estás marcando <span className="font-medium text-foreground">{cost.label}</span> como pagado por{' '}
+          <span className="font-medium text-foreground">{formatPen(Number(cost.amount_pen))}</span>.
         </p>
         {paidAt !== today && (
-          <p className="mt-2 text-sm text-[#C8C6BC]">
+          <p className="mt-2 text-sm text-foreground-soft">
             Se registra como el pago del{' '}
-            <span className="font-medium text-[#F0EFE8]">{formatDateLima(paidAt)}</span>, que es
+            <span className="font-medium text-foreground">{formatDateLima(paidAt)}</span>, que es
             el período que vencía — no como un gasto de hoy.
           </p>
         )}
         {newDate && (
-          <p className="mt-2 text-sm text-[#C8C6BC]">
+          <p className="mt-2 text-sm text-foreground-soft">
             La próxima fecha avanzará a{' '}
-            <span className="font-medium text-[#1D9E75]">{formatDateLima(newDate)}</span>.
+            <span className="font-medium text-primary">{formatDateLima(newDate)}</span>.
           </p>
         )}
         {cost.frequency === 'one_time' && (
-          <p className="mt-2 text-sm text-[#C8C6BC]">
+          <p className="mt-2 text-sm text-foreground-soft">
             Este costo es de pago único, quedará pausado tras confirmar.
           </p>
         )}
@@ -626,9 +626,9 @@ function MarkPaidModal({
             type="checkbox"
             checked={customMode}
             onChange={(e) => setCustomMode(e.target.checked)}
-            className="h-4 w-4 accent-[#1D9E75]"
+            className="h-4 w-4 accent-primary"
           />
-          <span className="text-[#F0EFE8]">Pagué un monto distinto</span>
+          <span className="text-foreground">Pagué un monto distinto</span>
         </label>
         {customMode && (
           <input
@@ -643,7 +643,7 @@ function MarkPaidModal({
         )}
 
         {error && (
-          <div className="mt-3 rounded-lg border border-[rgba(216,90,48,0.35)] bg-[rgba(216,90,48,0.08)] p-2 text-xs text-[#D85A30]">
+          <div className="mt-3 rounded-lg border border-negative/35 bg-negative/8 p-2 text-xs text-negative-ink">
             {error}
           </div>
         )}
@@ -652,14 +652,14 @@ function MarkPaidModal({
           <button
             onClick={onClose}
             disabled={markPaid.isPending}
-            className="rounded-lg border border-white/10 bg-[#131311] px-4 py-2 text-sm text-[#C8C6BC] hover:text-[#F0EFE8] disabled:opacity-50"
+            className="rounded-lg border border-border bg-card px-4 py-2 text-sm text-foreground-soft hover:text-foreground disabled:opacity-50"
           >
             Cancelar
           </button>
           <button
             onClick={handleConfirm}
             disabled={markPaid.isPending}
-            className="rounded-lg bg-[#1D9E75] px-4 py-2 text-sm font-medium text-white hover:bg-[#178a65] disabled:opacity-50"
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
           >
             {markPaid.isPending ? 'Confirmando…' : 'Confirmar pago'}
           </button>
@@ -754,34 +754,34 @@ function CostDetailModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4"
       onClick={onClose}
     >
       <div
         onClick={(e) => e.stopPropagation()}
         className="glass-card-elevated max-h-[85vh] w-full max-w-md overflow-y-auto rounded-xl p-5"
       >
-        <h3 className="text-lg font-semibold text-[#F0EFE8]">{cost.label}</h3>
+        <h3 className="text-lg font-semibold text-foreground">{cost.label}</h3>
         <div className="mt-1 flex flex-wrap items-center gap-2">
           <CategoryBadge category={cost.category} />
-          <span className="text-xs text-[#8A877D]">
+          <span className="text-xs text-muted-foreground">
             {ADMIN_COST_FREQUENCY_LABELS[cost.frequency]} ·{' '}
             {formatPen(Number(cost.amount_pen))}
           </span>
         </div>
 
         {cost.notes && (
-          <div className="mt-3 rounded-lg border border-white/5 bg-white/[0.02] p-3 text-sm text-[#C8C6BC]">
+          <div className="mt-3 rounded-lg border border-border bg-foreground/[0.02] p-3 text-sm text-foreground-soft">
             {cost.notes}
           </div>
         )}
 
         <div className="mt-4">
-          <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-[#8A877D]">
+          <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
             Historial de pagos
           </h4>
           {sorted.length === 0 ? (
-            <div className="rounded-lg border border-white/5 bg-white/[0.02] p-3 text-xs text-[#8A877D]">
+            <div className="rounded-lg border border-border bg-foreground/[0.02] p-3 text-xs text-muted-foreground">
               Aún sin pagos registrados.
             </div>
           ) : (
@@ -790,7 +790,7 @@ function CostDetailModal({
                 editingKey === p._key ? (
                   <li
                     key={p._key}
-                    className="rounded-lg border border-[rgba(29,158,117,0.35)] bg-white/[0.02] p-2"
+                    className="rounded-lg border border-primary/35 bg-foreground/[0.02] p-2"
                   >
                     <div className="flex items-center gap-2">
                       <input
@@ -810,14 +810,14 @@ function CostDetailModal({
                       <button
                         onClick={confirmEdit}
                         title="Confirmar"
-                        className="rounded-md p-1.5 text-[#1D9E75] hover:bg-[rgba(29,158,117,0.12)]"
+                        className="rounded-md p-1.5 text-primary-ink hover:bg-primary/12"
                       >
                         <Check className="h-4 w-4" />
                       </button>
                       <button
                         onClick={() => setEditingKey(null)}
                         title="Cancelar"
-                        className="rounded-md p-1.5 text-[#8A877D] hover:bg-white/5 hover:text-[#F0EFE8]"
+                        className="rounded-md p-1.5 text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
                       >
                         <X className="h-4 w-4" />
                       </button>
@@ -826,22 +826,22 @@ function CostDetailModal({
                 ) : (
                   <li
                     key={p._key}
-                    className="flex items-center justify-between rounded-lg border border-white/5 bg-white/[0.02] px-3 py-2 text-sm"
+                    className="flex items-center justify-between rounded-lg border border-border bg-foreground/[0.02] px-3 py-2 text-sm"
                   >
-                    <span className="text-[#F0EFE8]">{formatDateLima(p.paid_at)}</span>
+                    <span className="text-foreground">{formatDateLima(p.paid_at)}</span>
                     <div className="flex items-center gap-1">
-                      <span className="text-[#1D9E75]">{formatPen(p.amount_pen)}</span>
+                      <span className="text-primary">{formatPen(p.amount_pen)}</span>
                       <button
                         onClick={() => startEdit(p)}
                         title="Editar"
-                        className="ml-1 rounded-md p-1 text-[#8A877D] hover:bg-white/5 hover:text-[#F0EFE8]"
+                        className="ml-1 rounded-md p-1 text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
                       >
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
                       <button
                         onClick={() => removeEntry(p._key)}
                         title="Borrar"
-                        className="rounded-md p-1 text-[#8A877D] hover:bg-[rgba(216,90,48,0.12)] hover:text-[#D85A30]"
+                        className="rounded-md p-1 text-muted-foreground hover:bg-negative/12 hover:text-negative"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
@@ -852,28 +852,28 @@ function CostDetailModal({
             </ul>
           )}
           {dirty && (
-            <p className="mt-2 text-[11px] text-[#8A877D]">
+            <p className="mt-2 text-[11px] text-muted-foreground">
               Corregir el historial ajusta el P&L. No cambia la próxima fecha de cobro (usa “Editar” para eso).
             </p>
           )}
         </div>
 
         {error && (
-          <div className="mt-3 rounded-lg border border-[rgba(216,90,48,0.35)] bg-[rgba(216,90,48,0.08)] p-2 text-xs text-[#D85A30]">
+          <div className="mt-3 rounded-lg border border-negative/35 bg-negative/8 p-2 text-xs text-negative-ink">
             {error}
           </div>
         )}
 
-        <div className="mt-4 grid grid-cols-2 gap-3 text-xs text-[#8A877D]">
+        <div className="mt-4 grid grid-cols-2 gap-3 text-xs text-muted-foreground">
           <div>
             <div className="uppercase tracking-wider">Próximo</div>
-            <div className="mt-1 text-[#F0EFE8]">
+            <div className="mt-1 text-foreground">
               {formatDateLima(cost.next_due_date)}
             </div>
           </div>
           <div>
             <div className="uppercase tracking-wider">Creado</div>
-            <div className="mt-1 text-[#F0EFE8]">
+            <div className="mt-1 text-foreground">
               {formatDateLima(cost.created_at.slice(0, 10))}
             </div>
           </div>
@@ -885,14 +885,14 @@ function CostDetailModal({
               <button
                 onClick={reset}
                 disabled={update.isPending}
-                className="rounded-lg border border-white/10 bg-[#131311] px-4 py-2 text-sm text-[#C8C6BC] hover:text-[#F0EFE8] disabled:opacity-50"
+                className="rounded-lg border border-border bg-card px-4 py-2 text-sm text-foreground-soft hover:text-foreground disabled:opacity-50"
               >
                 Descartar
               </button>
               <button
                 onClick={save}
                 disabled={update.isPending || editingKey !== null}
-                className="rounded-lg bg-[#1D9E75] px-4 py-2 text-sm font-medium text-white hover:bg-[#178a65] disabled:opacity-50"
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
               >
                 {update.isPending ? 'Guardando…' : 'Guardar cambios'}
               </button>
@@ -900,7 +900,7 @@ function CostDetailModal({
           ) : (
             <button
               onClick={onClose}
-              className="rounded-lg border border-white/10 bg-[#131311] px-4 py-2 text-sm text-[#C8C6BC] hover:text-[#F0EFE8]"
+              className="rounded-lg border border-border bg-card px-4 py-2 text-sm text-foreground-soft hover:text-foreground"
             >
               Cerrar
             </button>
@@ -946,7 +946,7 @@ function CostRowActions({
         (toca ? (
           <button
             onClick={onMarkPaid}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-[#1D9E75] px-2.5 py-1.5 text-xs font-medium text-white hover:bg-[#178a65]"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
           >
             <Check className="h-3.5 w-3.5" />
             Pagué
@@ -955,7 +955,7 @@ function CostRowActions({
           <button
             onClick={onMarkPaid}
             title="Registrar un pago adelantado"
-            className="rounded-md p-1.5 text-[#1D9E75] hover:bg-[rgba(29,158,117,0.12)]"
+            className="rounded-md p-1.5 text-primary-ink hover:bg-primary/12"
           >
             <Check className="h-4 w-4" />
           </button>
@@ -963,25 +963,25 @@ function CostRowActions({
       <button
         onClick={onView}
         title="Ver detalle"
-        className="rounded-md p-1.5 text-[#8A877D] hover:bg-white/5 hover:text-[#F0EFE8]"
+        className="rounded-md p-1.5 text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
       >
         <Eye className="h-4 w-4" />
       </button>
       <button
         onClick={onEdit}
         title="Editar"
-        className="rounded-md p-1.5 text-[#8A877D] hover:bg-white/5 hover:text-[#F0EFE8]"
+        className="rounded-md p-1.5 text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
       >
         <Pencil className="h-4 w-4" />
       </button>
       {/* Separador: sin él la X de pausar queda pegada al check de pagar y se lee como "no pagué",
           que es un clic destructivo disfrazado del contrario. */}
-      <span aria-hidden className="mx-1 h-4 w-px bg-white/10" />
+      <span aria-hidden className="mx-1 h-4 w-px bg-foreground/10" />
       <button
         onClick={handleToggleActive}
         disabled={toggle.isPending || update.isPending}
         title={cost.active ? 'Pausar' : 'Reactivar'}
-        className="rounded-md p-1.5 text-[#8A877D] hover:bg-white/5 hover:text-[#F0EFE8] disabled:opacity-50"
+        className="rounded-md p-1.5 text-muted-foreground hover:bg-foreground/5 hover:text-foreground disabled:opacity-50"
       >
         {cost.active ? <X className="h-4 w-4" /> : <Power className="h-4 w-4" />}
       </button>
@@ -1011,10 +1011,10 @@ function PnlSection() {
   const current = months && months.length > 0 ? months[months.length - 1] : null;
   const currentColor =
     !current || current.result_pen === 0
-      ? 'text-[#F0EFE8]'
+      ? 'text-foreground'
       : current.result_pen > 0
-        ? 'text-[#1D9E75]'
-        : 'text-[#D85A30]';
+        ? 'text-primary'
+        : 'text-negative';
 
   const exportPnl = () => {
     if (!months || months.length === 0) return;
@@ -1029,15 +1029,15 @@ function PnlSection() {
     <div className="glass-card rounded-xl p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold text-[#F0EFE8]">Ganancia / pérdida mensual</h3>
-          <p className="mt-0.5 text-xs text-[#8A877D]">
+          <h3 className="text-sm font-semibold text-foreground">Ganancia / pérdida mensual</h3>
+          <p className="mt-0.5 text-xs text-muted-foreground">
             Caja real: pagos Pro aprobados menos costos pagados del mes.
           </p>
         </div>
         <div className="flex flex-col items-end gap-2">
           {current && (
             <div className="text-right">
-              <div className="text-[10px] uppercase tracking-wider text-[#8A877D]">Este mes</div>
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Este mes</div>
               <div className={`text-xl font-semibold ${currentColor}`}>
                 {signedPen(current.result_pen)}
               </div>
@@ -1046,7 +1046,7 @@ function PnlSection() {
           {months && months.length > 0 && (
             <button
               onClick={exportPnl}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-[#131311] px-2.5 py-1.5 text-xs text-[#C8C6BC] hover:text-[#F0EFE8]"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs text-foreground-soft hover:text-foreground"
             >
               <Download className="h-3.5 w-3.5" />
               CSV
@@ -1058,7 +1058,7 @@ function PnlSection() {
       {isLoading && (
         <div className="mt-4 space-y-2">
           {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="h-8 animate-pulse rounded-lg bg-white/[0.03]" />
+            <div key={i} className="h-8 animate-pulse rounded-lg bg-foreground/[0.03]" />
           ))}
         </div>
       )}
@@ -1067,34 +1067,34 @@ function PnlSection() {
         <div className="mt-4 overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-[10px] uppercase tracking-wider text-[#8A877D]">
+              <tr className="text-left text-[10px] uppercase tracking-wider text-muted-foreground">
                 <th className="pb-2 pr-4 font-medium">Mes</th>
                 <th className="pb-2 pr-4 text-right font-medium">Ingresos</th>
                 <th className="pb-2 pr-4 text-right font-medium">Costos</th>
                 <th className="pb-2 text-right font-medium">Resultado</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/5">
+            <tbody className="divide-y divide-border">
               {[...months].reverse().map((m) => {
                 const color =
                   m.result_pen === 0
-                    ? 'text-[#C8C6BC]'
+                    ? 'text-foreground-soft'
                     : m.result_pen > 0
-                      ? 'text-[#1D9E75]'
-                      : 'text-[#D85A30]';
+                      ? 'text-primary'
+                      : 'text-negative';
                 return (
                   <tr key={m.month}>
-                    <td className="py-2 pr-4 capitalize text-[#F0EFE8]">{monthLabel(m.month)}</td>
+                    <td className="py-2 pr-4 capitalize text-foreground">{monthLabel(m.month)}</td>
                     <td className="py-2 pr-4 text-right">
                       {/* Quién pagó ese mes: /admin/pagos, con la misma definición de caja. */}
                       <Link
                         href={`/admin/pagos?mes=${m.month.slice(0, 7)}`}
-                        className="text-[#C8C6BC] underline decoration-white/20 underline-offset-4 hover:text-[#1D9E75]"
+                        className="text-foreground-soft underline decoration-foreground/20 underline-offset-4 hover:text-primary"
                       >
                         {formatPen(m.income_pen)}
                       </Link>
                     </td>
-                    <td className="py-2 pr-4 text-right text-[#8A877D]">{formatPen(m.cost_pen)}</td>
+                    <td className="py-2 pr-4 text-right text-muted-foreground">{formatPen(m.cost_pen)}</td>
                     <td className={`py-2 text-right font-medium ${color}`}>{signedPen(m.result_pen)}</td>
                   </tr>
                 );
@@ -1124,8 +1124,8 @@ function UpcomingSection({ costs, today }: { costs: AdminCost[]; today: string }
 
   return (
     <div className="glass-card rounded-xl p-4">
-      <h3 className="text-sm font-semibold text-[#F0EFE8]">Lo que viene</h3>
-      <p className="mt-0.5 text-xs text-[#8A877D]">
+      <h3 className="text-sm font-semibold text-foreground">Lo que viene</h3>
+      <p className="mt-0.5 text-xs text-muted-foreground">
         Egresos proyectados de tus costos (incluye lo atrasado). No es el P&L, es lo que te toca pagar.
       </p>
 
@@ -1135,9 +1135,9 @@ function UpcomingSection({ costs, today }: { costs: AdminCost[]; today: string }
           { label: '60 días', v: d60 },
           { label: '90 días', v: d90 },
         ].map((w) => (
-          <div key={w.label} className="rounded-lg border border-white/5 bg-white/[0.02] p-3">
-            <div className="text-[10px] uppercase tracking-wider text-[#8A877D]">{w.label}</div>
-            <div className="mt-1 text-base font-semibold text-[#F0EFE8]">{formatPen(w.v)}</div>
+          <div key={w.label} className="rounded-lg border border-border bg-foreground/[0.02] p-3">
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{w.label}</div>
+            <div className="mt-1 text-base font-semibold text-foreground">{formatPen(w.v)}</div>
           </div>
         ))}
       </div>
@@ -1146,19 +1146,19 @@ function UpcomingSection({ costs, today }: { costs: AdminCost[]; today: string }
         {upcoming.map((o, i) => (
           <li
             key={`${o.label}-${o.date}-${i}`}
-            className="flex items-center justify-between rounded-lg border border-white/5 bg-white/[0.02] px-3 py-2 text-sm"
+            className="flex items-center justify-between rounded-lg border border-border bg-foreground/[0.02] px-3 py-2 text-sm"
           >
             <div className="flex items-center gap-2">
-              <span className="text-[#F0EFE8]">{o.label}</span>
+              <span className="text-foreground">{o.label}</span>
               {o.overdue && (
-                <span className="rounded-full bg-[rgba(216,90,48,0.12)] px-2 py-0.5 text-[10px] uppercase tracking-wider text-[#D85A30]">
+                <span className="rounded-full bg-negative/12 px-2 py-0.5 text-[10px] uppercase tracking-wider text-negative-ink">
                   Atrasado
                 </span>
               )}
             </div>
             <div className="flex items-center gap-3">
-              <span className="text-xs text-[#8A877D]">{formatDateLima(o.date)}</span>
-              <span className="text-[#C8C6BC]">{formatPen(o.amount_pen)}</span>
+              <span className="text-xs text-muted-foreground">{formatDateLima(o.date)}</span>
+              <span className="text-foreground-soft">{formatPen(o.amount_pen)}</span>
             </div>
           </li>
         ))}
@@ -1190,7 +1190,7 @@ function PorPagarSection({
 
   if (pendientes.length === 0) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-[rgba(29,158,117,0.25)] bg-[rgba(29,158,117,0.06)] px-4 py-3 text-sm text-[#1D9E75]">
+      <div className="flex items-center gap-2 rounded-xl border border-primary/25 bg-primary/6 px-4 py-3 text-sm text-primary-ink">
         <Check className="h-4 w-4 shrink-0" />
         <span>Todo al día. Ningún costo pendiente de pago.</span>
       </div>
@@ -1200,22 +1200,22 @@ function PorPagarSection({
   const total = pendientes.reduce((acc, c) => acc + Number(c.amount_pen), 0);
 
   return (
-    <div className="rounded-xl border border-[rgba(216,90,48,0.35)] bg-[rgba(216,90,48,0.06)] p-4">
+    <div className="rounded-xl border border-negative/35 bg-negative/6 p-4">
       <div className="flex items-baseline justify-between gap-3">
-        <h3 className="text-sm font-semibold text-[#F0EFE8]">
+        <h3 className="text-sm font-semibold text-foreground">
           Por pagar ({pendientes.length})
         </h3>
-        <span className="text-sm text-[#D85A30]">{formatPen(total)}</span>
+        <span className="text-sm text-negative">{formatPen(total)}</span>
       </div>
       <ul className="mt-3 space-y-2">
         {pendientes.map((c) => (
           <li
             key={c.id}
-            className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/5 bg-white/[0.02] px-3 py-2"
+            className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-foreground/[0.02] px-3 py-2"
           >
             <div className="min-w-0">
-              <div className="text-sm text-[#F0EFE8]">{c.label}</div>
-              <div className="text-xs text-[#8A877D]">
+              <div className="text-sm text-foreground">{c.label}</div>
+              <div className="text-xs text-muted-foreground">
                 {formatPen(Number(c.amount_pen))} ·{' '}
                 {c.next_due_date === today
                   ? 'vence hoy'
@@ -1224,7 +1224,7 @@ function PorPagarSection({
             </div>
             <button
               onClick={() => onMarkPaid(c)}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-[#1D9E75] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#178a65]"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
             >
               <Check className="h-4 w-4" />
               Pagué
@@ -1296,7 +1296,7 @@ export default function AdminCostsPage() {
 
   if (error) {
     return (
-      <div className="rounded-xl border border-[rgba(216,90,48,0.35)] bg-[rgba(216,90,48,0.08)] p-4 text-sm text-[#D85A30]">
+      <div className="rounded-xl border border-negative/35 bg-negative/8 p-4 text-sm text-negative-ink">
         Error al cargar costos. {error instanceof Error ? error.message : ''}
       </div>
     );
@@ -1306,8 +1306,8 @@ export default function AdminCostsPage() {
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-xl font-semibold text-[#F0EFE8]">Costos operativos</h2>
-          <p className="mt-1 text-sm text-[#8A877D]">
+          <h2 className="text-xl font-semibold text-foreground">Costos operativos</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
             Infra, dominio, comms y compliance con recordatorio de próximo vencimiento.
           </p>
         </div>
@@ -1315,7 +1315,7 @@ export default function AdminCostsPage() {
           {costs && costs.length > 0 && (
             <button
               onClick={exportCosts}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-[#131311] px-3 py-2 text-sm text-[#C8C6BC] hover:text-[#F0EFE8]"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground-soft hover:text-foreground"
             >
               <Download className="h-4 w-4" />
               Exportar
@@ -1323,7 +1323,7 @@ export default function AdminCostsPage() {
           )}
           <button
             onClick={() => setCreateOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-[#1D9E75] px-3 py-2 text-sm font-medium text-white hover:bg-[#178a65]"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
           >
             <Plus className="h-4 w-4" />
             Añadir costo
@@ -1334,32 +1334,32 @@ export default function AdminCostsPage() {
       {/* Stats */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div className="glass-card rounded-xl p-4">
-          <div className="text-xs uppercase tracking-wider text-[#8A877D]">
+          <div className="text-xs uppercase tracking-wider text-muted-foreground">
             Costos mensuales totales
           </div>
-          <div className="mt-1 text-xl font-semibold text-[#F0EFE8]">
+          <div className="mt-1 text-xl font-semibold text-foreground">
             {formatPen(stats.monthly)}
           </div>
         </div>
         <div className="glass-card rounded-xl p-4">
-          <div className="text-xs uppercase tracking-wider text-[#8A877D]">
+          <div className="text-xs uppercase tracking-wider text-muted-foreground">
             Vencen esta semana
           </div>
-          <div className="mt-1 text-xl font-semibold text-[#F0EFE8]">
+          <div className="mt-1 text-xl font-semibold text-foreground">
             {stats.dueWeek}
           </div>
         </div>
         <div
           className={`glass-card rounded-xl p-4 ${
-            stats.dueToday > 0 ? 'ring-1 ring-[rgba(239,159,39,0.35)]' : ''
+            stats.dueToday > 0 ? 'ring-1 ring-warning/35' : ''
           }`}
         >
-          <div className="text-xs uppercase tracking-wider text-[#8A877D]">
+          <div className="text-xs uppercase tracking-wider text-muted-foreground">
             Vencen hoy
           </div>
           <div
             className={`mt-1 text-xl font-semibold ${
-              stats.dueToday > 0 ? 'text-[#EF9F27]' : 'text-[#F0EFE8]'
+              stats.dueToday > 0 ? 'text-warning' : 'text-foreground'
             }`}
           >
             {stats.dueToday}
@@ -1378,12 +1378,12 @@ export default function AdminCostsPage() {
       <UpcomingSection costs={costs || []} today={today} />
 
       {/* Filtro */}
-      <label className="flex items-center gap-2 text-xs text-[#C8C6BC]">
+      <label className="flex items-center gap-2 text-xs text-foreground-soft">
         <input
           type="checkbox"
           checked={showInactive}
           onChange={(e) => setShowInactive(e.target.checked)}
-          className="h-3.5 w-3.5 accent-[#1D9E75]"
+          className="h-3.5 w-3.5 accent-primary"
         />
         Mostrar pausados
       </label>
@@ -1393,14 +1393,14 @@ export default function AdminCostsPage() {
           {Array.from({ length: 4 }).map((_, i) => (
             <div
               key={i}
-              className="h-14 animate-pulse rounded-xl border border-white/5 bg-white/[0.02]"
+              className="h-14 animate-pulse rounded-xl border border-border bg-foreground/[0.02]"
             />
           ))}
         </div>
       )}
 
       {!isLoading && filtered.length === 0 && (
-        <div className="glass-card rounded-xl p-8 text-center text-sm text-[#8A877D]">
+        <div className="glass-card rounded-xl p-8 text-center text-sm text-muted-foreground">
           No hay costos {showInactive ? 'registrados' : 'activos'} aún.
         </div>
       )}
@@ -1410,7 +1410,7 @@ export default function AdminCostsPage() {
         <div className="hidden overflow-x-auto glass-card md:block">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-white/5 bg-white/[0.02] text-left text-[10px] uppercase tracking-wider text-[#8A877D]">
+              <tr className="border-b border-border bg-foreground/[0.02] text-left text-[10px] uppercase tracking-wider text-muted-foreground">
                 <th className="px-4 py-3">Label</th>
                 <th className="px-4 py-3">Categoría</th>
                 <th className="px-4 py-3">Monto</th>
@@ -1419,19 +1419,19 @@ export default function AdminCostsPage() {
                 <th className="px-4 py-3 text-right">Acciones</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/5">
+            <tbody className="divide-y divide-border">
               {filtered.map((cost) => (
                 <tr
                   key={cost.id}
-                  className={`hover:bg-white/[0.02] ${cost.active ? '' : 'opacity-50'}`}
+                  className={`hover:bg-foreground/[0.02] ${cost.active ? '' : 'opacity-50'}`}
                 >
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
-                      <span className="font-medium text-[#F0EFE8]">{cost.label}</span>
+                      <span className="font-medium text-foreground">{cost.label}</span>
                       {cost.auto_debit && <AutoDebitBadge />}
                     </div>
                     {cost.notes && (
-                      <div className="mt-0.5 truncate text-xs text-[#8A877D]">
+                      <div className="mt-0.5 truncate text-xs text-muted-foreground">
                         {cost.notes}
                       </div>
                     )}
@@ -1442,11 +1442,11 @@ export default function AdminCostsPage() {
                   <td className="px-4 py-3">
                     <AmountCell cost={cost} />
                   </td>
-                  <td className="px-4 py-3 text-[#C8C6BC]">
+                  <td className="px-4 py-3 text-foreground-soft">
                     {ADMIN_COST_FREQUENCY_LABELS[cost.frequency]}
                   </td>
                   <td className="px-4 py-3">
-                    <div className="text-[#F0EFE8]">
+                    <div className="text-foreground">
                       {formatDateLima(cost.next_due_date)}
                     </div>
                     <div className="mt-1">
@@ -1480,11 +1480,11 @@ export default function AdminCostsPage() {
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-medium text-[#F0EFE8]">{cost.label}</span>
+                    <span className="font-medium text-foreground">{cost.label}</span>
                     <CategoryBadge category={cost.category} />
                     {cost.auto_debit && <AutoDebitBadge />}
                   </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[#8A877D]">
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                     <span>{ADMIN_COST_FREQUENCY_LABELS[cost.frequency]}</span>
                     <span>·</span>
                     <span>{formatDateLima(cost.next_due_date)}</span>

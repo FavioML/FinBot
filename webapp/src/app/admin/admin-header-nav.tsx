@@ -16,7 +16,7 @@ export function AdminHeaderNav() {
       {inSubpage && (
         <Link
           href="/admin"
-          className="inline-flex items-center gap-1.5 rounded-lg border border-[rgba(255,255,255,0.08)] bg-[#131311] px-3 py-2 text-sm text-[#C8C6BC] transition-colors hover:text-[#F0EFE8]"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground-soft transition-colors hover:text-foreground"
         >
           <ArrowLeft className="h-4 w-4" />
           Volver al panel
@@ -24,7 +24,7 @@ export function AdminHeaderNav() {
       )}
       <Link
         href="/dashboard"
-        className="rounded-lg border border-[rgba(255,255,255,0.08)] bg-[#131311] px-3 py-2 text-sm text-[#C8C6BC] transition-colors hover:text-[#F0EFE8]"
+        className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground-soft transition-colors hover:text-foreground"
       >
         Volver al dashboard
       </Link>
