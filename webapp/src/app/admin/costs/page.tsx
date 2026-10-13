@@ -109,7 +109,7 @@ function AutoDebitBadge() {
 function DueBadge({ cost, today }: { cost: AdminCost; today: string }) {
   if (!cost.active) {
     return (
-      <span className="inline-flex items-center rounded-full bg-foreground/5 px-2 py-0.5 text-xs uppercase tracking-wider text-muted-foreground">
+      <span className="inline-flex items-center whitespace-nowrap rounded-full bg-foreground/5 px-2 py-0.5 text-xs uppercase tracking-wider text-muted-foreground">
         Pausado
       </span>
     );
@@ -119,21 +119,21 @@ function DueBadge({ cost, today }: { cost: AdminCost; today: string }) {
   const days = diffDaysUTC(today, cost.next_due_date);
   if (days < 0) {
     return (
-      <span className="inline-flex items-center rounded-full bg-negative/12 px-2 py-0.5 text-xs uppercase tracking-wider text-negative-ink">
+      <span className="inline-flex items-center whitespace-nowrap rounded-full bg-negative/12 px-2 py-0.5 text-xs uppercase tracking-wider text-negative-ink">
         Atrasado
       </span>
     );
   }
   if (days === 0) {
     return (
-      <span className="inline-flex items-center rounded-full bg-negative/12 px-2 py-0.5 text-xs uppercase tracking-wider text-negative-ink">
+      <span className="inline-flex items-center whitespace-nowrap rounded-full bg-negative/12 px-2 py-0.5 text-xs uppercase tracking-wider text-negative-ink">
         Vence HOY
       </span>
     );
   }
   if (days <= 7) {
     return (
-      <span className="inline-flex items-center rounded-full bg-warning/12 px-2 py-0.5 text-xs uppercase tracking-wider text-warning-ink">
+      <span className="inline-flex items-center whitespace-nowrap rounded-full bg-warning/12 px-2 py-0.5 text-xs uppercase tracking-wider text-warning-ink">
         En {days} {days === 1 ? 'día' : 'días'}
       </span>
     );
@@ -1038,7 +1038,7 @@ function PnlSection() {
           {current && (
             <div className="text-right">
               <div className="text-xs uppercase tracking-wider text-muted-foreground">Este mes</div>
-              <div className={`text-xl font-semibold ${currentColor}`}>
+              <div className={`whitespace-nowrap text-xl font-semibold ${currentColor}`}>
                 {signedPen(current.result_pen)}
               </div>
             </div>
@@ -1146,18 +1146,23 @@ function UpcomingSection({ costs, today }: { costs: AdminCost[]; today: string }
         {upcoming.map((o, i) => (
           <li
             key={`${o.label}-${o.date}-${i}`}
-            className="flex items-center justify-between rounded-lg border border-border bg-foreground/[0.02] px-3 py-2 text-sm"
+            className="flex items-center justify-between gap-3 rounded-lg border border-border bg-foreground/[0.02] px-3 py-2 text-sm"
           >
-            <div className="flex items-center gap-2">
-              <span className="text-foreground">{o.label}</span>
-              {o.overdue && (
-                <span className="rounded-full bg-negative/12 px-2 py-0.5 text-xs uppercase tracking-wider text-negative-ink">
-                  Atrasado
-                </span>
-              )}
+            {/* En celular la fecha va debajo del nombre: con nombre, fecha y monto en una fila
+                se partían los tres ("S/" arriba y "3.00" abajo). */}
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span className="text-foreground">{o.label}</span>
+                {o.overdue && (
+                  <span className="rounded-full bg-negative/12 px-2 py-0.5 text-xs uppercase tracking-wider text-negative-ink">
+                    Atrasado
+                  </span>
+                )}
+              </div>
+              <div className="text-xs text-muted-foreground sm:hidden">{formatDateLima(o.date)}</div>
             </div>
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-muted-foreground">{formatDateLima(o.date)}</span>
+            <div className="flex shrink-0 items-center gap-3 whitespace-nowrap">
+              <span className="hidden text-xs text-muted-foreground sm:inline">{formatDateLima(o.date)}</span>
               <span className="text-foreground-soft">{formatPen(o.amount_pen)}</span>
             </div>
           </li>
@@ -1304,7 +1309,7 @@ export default function AdminCostsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-xl font-semibold text-foreground">Costos operativos</h2>
           <p className="mt-1 text-sm text-muted-foreground">
