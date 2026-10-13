@@ -737,9 +737,11 @@ export default function DashboardPage() {
                 <Link href="/dashboard/transacciones" className="text-xs text-primary hover:underline">Ver todas &rarr;</Link>
               </div>
               {transactions.length > 0 ? (
-                // En una fila de 300 px (celular) fecha 72 + pastilla + monto dejaban al comercio con 3 a 10 px
-                // visibles. Bajo @lg (512 px de tarjeta) el comercio va arriba y fecha · categoría abajo; desde
-                // @lg vuelve la fila de una línea (`@lg:contents` suelta fecha y pastilla en ella).
+                // En una fila de 300 px (celular) fecha 72 + pastilla + monto dejaban al comercio con 0 a 10 px
+                // visibles y empujaban el monto fuera de la tarjeta. Bajo @lg (512 px de tarjeta) la fila se parte:
+                // comercio y monto arriba, fecha · categoría abajo con el ancho entero (`basis-full`). Desde @lg
+                // vuelve la fila de una línea: `@lg:contents` suelta fecha y pastilla en ella y `order-first` las
+                // pone delante del comercio.
                 <div className="@container space-y-1">
                   {transactions.slice(0, 8).map((tx) => {
                     const emoji = getCategoriaEmoji(tx.categoria);
@@ -747,20 +749,11 @@ export default function DashboardPage() {
                     return (
                       <div
                         key={tx.id}
-                        className="flex items-center gap-3 rounded-lg px-3 py-2.5 transition-all hover:bg-foreground/3 @lg:hover:translate-x-1"
+                        className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg px-3 py-2.5 transition-all hover:bg-foreground/3 @lg:flex-nowrap @lg:hover:translate-x-1"
                       >
-                        <div className="flex min-w-0 flex-1 flex-col gap-1 @lg:flex-row @lg:items-center @lg:gap-3">
-                          <span className="truncate text-sm text-foreground min-w-0 @lg:order-last @lg:flex-1">
-                            {tx.comercio || tx.descripcion_original || tx.subcategoria}
-                          </span>
-                          <div className="flex min-w-0 items-center gap-2 @lg:contents">
-                            <span className="text-xs text-muted-foreground whitespace-nowrap shrink-0 @lg:w-[72px]">{formatFecha(tx.fecha)}</span>
-                            <span className="inline-flex min-w-0 items-center gap-1 rounded-full bg-foreground/5 px-2 py-0.5 text-xs text-foreground-soft @lg:shrink-0">
-                              <span className="shrink-0">{emoji}</span>
-                              <span className="truncate">{tx.categoria}</span>
-                            </span>
-                          </div>
-                        </div>
+                        <span className="min-w-0 flex-1 truncate text-sm text-foreground">
+                          {tx.comercio || tx.descripcion_original || tx.subcategoria}
+                        </span>
                         <span className="hidden lg:inline-block text-xs text-muted-foreground w-[100px] shrink-0 truncate">
                           {tx.metodo_pago ? capitalizeDisplay(normalizeMetodoPago(tx.metodo_pago, tx.banco)) : ''}
                         </span>
@@ -770,6 +763,13 @@ export default function DashboardPage() {
                           className="text-sm font-semibold shrink-0 whitespace-nowrap"
                           style={{ color: isIngreso ? 'var(--positive)' : 'var(--negative)' }}
                         />
+                        <div className="flex min-w-0 basis-full items-center gap-2 @lg:contents">
+                          <span className="text-xs text-muted-foreground whitespace-nowrap shrink-0 @lg:order-first @lg:w-[72px]">{formatFecha(tx.fecha)}</span>
+                          <span className="inline-flex min-w-0 items-center gap-1 rounded-full bg-foreground/5 px-2 py-0.5 text-xs text-foreground-soft @lg:order-first @lg:shrink-0">
+                            <span className="shrink-0">{emoji}</span>
+                            <span className="truncate">{tx.categoria}</span>
+                          </span>
+                        </div>
                       </div>
                     );
                   })}

@@ -456,7 +456,9 @@ if (!isLoading && transactions.length === 0) {
       {topMerchants.length > 0 && (
         <div className="glass-card glass-card-glow p-5">
           <h4 className="text-sm font-medium text-foreground-soft mb-4">Top comercios</h4>
-          <div className="space-y-3">
+          {/* Bajo @md (448 px de tarjeta) la cuenta va debajo del monto: en la misma línea, un comercio largo
+              ("Alquiler Departamento Miraflores") no podía bajar de su palabra más larga y pisaba "1 transacción". */}
+          <div className="@container space-y-3">
             {topMerchants.map((m, i) => (
               <div
                 key={m.name}
@@ -464,11 +466,11 @@ if (!isLoading && transactions.length === 0) {
                 onClick={() => setDetailComercio(m.name)}
               >
                 <div className="flex min-w-0 items-center gap-3">
-                  <span className="text-xs font-mono text-muted-foreground w-5 text-right">{i + 1}.</span>
-                  <span className="text-sm text-foreground">{m.name}</span>
+                  <span className="text-xs font-mono text-muted-foreground w-5 shrink-0 text-right">{i + 1}.</span>
+                  <span className="min-w-0 break-words text-sm text-foreground">{m.name}</span>
                 </div>
                 {/* Sin `shrink-0` el monto se partía en celular ("S/" arriba, "1,800.00" abajo). */}
-                <div className="flex shrink-0 items-center gap-4 whitespace-nowrap">
+                <div className="flex shrink-0 flex-col-reverse items-end whitespace-nowrap @md:flex-row @md:items-center @md:gap-4">
                   <span className="text-xs text-muted-foreground">{m.count} {m.count === 1 ? 'transacción' : 'transacciones'}</span>
                   <span className="text-sm font-medium text-negative">{formatCurrency(m.total)}</span>
                 </div>
