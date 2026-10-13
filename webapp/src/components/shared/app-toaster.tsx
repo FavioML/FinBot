@@ -35,6 +35,15 @@ export function AppToaster() {
           color: 'var(--foreground)',
           fontSize: '14px',
         },
+        // Sin esto el ícono sale del color del texto y un error se distingue de un éxito sólo
+        // por la forma. No es `richColors`: ese trae su propia paleta (rompe colores-por-token).
+        // Va con `-ink` porque el fondo es `surface-elevated` (tinta-sobre-tinte.test.ts).
+        classNames: {
+          error: '[&_[data-icon]]:text-negative-ink',
+          success: '[&_[data-icon]]:text-positive-ink',
+          warning: '[&_[data-icon]]:text-warning-ink',
+          info: '[&_[data-icon]]:text-info-ink',
+        },
       }}
     />
   );
