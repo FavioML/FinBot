@@ -1082,7 +1082,7 @@ export default function ConfiguracionPage() {
                 <div className="space-y-3 rounded-xl border border-border bg-muted/40 px-4 py-3">
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-secondary-foreground">Plan actual</span>
-                    <span className={cn('text-sm font-semibold', isPremium ? 'text-primary' : 'text-secondary-foreground')}>
+                    <span className={cn('text-sm font-semibold', isPremium ? 'text-primary-ink' : 'text-secondary-foreground')}>
                       {enPrueba ? 'Neto Pro · prueba' : isPremium ? 'Neto Pro' : 'Free'}
                     </span>
                   </div>
@@ -1093,13 +1093,13 @@ export default function ConfiguracionPage() {
                   {enPrueba && user.trial_vence && (
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-secondary-foreground">Termina el</span>
-                      <span className="text-sm font-medium text-warning">{formatDate(user.trial_vence)}</span>
+                      <span className="text-sm font-medium text-warning-ink">{formatDate(user.trial_vence)}</span>
                     </div>
                   )}
                   {!enPrueba && isPremium && user.plan_expiry && (
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-secondary-foreground">Vence el</span>
-                      <span className="text-sm font-medium text-warning">{formatDate(user.plan_expiry)}</span>
+                      <span className="text-sm font-medium text-warning-ink">{formatDate(user.plan_expiry)}</span>
                     </div>
                   )}
                   {enPrueba && (
@@ -1528,7 +1528,7 @@ export default function ConfiguracionPage() {
                                 <Pencil className="h-3.5 w-3.5" />
                               </button>
                               <button
-                                className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive-ink"
                                 onClick={() => startDelete(cat.id, { categoria: cat.nombre })}
                                 title="Eliminar"
                               >
@@ -1603,7 +1603,7 @@ export default function ConfiguracionPage() {
                                         <Pencil className="h-3 w-3" />
                                       </button>
                                       <button
-                                        className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                        className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive-ink"
                                         onClick={() => startDelete(key, { categoria: cat.nombre, sub: sub.nombre })}
                                         title="Eliminar"
                                       >

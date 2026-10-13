@@ -38,14 +38,14 @@ function KpiCard({
   label: string;
   value: string | number;
   subtitle?: string;
-  accent?: 'green' | 'amber' | 'red' | 'default';
+  accent?: 'positive' | 'warning' | 'negative' | 'default';
 }) {
   const valueColor =
-    accent === 'green'
+    accent === 'positive'
       ? 'text-primary'
-      : accent === 'amber'
+      : accent === 'warning'
         ? 'text-warning'
-        : accent === 'red'
+        : accent === 'negative'
           ? 'text-negative'
           : 'text-foreground';
   return (
@@ -113,12 +113,12 @@ export default function AdminEconomicsPage() {
     );
   }
 
-  const breakevenAccent: 'green' | 'amber' | 'red' =
+  const breakevenAccent: 'positive' | 'warning' | 'negative' =
     data.breakeven_gap <= 0
-      ? 'green'
+      ? 'positive'
       : data.breakeven_gap <= 3
-        ? 'amber'
-        : 'red';
+        ? 'warning'
+        : 'negative';
 
   const breakevenSubtitle =
     data.breakeven_gap <= 0
@@ -162,7 +162,7 @@ export default function AdminEconomicsPage() {
             ]
               .filter(Boolean)
               .join(' · ')}
-            accent="green"
+            accent="positive"
           />
           <KpiCard
             label="ARR"
@@ -179,7 +179,7 @@ export default function AdminEconomicsPage() {
             label="Margen bruto Pro"
             value={`${formatPen(data.gross_margin_pro_pen)}`}
             subtitle={`${grossMarginPct}% por usuario`}
-            accent="green"
+            accent="positive"
           />
         </div>
       </section>

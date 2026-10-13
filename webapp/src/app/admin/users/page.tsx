@@ -581,7 +581,7 @@ export default function AdminUsersPage() {
         {proExpiring.length > 0 && (
           <div className="rounded-xl border border-warning/35 bg-warning/8 px-4 py-3 text-sm text-warning-ink">
             {proExpiring.length} Pro {proExpiring.length === 1 ? 'vence' : 'vencen'} en ≤7 días (o ya
-            vencidos). Revisá el feed de la derecha para renovarlos.
+            vencidos). Revisa el feed de la derecha para renovarlos.
           </div>
         )}
       </section>

@@ -27,8 +27,20 @@ import ts from 'typescript';
  * parser de TypeScript, no con una regex: un `accept="image/*"` en un string se comía el código
  * hasta el siguiente `*\/` (lo encontró la revisión adversarial del 12-oct).
  *
- * LÍMITE DECLARADO: un color armado en tiempo de ejecución (`'#' + '1D9E75'`) no se ve. Una regex
- * no puede, y perseguirlo no vale lo que cuesta.
+ * También un literal que ES un color con nombre (`'white'` en un ternario, un mapa o un array), un
+ * literal con forma de valor CSS (`'1px solid white'`), `var(--x, white)`, la paleta por variable
+ * (`--color-red-500`), un `%23` hex en un data-URI y los valores con nombre de un `.css`.
+ *
+ * LÍMITES DECLARADOS (medidos por dos rondas de revisión adversarial el 12-oct-2026; una regex no
+ * puede cerrarlos todos y perseguirlos no vale lo que cuesta):
+ * - un color armado en tiempo de ejecución (`'#' + '1D9E75'`, `const fg = 'white'; color: fg` sí se
+ *   ve por el literal, pero no `['wh', 'ite'].join('')`);
+ * - CSS escrito dentro de un string (`el.style.cssText = 'color: black'`, una plantilla de CSS), los
+ *   colores numéricos de jsPDF (`setTextColor(255, 255, 255)`), el `argb` de exceljs y un SVG en base64;
+ * - falsos positivos conocidos: un número de copy con `#` (`'Pedido #1024'` se lee como hex) y un
+ *   nombre de color usado como valor de una clave que no está en la lista de identificadores.
+ * Para esos casos está EXCEPCIONES. Lo visual lo cubre el barrido en navegador
+ * (`products/neto/docs/paleta-neto-capturas.mjs`).
  *
  * SI ESTE TEST TE FRENA
  *
@@ -56,24 +68,91 @@ const PALETAS = [
     [...readFileSync(join(process.cwd(), 'node_modules/tailwindcss/theme.css'), 'utf8').matchAll(/--color-([a-z]+)-\d+:/g)].map((m) => m[1]),
   ),
 ];
-const NOMBRES = 'white|black|red|green|blue|yellow|orange|purple|pink|gray|grey|brown|cyan|magenta|lime|navy|teal|olive|maroon|silver|gold|indigo|violet|rebeccapurple|crimson|coral|salmon|tomato';
+// Los colores con nombre de CSS (sin `transparent` ni `currentColor`), los largos primero. Sin `peru`
+// ni `tan`: en esta app son el país y una palabra del copy ("no es tan caro"), no colores.
+const NOMBRES = [
+  'lightgoldenrodyellow', 'mediumspringgreen', 'mediumaquamarine', 'mediumslateblue',
+  'mediumturquoise', 'mediumvioletred', 'blanchedalmond', 'cornflowerblue', 'darkolivegreen',
+  'lightslategray', 'lightslategrey', 'lightsteelblue', 'mediumseagreen', 'darkgoldenrod',
+  'darkslateblue', 'darkslategray', 'darkslategrey', 'darkturquoise', 'lavenderblush',
+  'lightseagreen', 'palegoldenrod', 'paleturquoise', 'palevioletred', 'rebeccapurple',
+  'antiquewhite', 'darkseagreen', 'lemonchiffon', 'lightskyblue', 'mediumorchid', 'mediumpurple',
+  'midnightblue', 'darkmagenta', 'deepskyblue', 'floralwhite', 'forestgreen', 'greenyellow',
+  'lightsalmon', 'lightyellow', 'navajowhite', 'saddlebrown', 'springgreen', 'yellowgreen',
+  'aquamarine', 'blueviolet', 'chartreuse', 'darkorange', 'darkorchid', 'darksalmon', 'darkviolet',
+  'dodgerblue', 'ghostwhite', 'lightcoral', 'lightgreen', 'mediumblue', 'papayawhip', 'powderblue',
+  'sandybrown', 'whitesmoke', 'aliceblue', 'burlywood', 'cadetblue', 'chocolate', 'darkgreen',
+  'darkkhaki', 'firebrick', 'gainsboro', 'goldenrod', 'indianred', 'lawngreen', 'lightblue',
+  'lightcyan', 'lightgray', 'lightgrey', 'lightpink', 'limegreen', 'mintcream', 'mistyrose',
+  'olivedrab', 'orangered', 'palegreen', 'peachpuff', 'rosybrown', 'royalblue', 'slateblue',
+  'slategray', 'slategrey', 'steelblue', 'turquoise', 'cornsilk', 'darkblue', 'darkcyan',
+  'darkgray', 'darkgrey', 'deeppink', 'honeydew', 'lavender', 'moccasin', 'seagreen', 'seashell',
+  'crimson', 'darkred', 'dimgray', 'dimgrey', 'fuchsia', 'hotpink', 'magenta', 'oldlace',
+  'skyblue', 'thistle', 'bisque', 'indigo', 'maroon', 'orange', 'orchid', 'purple', 'salmon',
+  'sienna', 'silver', 'tomato', 'violet', 'yellow', 'azure', 'beige', 'black', 'brown', 'coral',
+  'green', 'ivory', 'khaki', 'linen', 'olive', 'wheat', 'white', 'aqua', 'blue', 'cyan', 'gold',
+  'gray', 'grey', 'lime', 'navy', 'pink', 'plum', 'snow', 'teal', 'red',
+].join('|');
 const PREFIJOS = String.raw`(?:text|bg|border(?:-[trblxyse])?|ring(?:-offset)?|inset-ring|inset-shadow|divide|from|to|via|fill|stroke|outline|decoration|placeholder|caret|accent|shadow|drop-shadow|text-shadow)`;
 
 const PATRONES: RegExp[] = [
   // hex: no precedido de letra/dígito (`&#9733;` es una entidad, `a#123` es una URL)
   /(?<![&0-9A-Za-z])#(?:[0-9A-Fa-f]{8}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{3,4})(?![0-9A-Za-z-])/g,
   // funciones de color (CSS no distingue mayúsculas); `_` vale como separador de Tailwind
-  /(?<![A-Za-z0-9-])(?:rgba?|hsla?|oklch|oklab|lab|lch|hwb|color)\(/gi,
-  // color con nombre como valor de un prop/estilo de color
-  new RegExp(String.raw`\b(?:fill|stroke|stopColor|color|background|backgroundColor|border(?:Top|Right|Bottom|Left)?Color|outlineColor|textDecorationColor|caretColor|fillStyle|strokeStyle)\s*[:=]\s*\{?\s*(["'\`])(?:${NOMBRES})\1`, 'gi'),
-  // nombre dentro de un valor arbitrario de Tailwind o de un color-mix
-  new RegExp(String.raw`-\[(?:color:)?(?:${NOMBRES})\]|_(?:${NOMBRES})\]|color-mix\([^)]*?\b(?:${NOMBRES})\b`, 'gi'),
+  /(?<![A-Za-z0-9.-])(?:rgba?|hsla?|oklch|oklab|lab|lch|hwb|color)\(/gi,
+  // color con nombre como valor de un prop/estilo de color, también en una rama de un ternario
+  // (`color: activo ? 'white' : c`): la expresión se lee hasta la siguiente `,` `;` `}` o salto
+  new RegExp(String.raw`\b(?:fill|stroke|stopColor|color|background|backgroundColor|border(?:Top|Right|Bottom|Left)?Color|outlineColor|textDecorationColor|caretColor|fillStyle|strokeStyle)\s*[:=]\s*\{?[^,;}\n]*?(?<![=!]==?\s*)(["'\`])(?:${NOMBRES})\1(?!\s*[=!]==?)`, 'gi'),
+  // nombre dentro de un valor arbitrario de Tailwind (`bg-[white]`, `[color:white]`,
+  // `shadow-[0_0_8px_white,inset…]`) o de un color-mix
+  new RegExp(String.raw`\[(?:[a-z-]+:)?(?:${NOMBRES})\]|[_,](?:${NOMBRES})(?=[\],_)])|color-mix\((?:[^()]|\([^()]*\))*?\b(?:${NOMBRES})\b|var\(--[\w-]+\s*,\s*(?:${NOMBRES})\b`, 'gi'),
+  // la paleta de Tailwind leída como variable (`text-(--color-red-500)`, `var(--color-amber-400)`)
+  new RegExp(String.raw`--color-(?:white|black|(?:${PALETAS.join('|')})-\d{2,3})(?![\w-])`, 'g'),
+  // un hex escapado dentro de un data-URI (`fill='%23FFFFFF'`)
+  /%23(?:[0-9A-Fa-f]{8}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{3,4})(?![0-9A-Za-z])/g,
   // utilidades de Tailwind con blanco/negro o una paleta
   new RegExp(String.raw`(?<![\w-])${PREFIJOS}-(?:white|black)(?![\w-])`, 'g'),
   new RegExp(String.raw`(?<![\w-])${PREFIJOS}-(?:${PALETAS.join('|')})-\d{2,3}(?![\w-])`, 'g'),
 ];
 
-const borrarConservandoLineas = (s: string) => s.replace(/[^\n]/g, ' ');
+// Un literal que ES un color con nombre (`'white'`, `"black"`), esté donde esté: en un ternario
+// partido por Prettier, en un mapa (`{ hero: 'white' }`), en un array, en `bgColor="white"`. No
+// cuenta si se lo COMPARA (`plan === 'gold'`, `case 'red':`) ni si es la clave de un objeto.
+const LITERAL_NOMBRE = new RegExp(String.raw`(["'\x60])(?:${NOMBRES})\1`, 'g');
+// Un literal con aspecto de valor CSS que nombra un color (`'1px solid white'`, `'0 0 0 2px black'`,
+// `'linear-gradient(white, …)'`).
+const LITERAL = /(["'\x60])([^"'\x60\n]*)\1/g;
+const ES_VALOR_CSS = /\b(?:solid|dashed|dotted|double|inset)\b|\d(?:px|rem|em)\b|(?:linear|radial|conic)-gradient\(/;
+const NOMBRE_SUELTO = new RegExp(String.raw`(?<![\w-])(?:${NOMBRES})(?![\w-])`);
+// En un .css, un nombre como valor de una declaración (`color: white;`, `border: 1px solid gray`).
+const CSS_VALOR_NOMBRE = new RegExp(String.raw`(?<=:[^;{}]*)(?<![\w-])(?:${NOMBRES})(?![\w-])`, 'gi');
+
+// Atajo de las dos reglas de literales sobre el texto crudo: un nombre suelto en prosa ("Error de
+// red") no alcanza para parsear el archivo; hace falta el literal exacto o el aspecto de valor CSS.
+const CANDIDATO_LITERAL = new RegExp(
+  String.raw`(["'\x60])(?:${NOMBRES})\1|(?:solid|dashed|dotted|double|inset|\dpx|\drem|\dem|gradient\()[^"'\x60\n]*?(?<![\w-])(?:${NOMBRES})(?![\w-])|(?<![\w-])(?:${NOMBRES})(?![\w-])[^"'\x60\n]*?(?:solid|dashed|dotted|double|inset|\dpx|\drem|\dem)`,
+);
+
+function hallazgosConContexto(rel: string, linea: string): Array<[number, string]> {
+  if (rel.endsWith('.css')) return [...linea.matchAll(CSS_VALOR_NOMBRE)].map((m) => [m.index!, m[0]]);
+  const out: Array<[number, string]> = [];
+  for (const m of linea.matchAll(LITERAL_NOMBRE)) {
+    const antes = linea.slice(0, m.index!);
+    const despues = linea.slice(m.index! + m[0].length);
+    if (/(?:[=!]==?|\bcase)\s*$/.test(antes) || /^\s*[=!]==?/.test(despues)) continue;
+    if (/(?:^|[{,])\s*$/.test(antes) && /^\s*:/.test(despues)) continue;
+    // Un atributo de texto o un identificador (`aria-label="white"`, `id: 'gold'`, `variant="white"`,
+    // `<option value="red">`) dice una palabra, no pinta.
+    if (/\b(?:aria-[\w-]+|alt|title|placeholder|label|name|id|key|htmlFor|type|value|variant|tipo|kind|plan|estado|status|codigo|slug)\s*[=:]\s*\{?\s*$/.test(antes)) continue;
+    out.push([m.index!, m[0]]);
+  }
+  for (const m of linea.matchAll(LITERAL)) {
+    if (ES_VALOR_CSS.test(m[2]) && NOMBRE_SUELTO.test(m[2])) out.push([m.index!, m[0]]);
+  }
+  return out;
+}
+
+const borrarConservandoLineas =(s: string) => s.replace(/[^\n]/g, ' ');
 
 /** Quita comentarios conservando posiciones y saltos de línea. TS/JS con el parser; CSS con regex. */
 export function sinComentarios(src: string, archivo: string): string {
@@ -109,16 +188,25 @@ export function hallazgos(rel: string, src: string): string[] {
   // Quitar comentarios sólo puede BORRAR hallazgos, nunca crearlos: si el texto crudo no tiene
   // ningún candidato, no hace falta parsear. Parsear los ~200 archivos con TypeScript le sumaba
   // segundos a la suite y empujaba a otros tests pesados a su timeout de 5 s.
-  if (!PATRONES.some((p) => new RegExp(p.source, p.flags.replace('g', '')).test(src))) return out;
+  // El atajo vale también para las reglas con contexto: sin un nombre de color en el texto crudo,
+  // ninguna de ellas puede encontrar nada.
+  const candidato = PATRONES.some((p) => new RegExp(p.source, p.flags.replace('g', '')).test(src))
+    || (rel.endsWith('.css') ? NOMBRE_SUELTO.test(src) : CANDIDATO_LITERAL.test(src));
+  if (!candidato) return out;
   sinComentarios(src, rel)
     .split('\n')
     .forEach((linea, i) => {
       const exentos = tramosExentos(rel, linea);
-      for (const patron of PATRONES) {
-        for (const m of linea.matchAll(patron)) {
-          const ini = m.index!;
-          const exenta = exentos.some(([a, b]) => ini >= a && ini + m[0].length <= b);
-          if (!exenta) out.push(`${rel}:${i + 1} — ${m[0]}`);
+      const encontrados: Array<[number, string]> = [
+        ...PATRONES.flatMap((patron) => [...linea.matchAll(patron)].map((m): [number, string] => [m.index!, m[0]])),
+        ...hallazgosConContexto(rel, linea),
+      ];
+      const vistos = new Set<string>();
+      for (const [ini, texto] of encontrados) {
+        const exenta = exentos.some(([a, b]) => ini >= a && ini + texto.length <= b);
+        if (!exenta && !vistos.has(`${ini}:${texto}`)) {
+          vistos.add(`${ini}:${texto}`);
+          out.push(`${rel}:${i + 1} — ${texto}`);
         }
       }
     });
@@ -184,6 +272,52 @@ describe('colores por token', () => {
       '<Icon fill="white" stroke="black" />',
       "style={{ borderColor: 'red' }}",
       "const m = 'color-mix(in srgb, white 50%, transparent)';",
+      "<Icon style={{ color: isPrimary ? 'white' : action.color }} />",
+      "<path fill={activo ? c : 'black'} />",
+      // Evasiones de la revisión adversarial del 12-oct-2026:
+      "  color: sel\n    ? 'white'\n    : 'var(--foreground)',",
+      "style={{ color: activo ? conAlfa(c, 90) : 'white' }}",
+      "style={{ border: '1px solid white', boxShadow: '0 0 0 2px black' }}",
+      "const fondo = 'linear-gradient(white, transparent)';",
+      '<QRCodeSVG bgColor="white" fgColor="black" />',
+      "const t = { iconColor: 'white', textColor: 'black' };",
+      'className="text-(--color-red-500)"',
+      "style={{ color: 'var(--color-amber-400)' }}",
+      '<Icon stroke="lightgray" />',
+      "const serie = ['black', 'gray'];",
+      "const TONO = { hero: 'white' };",
+      'className="[color:white]"',
+      "const bg = `url(\"data:image/svg+xml,<svg fill='%23FFFFFF'/>\")`;",
+      'className="shadow-[0_0_12px_white,inset_0_0_0_1px_black]"',
+      // Segunda vuelta:
+      "const fondo = 'color-mix(in oklab, var(--primary) 80%, black)';",
+      "style={{ color: 'var(--hero-foreground, white)' }}",
+    ];
+    for (const c of casos) expect(hallazgos('x.tsx', c), c).not.toEqual([]);
+    expect(hallazgos('x.module.css', '.chip { color: white; border: 1px solid gray; }')).toHaveLength(2);
+  });
+
+  it('no confunde lo que no es un color (casos de la revisión adversarial)', () => {
+    const casos = [
+      "if (plan === 'gold') return x;",
+      "switch (t) { case 'red': return 1; }",
+      "const M = { 'white': 1 };",
+      "const v = escala.color(x);",
+      "const s = 'Error de red';",
+      "const s = 'no es tan caro';",
+      "const PAISES = [{ id: 'peru', nombre: 'Perú' }];",
+      '<option value="red">Error de red</option>',
+      "const plan = { id: 'gold', precio: 10 };",
+      '<Spinner variant="white" />',
+      "style={{ background: plan === 'gold' ? 'var(--warning)' : 'var(--card)' }}",
+      "const s = 'Borde dashed de 2em, tan simple';",
+    ];
+    for (const c of casos) expect(hallazgos('x.tsx', c), c).toEqual([]);
+  });
+
+  it('las formas viejas siguen detectadas', () => {
+    const casos = [
+      'className="bg-[white]"',
     ];
     for (const c of casos) expect(hallazgos('x.tsx', c), c).not.toEqual([]);
   });
@@ -209,6 +343,7 @@ describe('colores por token', () => {
       "const url = 'https://x.dev/a#123';",
       "const fondo = 'color-mix(in srgb, var(--primary) 12%, transparent)';",
       'const textColor = useColor(x);',
+      '<Icon stroke={s} aria-label="white" />',
     ];
     for (const c of casos) expect(hallazgos('x.tsx', c), c).toEqual([]);
   });
