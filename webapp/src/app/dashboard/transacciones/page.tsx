@@ -540,16 +540,18 @@ export default function TransaccionesPage() {
           <Button
             variant="outline"
             size="sm"
-            className="border-border text-muted-foreground hover:text-foreground-soft"
+            className="border-border text-muted-foreground hover:text-foreground-soft max-sm:min-w-11"
             onClick={() => {
               // Export CSV es Pro: para Free redirige al upsell en vez de exportar.
               if (!canAccess(user.plan, 'export')) { window.location.href = '/dashboard/pro'; return; }
               exportCSV();
             }}
             title={canAccess(user.plan, 'export') ? 'Exportar a CSV' : 'Exportar CSV es Pro'}
+            aria-label={canAccess(user.plan, 'export') ? 'Exportar a CSV' : 'Exportar a CSV (Pro)'}
           >
-            <Download className="h-4 w-4 mr-1.5" />
-            CSV
+            {/* En celular, solo ícono: así los cuatro botones entran en un renglón a 360 px. */}
+            <Download className="h-4 w-4 sm:mr-1.5" />
+            <span className="hidden sm:inline">CSV</span>
             {!canAccess(user.plan, 'export') && (
               <Crown className="h-3 w-3 ml-1.5" style={{ color: 'var(--primary)' }} />
             )}
@@ -558,16 +560,17 @@ export default function TransaccionesPage() {
         <Button
           variant="outline"
           size="sm"
-          className="border-border text-muted-foreground hover:text-foreground-soft"
+          className="border-border text-muted-foreground hover:text-foreground-soft max-sm:min-w-11"
           onClick={() => {
             // Carga masiva Excel/CSV es Pro: Free redirige al upsell.
             if (!canAccess(user.plan, 'excel_upload')) { window.location.href = '/dashboard/pro'; return; }
             setImportOpen(true);
           }}
           title={canAccess(user.plan, 'excel_upload') ? 'Importar Excel/CSV' : 'Carga masiva es Pro'}
+          aria-label={canAccess(user.plan, 'excel_upload') ? 'Importar Excel/CSV' : 'Importar Excel/CSV (Pro)'}
         >
-          <Upload className="h-4 w-4 mr-1.5" />
-          Importar
+          <Upload className="h-4 w-4 sm:mr-1.5" />
+          <span className="hidden sm:inline">Importar</span>
           {!canAccess(user.plan, 'excel_upload') && (
             <Crown className="h-3 w-3 ml-1.5" style={{ color: 'var(--primary)' }} />
           )}
@@ -578,14 +581,16 @@ export default function TransaccionesPage() {
           onClick={() => openCreate('ingreso')}
         >
           <Plus className="h-4 w-4" data-icon="inline-start" />
-          Nuevo ingreso
+          <span className="hidden sm:inline">Nuevo ingreso</span>
+          <span className="sm:hidden">Ingreso</span>
         </Button>
         <Button
           className="bg-primary hover:bg-primary/90 text-primary-foreground"
           onClick={() => openCreate('gasto')}
         >
           <Plus className="h-4 w-4" data-icon="inline-start" />
-          Nuevo gasto
+          <span className="hidden sm:inline">Nuevo gasto</span>
+          <span className="sm:hidden">Gasto</span>
         </Button>
       </div>
 
