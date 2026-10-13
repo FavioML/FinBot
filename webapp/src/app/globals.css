@@ -410,6 +410,16 @@
   [data-slot="tabs-list"]:not(.touch-exempt) {
     height: auto;
   }
+  /* Botones flotantes: se esconden al bajar (`useFabsSeEscondenAlBajar` en dashboard-shell).
+   * `translate` y `visibility`, no `transform`/`opacity`: esos dos los escribe motion en línea. */
+  .fab {
+    transition: translate 200ms var(--ease-out), visibility 0s, background-color 150ms, color 150ms;
+  }
+  [data-fabs-ocultos] .fab {
+    translate: 0 12rem;
+    visibility: hidden;
+    transition: translate 200ms var(--ease-out), visibility 0s linear 200ms, background-color 150ms, color 150ms;
+  }
   input:not([type="checkbox"]):not([type="radio"]):not(.touch-exempt),
   select:not(.touch-exempt),
   textarea:not(.touch-exempt) {

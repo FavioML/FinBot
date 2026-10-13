@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { QueryClientProvider, useIsRestoring } from '@tanstack/react-query';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
@@ -183,9 +183,43 @@ function ContenidoOMuro({
   );
 }
 
+// Los dos botones flotantes (+ y WhatsApp) tapan lo que pasa por debajo mientras se baja: el monto
+// al pie de una tarjeta, el % de un presupuesto. El `pb-44` de <main> sólo despeja el FINAL del
+// scroll. En celular se esconden al bajar y vuelven al subir o al llegar al final; el CSS vive en
+// `globals.css` (`[data-fabs-ocultos] .fab`). Se limpia al cambiar de ruta: la página nueva arranca
+// arriba y sin evento de scroll.
+function useFabsSeEscondenAlBajar(main: React.RefObject<HTMLElement | null>, ruta: string) {
+  useEffect(() => {
+    const el = main.current;
+    if (!el) return;
+    const raiz = document.documentElement;
+    let ultimo = el.scrollTop;
+    let frame = 0;
+    const alScroll = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        const y = el.scrollTop;
+        if (Math.abs(y - ultimo) < 8) return;
+        const alFinal = y + el.clientHeight >= el.scrollHeight - 8;
+        raiz.toggleAttribute('data-fabs-ocultos', y > ultimo && y > 80 && !alFinal);
+        ultimo = y;
+      });
+    };
+    el.addEventListener('scroll', alScroll, { passive: true });
+    return () => {
+      el.removeEventListener('scroll', alScroll);
+      cancelAnimationFrame(frame);
+      raiz.removeAttribute('data-fabs-ocultos');
+    };
+  }, [main, ruta]);
+}
+
 function ShellChrome({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const pathname = usePathname();
+  const mainRef = useRef<HTMLElement>(null);
+  useFabsSeEscondenAlBajar(mainRef, pathname);
   // The static chrome (sidebar/topbar) paints instantly from the CDN. Hold back
   // only the page content while (a) the persisted cache restores (a few ms, once,
   // on first load) or (b) the consolidated bootstrap (/api/dashboard) is still in
@@ -216,7 +250,7 @@ function ShellChrome({ children }: { children: React.ReactNode }) {
         <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
         <div className="flex flex-1 flex-col overflow-hidden">
           <Topbar onMenuClick={() => setSidebarOpen(true)} />
-          <main className="flex-1 overflow-y-auto p-4 pb-44 md:p-6 md:pb-28 lg:p-8 lg:pb-28">
+          <main ref={mainRef} className="flex-1 overflow-y-auto p-4 pb-44 md:p-6 md:pb-28 lg:p-8 lg:pb-28">
             <div className="mx-auto max-w-7xl">
               {!gateContent && <ConnectWhatsappBanner />}
               {/* En /dashboard/pro el PaymentForm ya muestra el detalle del descuento; evitar duplicar. */}

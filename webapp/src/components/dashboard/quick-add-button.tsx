@@ -114,7 +114,7 @@ export function QuickAddButton() {
                 haptic('tap');
                 setShowMenu(!showMenu);
               }}
-              className="fixed bottom-20 md:bottom-6 right-5 md:right-6 z-50 flex h-14 w-14 md:h-12 md:w-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30 transition-colors hover:bg-primary/90"
+              className="fab fixed bottom-20 md:bottom-6 right-5 md:right-6 z-50 flex h-14 w-14 md:h-12 md:w-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30 transition-colors hover:bg-primary/90"
               aria-label="Agregar transaccion"
               initial={{ scale: 0, opacity: 0 }}
               animate={{ scale: 1, opacity: 1, rotate: showMenu ? 45 : 0 }}
