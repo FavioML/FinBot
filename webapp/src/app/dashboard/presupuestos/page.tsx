@@ -24,6 +24,7 @@ import { subcategoriaUtil } from '@/lib/subcategoria';
 import { budgetStatus } from '@/lib/budget-status';
 import { MESES, getCategoriaEmoji } from '@/lib/constants';
 import { MonthSelector } from '@/components/dashboard/month-selector';
+import { ResumenMovil } from '@/components/dashboard/resumen-movil';
 import { HeaderActions } from '@/components/dashboard/topbar';
 import type { Presupuesto, Transaccion } from '@/lib/types';
 import { montoPen } from '@/lib/tx-monto';
@@ -296,8 +297,21 @@ export default function PresupuestosPage() {
 
       {hasBudgets ? (
         <>
-          {/* Summary cards */}
-          <StaggerContainer className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          {/* Summary cards: en celular, una sola tarjeta (ver `ResumenMovil`) */}
+          <ResumenMovil
+            cifras={[
+              { etiqueta: 'Total presupuestado', valor: formatCurrency(summary.totalPresupuestado), icono: Target, colorIcono: 'text-muted-foreground' },
+              { etiqueta: 'Gastado', valor: formatCurrency(summary.totalGastado), colorValor: 'text-negative', icono: TrendingDown, colorIcono: 'text-muted-foreground' },
+              {
+                etiqueta: 'Restante',
+                valor: formatCurrency(summary.restante),
+                colorValor: summary.restante >= 0 ? 'text-positive' : 'text-negative',
+                icono: Wallet,
+                colorIcono: 'text-muted-foreground',
+              },
+            ]}
+          />
+          <StaggerContainer className="hidden gap-4 sm:grid sm:grid-cols-3">
             <StaggerItem>
             <div className="glass-card glass-card-glow p-4">
               <div className="flex items-center gap-2 mb-1.5">

@@ -52,6 +52,7 @@ import { TransactionFilters } from '@/components/dashboard/transaction-filters';
 import { TransactionForm, DeleteConfirmDialog } from '@/components/dashboard/transaction-form';
 import { ImportDialog } from '@/components/dashboard/import-dialog';
 import { PeriodoSelector } from '@/components/dashboard/periodo-selector';
+import { ResumenMovil } from '@/components/dashboard/resumen-movil';
 import { resolverPeriodo, filtroDePeriodo, delPeriodo, estePeriodo, nombrePeriodo, sufijoArchivo, MAX_DIAS_RANGO_LISTA } from '@/lib/periodo-reporte';
 import { todayIsoLima } from '@/lib/date-lima';
 import { useUser } from '@/lib/hooks/use-user';
@@ -613,8 +614,27 @@ export default function TransaccionesPage() {
         className={`space-y-6 transition-opacity ${mostrandoPeriodoAnterior ? 'opacity-50 pointer-events-none' : ''}`}
         aria-busy={mostrandoPeriodoAnterior}
       >
-      {/* Summary cards */}
-      <StaggerContainer className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      {/* Summary cards: en celular, una sola tarjeta (ver `ResumenMovil`) */}
+      <ResumenMovil
+        cifras={[
+          {
+            etiqueta: hasActiveFilters ? 'Gastos (filtrado)' : `Gastos ${delPeriodo(periodo)}`,
+            valor: formatCurrency(summary.totalGastos),
+            colorValor: 'text-negative',
+            icono: TrendingDown,
+            colorIcono: 'text-negative',
+          },
+          {
+            etiqueta: hasActiveFilters ? 'Ingresos (filtrado)' : `Ingresos ${delPeriodo(periodo)}`,
+            valor: formatCurrency(summary.totalIngresos),
+            colorValor: 'text-positive',
+            icono: TrendingUp,
+            colorIcono: 'text-primary',
+          },
+          { etiqueta: 'Transacciones', valor: summary.count, icono: Receipt, colorIcono: 'text-info' },
+        ]}
+      />
+      <StaggerContainer className="hidden gap-4 sm:grid sm:grid-cols-3">
         <StaggerItem>
         <div className="glass-card glass-card-glow p-4">
           <div className="flex items-center gap-2 mb-1.5">

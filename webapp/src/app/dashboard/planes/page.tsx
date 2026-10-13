@@ -24,6 +24,7 @@ import { useGoals, useGoalMutations, useGoalContributions, useGoalParticipants, 
 import { formatCurrency } from '@/lib/utils';
 import { montoPen } from '@/lib/tx-monto';
 import { HeaderActions } from '@/components/dashboard/topbar';
+import { ResumenMovil } from '@/components/dashboard/resumen-movil';
 
 
 const ICONOS = ['🎯', '✈️', '🏠', '🚗', '💻', '📱', '🎓', '💍', '🏖️', '💰', '🛡️', '🎮'];
@@ -393,9 +394,18 @@ export default function MetasPage() {
         </div>
       )}
 
-      {/* Summary cards */}
+      {/* Summary cards: en celular, una sola tarjeta (ver `ResumenMovil`) */}
       {activeGoals.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <ResumenMovil
+          cifras={[
+            { etiqueta: 'Planes activos', valor: activeGoals.length },
+            { etiqueta: 'Ahorrado', valor: formatCurrency(totalSaved), colorValor: 'text-positive' },
+            { etiqueta: 'Objetivo total', valor: formatCurrency(totalTarget) },
+          ]}
+        />
+      )}
+      {activeGoals.length > 0 && (
+        <div className="hidden sm:grid sm:grid-cols-3 gap-4">
           <div className="glass-card glass-card-glow p-4 text-center">
             <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Planes activos</p>
             <p className="text-2xl font-bold text-foreground">{activeGoals.length}</p>
