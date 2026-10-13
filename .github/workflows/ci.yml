@@ -155,7 +155,14 @@ jobs:
       # despues de agregar ese archivo, la premisa era falsa: borrar vercel.json
       # devuelve el auto-deploy y el plan B es `vercel deploy-hooks create --ref
       # main` + un curl desde este job.
-      - run: vercel deploy --prod --non-interactive --token=$VERCEL_TOKEN
+      #
+      # `--force` = build SIN la cache de Vercel. El 13-oct-2026 (`090ac16`) el deploy salio
+      # verde con "Restored build cache from previous deployment" y produccion quedo con el
+      # `globals.css` del commit anterior: el JS y las clases nuevas llegaron, el tema y las
+      # reglas nuevas no (`--text-sm` seguia en .875rem; el mismo commit construido en local si
+      # las traia). Nada lo delataba. Un build sin cache tarda algo mas; un deploy verde con
+      # estilos viejos no avisa.
+      - run: vercel deploy --prod --force --non-interactive --token=$VERCEL_TOKEN
 
   # El gate del backend NO vive en este archivo, y esa es toda la diferencia con
   # `deploy-webapp`. Railway tiene un toggle propio —"Wait for CI"— que pone el
