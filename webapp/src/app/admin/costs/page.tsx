@@ -1431,7 +1431,9 @@ export default function AdminCostsPage() {
                   key={cost.id}
                   className={`hover:bg-foreground/[0.02] ${cost.active ? '' : 'opacity-50'}`}
                 >
-                  <td className="px-4 py-3">
+                  {/* w-full + max-w-0: la columna toma el ancho que sobra y `truncate` corta las notas de
+                      verdad. Sin tope, una nota larga ensanchaba la tabla y empujaba Acciones fuera de vista. */}
+                  <td className="w-full max-w-0 px-4 py-3">
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-foreground">{cost.label}</span>
                       {cost.auto_debit && <AutoDebitBadge />}
