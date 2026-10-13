@@ -90,23 +90,33 @@ export default function ReportesPage() {
   const handleDownloadPDF = useCallback(async () => {
     if (!reportRef.current || generatingPdf) return;
     setGeneratingPdf(true);
+    // El PDF sale SIEMPRE en claro (decisión de Favio, 12-oct-2026): igual desde cualquier
+    // dispositivo y legible impreso. Se pasa la PÁGINA entera a claro mientras dura la captura,
+    // no sólo el clon de html2canvas: probado el 12-oct, con el tema fijado sólo en el clon los
+    // gráficos salían con los colores del tema oscuro, porque html2canvas-pro serializa los SVG
+    // desde los nodos originales. Las transiciones se apagan para no capturar a mitad de camino.
+    const html = document.documentElement;
+    const temaPrevio = html.getAttribute('data-theme');
+    const esquemaPrevio = html.style.colorScheme;
+    const sinTransiciones = document.createElement('style');
+    sinTransiciones.textContent = '*,*::before,*::after{transition:none!important}';
     try {
       const html2canvas = (await import('html2canvas-pro')).default;
       const { jsPDF } = await import('jspdf');
-      // El PDF sale SIEMPRE en claro (decisión de Favio, 12-oct-2026): igual desde cualquier
-      // dispositivo y legible impreso. Se fija en el CLON que arma html2canvas, no en la página:
-      // `data-theme="light"` hace que los tokens de ese subárbol resuelvan al tema claro, y la
-      // pantalla del usuario no parpadea. El fondo va en el clon porque html2canvas no entiende
-      // `var()` en su opción `backgroundColor`.
+      document.head.appendChild(sinTransiciones);
+      html.setAttribute('data-theme', 'light');
+      html.style.colorScheme = 'light';
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
       const canvas = await html2canvas(reportRef.current, {
+        // html2canvas no entiende var(): se le pasa el valor ya resuelto del tema claro.
+        backgroundColor: getComputedStyle(html).getPropertyValue('--background').trim(),
         scale: 2,
         useCORS: true,
         logging: false,
-        onclone: (_doc, el) => {
-          el.setAttribute('data-theme', 'light');
-          el.style.backgroundColor = 'var(--background)';
-        },
       });
+      if (temaPrevio) html.setAttribute('data-theme', temaPrevio);
+      html.style.colorScheme = esquemaPrevio;
+      sinTransiciones.remove();
       const imgData = canvas.toDataURL('image/png');
       const imgW = canvas.width;
       const imgH = canvas.height;
@@ -121,6 +131,10 @@ export default function ReportesPage() {
       console.error('[PDF] Error generating:', err);
       toast.error('Error al generar el PDF');
     } finally {
+      // Si la captura lanzó, la página igual vuelve al tema del usuario.
+      if (temaPrevio) html.setAttribute('data-theme', temaPrevio);
+      html.style.colorScheme = esquemaPrevio;
+      sinTransiciones.remove();
       setGeneratingPdf(false);
     }
   }, [generatingPdf, periodo]);
