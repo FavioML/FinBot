@@ -1145,7 +1145,7 @@ export default function AdminOperacionPage() {
             <h3 className="mb-3 text-sm font-medium text-foreground">Crecimiento Usuarios (12 semanas)</h3>
             <div className="h-48">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={stats.userGrowth} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+                <AreaChart data={stats.userGrowth} margin={{ top: 4, right: 12, bottom: 0, left: -20 }}>
                   <defs>
                     <linearGradient id="gradFree" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="var(--foreground)" stopOpacity={0.15} />
@@ -1466,12 +1466,14 @@ export default function AdminOperacionPage() {
             {usersQuery.isLoading && users.length === 0 && <ListSkeleton rows={4} />}
             {pagedUsers.map((u) => (
               <div key={u.id} className="glass-card rounded-xl p-4">
-                <div className="flex items-start justify-between">
-                  <div>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
                     <div className="font-medium">{u.nombre || 'Sin nombre'}</div>
-                    <div className="text-xs text-muted-foreground">{u.email || '—'}</div>
+                    <div className="text-xs text-muted-foreground wrap-anywhere">{u.email || '—'}</div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  {/* `shrink-0` + el `min-w-0` de al lado: con la pastilla en una línea, el email
+                      largo no podía encoger y empujaba el ⋮ fuera de la pantalla. */}
+                  <div className="flex shrink-0 items-center gap-2">
                     <PlanBadge estado={estadoComercial(u)} bajaAt={u.cuenta_borrada_at} />
                     <UserActions user={u} onAction={handleUserAction} />
                   </div>
