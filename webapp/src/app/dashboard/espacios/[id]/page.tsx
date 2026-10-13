@@ -325,8 +325,8 @@ export default function SpaceDetailPage() {
                       <p className="text-xs text-muted-foreground mt-0.5">
                         {paidByMe ? 'Pagaste tú' : `Pagó ${exp.usuarios?.nombre}`}
                         {exp.category ? ` · ${exp.category}` : ''}
-                        {' · '}{new Date(exp.created_at).toLocaleDateString('es-PE', { day: 'numeric', month: 'short' })}
-                        {byRule && <span className="text-primary"> · regla {myPct}%</span>}
+                        {' · '}<span className="whitespace-nowrap">{new Date(exp.created_at).toLocaleDateString('es-PE', { day: 'numeric', month: 'short' })}</span>
+                        {byRule && <span className="whitespace-nowrap text-primary"> · regla {myPct}%</span>}
                       </p>
                     </div>
                     <div className="flex items-start gap-2 shrink-0">
@@ -369,15 +369,15 @@ export default function SpaceDetailPage() {
       {/* C. Members section */}
       <FadeIn delay={0.15}>
         <div className="glass-card p-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+            <h2 className="text-sm font-semibold text-foreground flex items-center gap-2 whitespace-nowrap">
               <Users className="w-4 h-4 text-muted-foreground" />
               Miembros ({members.length}/{memberLimit})
             </h2>
             <div className="flex items-center gap-3">
               <button
                 onClick={copyInviteCode}
-                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground-soft"
+                className="flex items-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground hover:text-foreground-soft"
               >
                 {copiedCode ? <Check className="w-3.5 h-3.5 text-primary" /> : <Copy className="w-3.5 h-3.5" />}
                 {copiedCode ? 'Copiado' : space.invite_code}
@@ -615,10 +615,11 @@ export default function SpaceDetailPage() {
                           .filter((e) => e.category === budget.category && e.paid_by === m.user_id)
                           .reduce((s, e) => s + Number(e.amount), 0);
                         return (
-                          <div key={m.user_id} className="flex justify-between">
-                            <span>{m.usuarios?.nombre}</span>
-                            <span>
-                              pagó {formatCurrency(memberSpent)} · le toca {formatCurrency(budget.limit * frac)}
+                          <div key={m.user_id} className="flex justify-between gap-2">
+                            <span className="min-w-0">{m.usuarios?.nombre}</span>
+                            <span className="text-right">
+                              pagó <span className="whitespace-nowrap">{formatCurrency(memberSpent)}</span> · le toca{' '}
+                              <span className="whitespace-nowrap">{formatCurrency(budget.limit * frac)}</span>
                             </span>
                           </div>
                         );
