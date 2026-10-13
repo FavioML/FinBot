@@ -1071,7 +1071,7 @@ export default function ConfiguracionPage() {
                     {/* Member since */}
                     <div className="flex items-center gap-2 text-sm">
                       <Calendar className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      <span className="text-muted-foreground">Miembro desde {formatDate(user.created_at)}</span>
+                      <span className="text-muted-foreground">Miembro desde <span className="whitespace-nowrap">{formatDate(user.created_at)}</span></span>
                     </div>
                   </div>
                 </div>
