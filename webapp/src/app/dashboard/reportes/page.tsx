@@ -376,8 +376,10 @@ if (!isLoading && transactions.length === 0) {
         </div>
       </div>
 
-      {/* KPI row */}
-      <StaggerContainer className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      {/* KPI row: cuatro columnas desde 672 px de CONTENIDO. Con md:grid-cols-4, a 944 px de viewport
+          (riel lateral visible) las tarjetas medían 152 y el monto no entraba. */}
+      <div className="@container">
+      <StaggerContainer className="grid grid-cols-2 @2xl:grid-cols-4 gap-4">
         <StaggerItem>
         <KPICard
           label="Ingresos"
@@ -421,6 +423,7 @@ if (!isLoading && transactions.length === 0) {
         />
         </StaggerItem>
       </StaggerContainer>
+      </div>
 
       {/* Charts row */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
