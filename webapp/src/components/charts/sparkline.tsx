@@ -1,4 +1,5 @@
 'use client';
+import { useId } from 'react';
 
 interface SparklineProps {
   data: number[];
@@ -8,6 +9,8 @@ interface SparklineProps {
 }
 
 export function Sparkline({ data, color, height = 28, width = 64 }: SparklineProps) {
+  // El id del gradiente salía de `color.replace('#', '')`, que con un `var(--x)` da un id inválido.
+  const gradId = useId();
   if (data.length < 2) return null;
 
   const max = Math.max(...data);
@@ -29,12 +32,12 @@ export function Sparkline({ data, color, height = 28, width = 64 }: SparklinePro
   return (
     <svg width={width} height={height} className="opacity-60">
       <defs>
-        <linearGradient id={`spark-fill-${color.replace('#', '')}`} x1="0" y1="0" x2="0" y2="1">
+        <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={color} stopOpacity="0.25" />
           <stop offset="100%" stopColor={color} stopOpacity="0" />
         </linearGradient>
       </defs>
-      <path d={fillD} fill={`url(#spark-fill-${color.replace('#', '')})`} />
+      <path d={fillD} fill={`url(#${gradId})`} />
       <path d={pathD} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
       {/* Last point dot */}
       <circle

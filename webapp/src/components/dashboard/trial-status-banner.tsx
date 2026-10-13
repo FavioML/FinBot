@@ -48,26 +48,26 @@ export function TrialStatusBanner() {
     <div
       className={`mb-4 flex items-center gap-3 rounded-2xl border px-4 py-3 ${
         urgente
-          ? 'border-[#EF9F27]/40 bg-[#EF9F27]/10'
-          : 'border-[#1D9E75]/30 bg-[#1D9E75]/[0.07]'
+          ? 'border-warning/40 bg-warning/10'
+          : 'border-primary/30 bg-primary/[0.07]'
       }`}
     >
       <span
         className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
-          urgente ? 'bg-[#EF9F27]/15 text-[#EF9F27]' : 'bg-[#1D9E75]/15 text-[#1D9E75]'
+          urgente ? 'bg-warning/15 text-warning-ink' : 'bg-primary/15 text-primary-ink'
         }`}
       >
         <Sparkles className="h-5 w-5" />
       </span>
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-[#F0EFE8]">
+        <p className="text-sm font-medium text-foreground">
           Estás en <span className="font-semibold">Neto Pro</span> —{' '}
-          <span className={urgente ? 'text-[#EF9F27]' : 'text-[#1D9E75]'}>
+          <span className={urgente ? 'text-warning' : 'text-primary'}>
             {cuando.toLowerCase()}
           </span>{' '}
           de prueba
         </p>
-        <p className={`text-xs ${urgente ? 'font-medium text-[#EF9F27]' : 'text-[#8A877D]'}`}>
+        <p className={`text-xs ${urgente ? 'font-medium text-warning' : 'text-muted-foreground'}`}>
           {explicar
             ? 'Gráficos, categorías, presupuestos, reportes e historial completo, sin tarjeta.'
             : urgente
@@ -79,8 +79,8 @@ export function TrialStatusBanner() {
         href="/dashboard/pro"
         className={`shrink-0 rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
           urgente
-            ? 'bg-[#EF9F27] text-[#1A1A18] hover:bg-[#EF9F27]/90'
-            : 'border border-[#1D9E75]/40 text-[#1D9E75] hover:bg-[#1D9E75]/10'
+            ? 'bg-warning text-warning-foreground hover:bg-warning/90'
+            : 'border border-primary/40 text-primary-ink hover:bg-primary/10'
         }`}
       >
         {urgente ? 'Continuar con Pro' : 'Ver planes'}

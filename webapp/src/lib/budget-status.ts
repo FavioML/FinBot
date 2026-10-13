@@ -14,9 +14,9 @@
 export type BudgetEstado = 'ok' | 'warning' | 'exceeded';
 
 export const BUDGET_COLORS: Record<BudgetEstado, string> = {
-  ok: '#1D9E75', // verde Neto
-  warning: '#EF9F27', // ámbar
-  exceeded: '#D85A30', // rojo (solo cuando gasto > límite)
+  ok: 'var(--positive)', // verde Neto
+  warning: 'var(--warning)', // ámbar
+  exceeded: 'var(--negative)', // rojo (solo cuando gasto > límite)
 };
 
 /** Percentage at/above which the amber "warning" state kicks in. */

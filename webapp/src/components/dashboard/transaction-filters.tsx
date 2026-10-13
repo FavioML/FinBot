@@ -80,12 +80,12 @@ export function TransactionFilters({
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:flex-wrap">
         {/* Search */}
         <div className="relative flex-1 min-w-0">
-          <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8A877D]" />
+          <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="Buscar por comercio..."
             value={search}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => onSearchChange(e.target.value)}
-            className="pl-8 bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#F0EFE8] placeholder:text-[#8A877D]"
+            className="pl-8 bg-foreground/3 border-border text-foreground placeholder:text-muted-foreground"
           />
         </div>
 
@@ -104,7 +104,7 @@ export function TransactionFilters({
           // Reset subcategory when category changes
           onSubcategoriaChange('all');
         }}>
-          <SelectTrigger className="w-[180px] bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#C8C6BC]">
+          <SelectTrigger className="w-[180px] bg-foreground/3 border-border text-foreground-soft">
             <SelectValue>
               {categoriaFilter === 'all'
                 ? 'Todas las categorías'
@@ -127,7 +127,7 @@ export function TransactionFilters({
         {/* Subcategory filter */}
         {categoriaFilter !== 'all' && subcategorias.length > 0 && (
           <Select value={subcategoriaFilter} onValueChange={onSubcategoriaChange}>
-            <SelectTrigger className="w-[200px] bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#C8C6BC]">
+            <SelectTrigger className="w-[200px] bg-foreground/3 border-border text-foreground-soft">
               <SelectValue>
                 {subcategoriaFilter === 'all' ? 'Todas las subcategorías' : capitalizeDisplay(subcategoriaFilter)}
               </SelectValue>
@@ -145,7 +145,7 @@ export function TransactionFilters({
 
         {/* Payment method filter */}
         <Select value={metodoPagoFilter} onValueChange={onMetodoPagoChange}>
-          <SelectTrigger className="w-[180px] bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[#C8C6BC]">
+          <SelectTrigger className="w-[180px] bg-foreground/3 border-border text-foreground-soft">
             <SelectValue>
               {metodoPagoFilter === 'all' ? 'Todos los métodos' : metodoPagoFilter}
             </SelectValue>

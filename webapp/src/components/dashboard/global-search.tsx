@@ -80,7 +80,7 @@ export function GlobalSearch() {
       {/* Search trigger — mobile icon */}
       <button
         onClick={() => { setOpen(true); setQuery(''); }}
-        className="md:hidden rounded-md p-1.5 text-[#8A877D] hover:text-[#C8C6BC] transition-colors"
+        className="md:hidden rounded-md p-1.5 text-muted-foreground hover:text-foreground-soft transition-colors"
       >
         <Search className="h-4 w-4" />
       </button>
@@ -88,11 +88,11 @@ export function GlobalSearch() {
       {/* Search trigger — desktop pill */}
       <button
         onClick={() => { setOpen(true); setQuery(''); }}
-        className="hidden md:flex items-center gap-2 w-64 rounded-lg bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)] px-3 py-2 text-xs text-[#8A877D] hover:bg-[rgba(255,255,255,0.05)] hover:text-[#C8C6BC] transition-colors"
+        className="hidden md:flex items-center gap-2 w-64 rounded-lg bg-foreground/3 border border-border px-3 py-2 text-xs text-muted-foreground hover:bg-foreground/5 hover:text-foreground-soft transition-colors"
       >
         <Search className="h-3.5 w-3.5" />
         <span>Buscar...</span>
-        <kbd className="ml-4 rounded bg-[rgba(255,255,255,0.06)] px-1.5 py-0.5 text-[10px] font-mono">
+        <kbd className="ml-4 rounded bg-foreground/6 px-1.5 py-0.5 text-[10px] font-mono">
           Ctrl K
         </kbd>
       </button>
@@ -101,17 +101,17 @@ export function GlobalSearch() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="glass-card-elevated p-0 sm:max-w-lg gap-0 overflow-hidden">
           {/* Search input */}
-          <div className="flex items-center gap-3 border-b border-[rgba(255,255,255,0.06)] px-4 py-3">
-            <Search className="h-4 w-4 text-[#8A877D] shrink-0" />
+          <div className="flex items-center gap-3 border-b border-border px-4 py-3">
+            <Search className="h-4 w-4 text-muted-foreground shrink-0" />
             <input
               type="text"
               placeholder="Buscar transacciones, paginas..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              className="flex-1 bg-transparent text-sm text-[#F0EFE8] placeholder:text-[#8A877D] outline-none"
+              className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none"
               autoFocus
             />
-            <kbd className="rounded bg-[rgba(255,255,255,0.06)] px-1.5 py-0.5 text-[10px] text-[#8A877D] font-mono">
+            <kbd className="rounded bg-foreground/6 px-1.5 py-0.5 text-[10px] text-muted-foreground font-mono">
               ESC
             </kbd>
           </div>
@@ -121,18 +121,18 @@ export function GlobalSearch() {
             {/* Pages */}
             {results.pages.length > 0 && (
               <div className="px-2 py-2">
-                <p className="px-2 pb-1 text-[10px] font-medium text-[#8A877D] uppercase tracking-wider">Paginas</p>
+                <p className="px-2 pb-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Paginas</p>
                 {results.pages.map((page) => {
                   const Icon = page.icon;
                   return (
                     <button
                       key={page.path}
                       onClick={() => navigate(page.path)}
-                      className="w-full flex items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-[rgba(255,255,255,0.04)] transition-colors group"
+                      className="w-full flex items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-foreground/4 transition-colors group"
                     >
-                      <Icon className="h-4 w-4 text-[#8A877D] group-hover:text-[#1D9E75]" />
-                      <span className="text-sm text-[#C8C6BC] group-hover:text-[#F0EFE8] flex-1">{page.name}</span>
-                      <ArrowRight className="h-3.5 w-3.5 text-[#8A877D] opacity-0 group-hover:opacity-100" />
+                      <Icon className="h-4 w-4 text-muted-foreground group-hover:text-primary" />
+                      <span className="text-sm text-foreground-soft group-hover:text-foreground flex-1">{page.name}</span>
+                      <ArrowRight className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100" />
                     </button>
                   );
                 })}
@@ -141,24 +141,24 @@ export function GlobalSearch() {
 
             {/* Transactions */}
             {results.transactions.length > 0 && (
-              <div className="px-2 py-2 border-t border-[rgba(255,255,255,0.04)]">
-                <p className="px-2 pb-1 text-[10px] font-medium text-[#8A877D] uppercase tracking-wider">Transacciones</p>
+              <div className="px-2 py-2 border-t border-border">
+                <p className="px-2 pb-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Transacciones</p>
                 {results.transactions.map((tx) => (
                   <button
                     key={tx.id}
                     onClick={() => navigate('/dashboard/transacciones')}
-                    className="w-full flex items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-[rgba(255,255,255,0.04)] transition-colors group"
+                    className="w-full flex items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-foreground/4 transition-colors group"
                   >
                     <span className="text-sm shrink-0">{getCategoriaEmoji(tx.categoria)}</span>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm text-[#C8C6BC] truncate">{tx.comercio || tx.descripcion_original || tx.subcategoria}</p>
-                      <p className="text-[10px] text-[#8A877D]">{formatFecha(tx.fecha)} · {tx.categoria}</p>
+                      <p className="text-sm text-foreground-soft truncate">{tx.comercio || tx.descripcion_original || tx.subcategoria}</p>
+                      <p className="text-[10px] text-muted-foreground">{formatFecha(tx.fecha)} · {tx.categoria}</p>
                     </div>
                     <TxMonto
                       tx={tx}
                       signo={tx.tipo === 'ingreso' ? '+' : '-'}
                       className="text-xs font-medium shrink-0"
-                      style={{ color: tx.tipo === 'ingreso' ? '#1D9E75' : '#D85A30' }}
+                      style={{ color: tx.tipo === 'ingreso' ? 'var(--positive)' : 'var(--negative)' }}
                     />
                   </button>
                 ))}
@@ -168,7 +168,7 @@ export function GlobalSearch() {
             {/* No results */}
             {query.trim() && results.pages.length === 0 && results.transactions.length === 0 && (
               <div className="px-4 py-8 text-center">
-                <p className="text-sm text-[#8A877D]">Sin resultados para &quot;{query}&quot;</p>
+                <p className="text-sm text-muted-foreground">Sin resultados para &quot;{query}&quot;</p>
               </div>
             )}
           </div>

@@ -40,7 +40,7 @@ export function TodaySpending({ transactions, currentMonth, currentYear }: Today
   // Don't show if no data at all
   if (dailyAvg === 0 && todayTotal === 0) return null;
 
-  const barColor = ratio > 1.3 ? '#D85A30' : ratio > 0.8 ? '#EF9F27' : '#1D9E75';
+  const barColor = ratio > 1.3 ? 'var(--negative)' : ratio > 0.8 ? 'var(--warning)' : 'var(--positive)';
   const barWidth = Math.min(ratio * 100, 100);
 
   return (
@@ -51,18 +51,18 @@ export function TodaySpending({ transactions, currentMonth, currentYear }: Today
       transition={{ duration: 0.3 }}
     >
       <div className="flex items-center gap-2 mb-2">
-        <CalendarDays className="h-3.5 w-3.5 text-[#8A877D]" />
-        <span className="text-xs font-medium text-[#C8C6BC]">Gasto de hoy</span>
+        <CalendarDays className="h-3.5 w-3.5 text-muted-foreground" />
+        <span className="text-xs font-medium text-foreground-soft">Gasto de hoy</span>
       </div>
       <div className="flex items-baseline gap-2 mb-2">
         <span className="text-lg font-bold" style={{ color: barColor }}>
           {formatCurrency(todayTotal)}
         </span>
-        <span className="text-[10px] text-[#8A877D]">
+        <span className="text-[10px] text-muted-foreground">
           / prom. {formatCurrency(dailyAvg)}
         </span>
       </div>
-      <div className="h-1.5 rounded-full bg-[rgba(255,255,255,0.06)] overflow-hidden">
+      <div className="h-1.5 rounded-full bg-foreground/6 overflow-hidden">
         <motion.div
           className="h-full rounded-full"
           style={{ backgroundColor: barColor }}
@@ -72,12 +72,12 @@ export function TodaySpending({ transactions, currentMonth, currentYear }: Today
         />
       </div>
       {todayTotal > 0 && ratio > 1.3 && (
-        <p className="text-[10px] text-[#D85A30] mt-1.5">
+        <p className="text-[10px] text-negative mt-1.5">
           {Math.round((ratio - 1) * 100)}% sobre tu promedio diario
         </p>
       )}
       {todayTotal === 0 && (
-        <p className="text-[10px] text-[#1D9E75] mt-1.5">
+        <p className="text-[10px] text-primary mt-1.5">
           Sin gastos hoy
         </p>
       )}

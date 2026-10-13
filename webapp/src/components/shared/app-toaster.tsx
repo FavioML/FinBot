@@ -1,6 +1,7 @@
 'use client';
 
 import { Toaster } from 'sonner';
+import { useTema } from '@/lib/hooks/use-tema';
 
 /**
  * El `<Toaster>` de Sonner con la configuración de Neto.
@@ -20,15 +21,18 @@ import { Toaster } from 'sonner';
  * dueño, y para que el motivo de arriba viva pegado a la decisión.
  */
 export function AppToaster() {
+  // El tema de sonner pinta lo que el `style` de abajo no cubre (descripción, botón de cerrar).
+  // Sigue al tema RESUELTO de la app, no a `system`: el usuario puede haber elegido lo contrario.
+  const { resuelto } = useTema();
   return (
     <Toaster
-      theme="dark"
+      theme={resuelto}
       position="bottom-right"
       toastOptions={{
         style: {
-          background: '#1A1A18',
-          border: '1px solid rgba(255,255,255,0.08)',
-          color: '#F0EFE8',
+          background: 'var(--surface-elevated)',
+          border: '1px solid var(--border)',
+          color: 'var(--foreground)',
           fontSize: '14px',
         },
       }}

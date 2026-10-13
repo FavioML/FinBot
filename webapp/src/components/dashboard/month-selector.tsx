@@ -68,18 +68,18 @@ export function MonthSelector({ hoy, value }: { hoy?: string; value?: string } =
 
   return (
     <Select value={selectedMonth} onValueChange={handleChange}>
-      <SelectTrigger className="w-[190px] border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] text-[#F0EFE8] hover:bg-[rgba(255,255,255,0.05)] hover:border-[rgba(255,255,255,0.12)] transition-colors">
+      <SelectTrigger className="w-[190px] border-border bg-foreground/3 text-foreground hover:bg-foreground/5 hover:border-border transition-colors">
         <div className="flex items-center gap-2">
-          <Calendar className="h-3.5 w-3.5 text-[#8A877D]" />
+          <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
           <SelectValue>{etiqueta}</SelectValue>
         </div>
       </SelectTrigger>
-      <SelectContent className="bg-[#141412] border-[rgba(255,255,255,0.06)]">
+      <SelectContent className="bg-card border-border">
         {monthOptions.map((opt) => (
           <SelectItem
             key={opt.value}
             value={opt.value}
-            className="text-[#F0EFE8] focus:bg-[rgba(255,255,255,0.05)] focus:text-[#F0EFE8]"
+            className="text-foreground focus:bg-foreground/5 focus:text-foreground"
           >
             {opt.label}
           </SelectItem>

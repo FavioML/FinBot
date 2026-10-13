@@ -7,6 +7,7 @@ import { StaggerContainer, StaggerItem } from '@/components/shared/motion-wrappe
 import { Sparkline } from '@/components/charts/sparkline';
 import type { KPIData } from '@/lib/types';
 import { etiquetaTasaDeAhorro } from '@/lib/tasa-ahorro';
+import { conAlfa, tinta } from '@/lib/colores';
 
 interface KPICardsProps {
   data: KPIData;
@@ -27,13 +28,13 @@ function ComparisonBadge({ current, previous, invertColor }: { current: number; 
   const isUp = pctChange > 0;
   // For gastos, up is bad (red). For ingresos, up is good (green). invertColor flips this.
   const isPositive = invertColor ? !isUp : isUp;
-  const color = isPositive ? '#1D9E75' : '#D85A30';
+  const color = isPositive ? 'var(--positive)' : 'var(--negative)';
   const Icon = isUp ? ArrowUp : ArrowDown;
 
   return (
     <span
       className="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium"
-      style={{ backgroundColor: `${color}18`, color }}
+      style={{ backgroundColor: conAlfa(color, 9), color: tinta(color) }}
     >
       <Icon className="h-2.5 w-2.5" />
       {Math.abs(pctChange)}%
@@ -41,19 +42,26 @@ function ComparisonBadge({ current, previous, invertColor }: { current: number; 
   );
 }
 
-function MiniScoreRing({ score }: { score: number }) {
+function MiniScoreRing({ score, sobreHero = false }: { score: number; sobreHero?: boolean }) {
   const r = 18;
   const strokeW = 3;
   const size = (r + strokeW) * 2;
   const circ = 2 * Math.PI * r;
   const pct = Math.max(0, Math.min(100, score));
   const offset = circ * (1 - pct / 100);
-  const color = score >= 80 ? '#1D9E75' : score >= 60 ? '#3B9EDB' : score >= 40 ? '#E8A838' : '#E85D3A';
+  // Sobre el bloque verde del hero los colores de estado no se leen (el verde del score
+  // desaparece contra el verde del fondo): ahí el anillo va en los tonos del propio bloque.
+  const color = sobreHero
+    ? 'var(--hero-foreground)'
+    : score >= 80 ? 'var(--positive)' : score >= 60 ? 'var(--info)' : score >= 40 ? 'var(--warning)' : 'var(--negative)';
+  const pista = sobreHero
+    ? 'color-mix(in srgb, var(--hero-foreground) 22%, transparent)'
+    : 'color-mix(in srgb, var(--foreground) 6%, transparent)';
 
   return (
     <Link href="/dashboard/score" className="relative shrink-0 group" title="Tu Neto Score">
       <svg width={size} height={size} className="block -rotate-90">
-        <circle cx={r + strokeW} cy={r + strokeW} r={r} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth={strokeW} />
+        <circle cx={r + strokeW} cy={r + strokeW} r={r} fill="none" stroke={pista} strokeWidth={strokeW} />
         <circle
           cx={r + strokeW} cy={r + strokeW} r={r} fill="none"
           stroke={color} strokeWidth={strokeW}
@@ -75,6 +83,10 @@ function MiniScoreRing({ score }: { score: number }) {
 /* Mobile hero — Ahorro dominates the first viewport.
  * The single most important number in an expense tracker is "what did
  * I keep this month?". On mobile we give it 44px+ and visual isolation.
+ *
+ * Paleta B: con ahorro >= 0 es EL bloque verde de la app (el otro es el boton principal). Con
+ * ahorro negativo vuelve a tarjeta neutra con el monto en negativo: un bloque verde que dice
+ * "-S/ 300" contradice lo que el verde comunica (decision de Favio, 12-oct-2026).
  */
 function MobileAhorroHero({
   value,
@@ -89,20 +101,27 @@ function MobileAhorroHero({
   scoreValue?: number | null;
   porcentaje: number;
 }) {
+  const enVerde = value >= 0;
   return (
-    <div className="glass-card p-6">
+    <div
+      className={
+        enVerde
+          ? 'rounded-2xl bg-linear-135 from-hero-from to-hero-to p-6 text-hero-foreground shadow-[0_8px_24px_var(--shadow-color)]'
+          : 'glass-card p-6'
+      }
+    >
       <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2">
-          <Wallet className="h-[18px] w-[18px]" style={{ color: '#8A877D' }} />
-          <p className="text-xs font-medium uppercase tracking-wider" style={{ color: '#8A877D' }}>
+        <div className={enVerde ? 'flex items-center gap-2 text-hero-muted' : 'flex items-center gap-2 text-muted-foreground'}>
+          <Wallet className="h-[18px] w-[18px]" />
+          <p className="text-xs font-medium uppercase tracking-wider">
             Ahorro del mes
           </p>
         </div>
-        {scoreValue != null && <MiniScoreRing score={scoreValue} />}
+        {scoreValue != null && <MiniScoreRing score={scoreValue} sobreHero={enVerde} />}
       </div>
       <p
         className="text-[40px] font-bold tracking-tight leading-none"
-        style={{ color }}
+        style={enVerde ? undefined : { color }}
       >
         S/{' '}
         <NumberTicker value={value} decimalPlaces={2} className="!text-inherit" />
@@ -111,14 +130,18 @@ function MobileAhorroHero({
         {porcentaje !== 0 && (
           <span
             className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium"
-            style={{ backgroundColor: `${color}1F`, color }}
+            style={
+              enVerde
+                ? { backgroundColor: conAlfa('var(--hero-foreground)', 16), color: 'var(--hero-foreground)' }
+                : { backgroundColor: conAlfa(color, 12), color: tinta(color) }
+            }
           >
             {etiquetaTasaDeAhorro(porcentaje)}
           </span>
         )}
         {sparkline && sparkline.length >= 2 && (
           <div className="ml-auto">
-            <Sparkline data={sparkline} color={color} />
+            <Sparkline data={sparkline} color={enVerde ? 'var(--hero-bar)' : color} />
           </div>
         )}
       </div>
@@ -147,12 +170,12 @@ function MobileCompactKPI({
   return (
     <div className="glass-card p-4">
       <div className="flex items-center justify-between mb-2">
-        <Icon className="h-4 w-4" style={{ color: '#8A877D' }} />
+        <Icon className="h-4 w-4" style={{ color: 'var(--muted-foreground)' }} />
         {prev != null && prev > 0 && (
           <ComparisonBadge current={value} previous={prev} invertColor={invertColor} />
         )}
       </div>
-      <p className="text-[11px] font-medium mb-1" style={{ color: '#8A877D' }}>
+      <p className="text-[11px] font-medium mb-1" style={{ color: 'var(--muted-foreground)' }}>
         {label}
       </p>
       <p className="text-xl font-bold tracking-tight leading-none" style={{ color }}>
@@ -164,14 +187,14 @@ function MobileCompactKPI({
 }
 
 export function KPICards({ data, sparklines, netoScore }: KPICardsProps) {
-  const ahorroColor = data.ahorro >= 0 ? '#1D9E75' : '#EF9F27';
+  const ahorroColor = data.ahorro >= 0 ? 'var(--positive)' : 'var(--negative)';
   const scoreValue = netoScore?.score;
 
   const cards = [
     {
       label: 'Total Ingresos',
       value: data.totalIngresos,
-      color: '#1D9E75',
+      color: 'var(--positive)',
       icon: TrendingUp,
       prefix: 'S/ ',
       prev: data.prevIngresos,
@@ -182,7 +205,7 @@ export function KPICards({ data, sparklines, netoScore }: KPICardsProps) {
     {
       label: 'Total Gastos',
       value: data.totalGastos,
-      color: '#D85A30',
+      color: 'var(--negative)',
       icon: TrendingDown,
       prefix: 'S/ ',
       prev: data.prevGastos,
@@ -219,14 +242,14 @@ export function KPICards({ data, sparklines, netoScore }: KPICardsProps) {
           <MobileCompactKPI
             label="Ingresos"
             value={data.totalIngresos}
-            color="#1D9E75"
+            color="var(--positive)"
             icon={TrendingUp}
             prev={data.prevIngresos}
           />
           <MobileCompactKPI
             label="Gastos"
             value={data.totalGastos}
-            color="#D85A30"
+            color="var(--negative)"
             icon={TrendingDown}
             prev={data.prevGastos}
             invertColor
@@ -242,7 +265,7 @@ export function KPICards({ data, sparklines, netoScore }: KPICardsProps) {
             <StaggerItem key={card.label}>
             <div className="glass-card glass-card-glow p-5 lg:p-6">
               <div className="flex items-center justify-between mb-3">
-                <Icon className="h-5 w-5" style={{ color: '#8A877D' }} />
+                <Icon className="h-5 w-5" style={{ color: 'var(--muted-foreground)' }} />
                 <div className="flex items-center gap-1.5">
                   {'prev' in card && card.prev != null && card.prev > 0 && (
                     <ComparisonBadge current={card.value} previous={card.prev} invertColor={card.invertColor} />
@@ -251,8 +274,8 @@ export function KPICards({ data, sparklines, netoScore }: KPICardsProps) {
                     <span
                       className="rounded-full px-2 py-0.5 text-xs font-medium"
                       style={{
-                        backgroundColor: `${card.color}18`,
-                        color: card.color,
+                        backgroundColor: conAlfa(card.color, 9),
+                        color: tinta(card.color),
                       }}
                     >
                       {card.badge}
@@ -260,7 +283,7 @@ export function KPICards({ data, sparklines, netoScore }: KPICardsProps) {
                   )}
                 </div>
               </div>
-              <p className="text-xs font-medium mb-1" style={{ color: '#8A877D' }}>
+              <p className="text-xs font-medium mb-1" style={{ color: 'var(--muted-foreground)' }}>
                 {card.label}
               </p>
               <div className="flex items-end justify-between gap-2">

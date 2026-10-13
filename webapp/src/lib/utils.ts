@@ -27,9 +27,9 @@ export function formatFecha(dateStr: string): string {
 
 // Score color
 export function getScoreColor(score: number): string {
-  if (score >= 80) return '#1D9E75';
-  if (score >= 60) return '#EF9F27';
-  return '#D85A30';
+  if (score >= 80) return 'var(--positive)';
+  if (score >= 60) return 'var(--warning)';
+  return 'var(--negative)';
 }
 
 // Score label

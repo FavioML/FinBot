@@ -89,14 +89,14 @@ export function CategoryComparison({ allTransactions, currentMonth, currentYear,
       transition={{ duration: 0.5, delay: 0.2 }}
     >
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-medium md:text-base md:font-semibold text-[#C8C6BC]">Comparativa por categoria</h3>
+        <h3 className="text-sm font-medium md:text-base md:font-semibold text-foreground-soft">Comparativa por categoria</h3>
         <div className="flex items-center gap-3 text-[10px]">
           <span className="flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full bg-[#8A877D]" />
+            <span className="w-2 h-2 rounded-full bg-muted-foreground" />
             {pmLabel}
           </span>
           <span className="flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full bg-[#1D9E75]" />
+            <span className="w-2 h-2 rounded-full bg-primary" />
             {cmLabel}
           </span>
         </div>
@@ -108,7 +108,7 @@ export function CategoryComparison({ allTransactions, currentMonth, currentYear,
           <BarChart data={chartData} layout="vertical" margin={{ left: 0, right: 8, top: 0, bottom: 0 }}>
             <XAxis
               type="number"
-              tick={{ fill: '#8A877D', fontSize: 10 }}
+              tick={{ fill: 'var(--muted-foreground)', fontSize: 10 }}
               axisLine={false}
               tickLine={false}
               tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)}
@@ -116,30 +116,30 @@ export function CategoryComparison({ allTransactions, currentMonth, currentYear,
             <YAxis
               type="category"
               dataKey="label"
-              tick={{ fill: '#C8C6BC', fontSize: 11 }}
+              tick={{ fill: 'var(--foreground-soft)', fontSize: 11 }}
               axisLine={false}
               tickLine={false}
               width={120}
             />
             <Tooltip
               contentStyle={{
-                background: '#1A1A17',
+                background: 'var(--surface-elevated)',
                 backdropFilter: 'blur(12px)',
-                border: '1px solid rgba(255,255,255,0.1)',
+                border: '1px solid var(--border)',
                 borderRadius: '0.75rem',
                 fontSize: '12px',
-                color: '#F0EFE8',
-                boxShadow: '0 20px 25px -5px rgba(0,0,0,0.4)',
+                color: 'var(--foreground)',
+                boxShadow: '0 20px 25px -5px var(--shadow-color)',
               }}
-              itemStyle={{ color: '#C8C6BC' }}
-              labelStyle={{ color: '#8A877D', fontSize: '11px' }}
+              itemStyle={{ color: 'var(--foreground-soft)' }}
+              labelStyle={{ color: 'var(--muted-foreground)', fontSize: '11px' }}
               formatter={(value: unknown, name: unknown) => [
                 formatCurrency(Number(value)),
                 name === 'previous' ? pmLabel : cmLabel,
               ]}
-              cursor={{ fill: 'rgba(255,255,255,0.02)' }}
+              cursor={{ fill: 'color-mix(in srgb, var(--foreground) 2%, transparent)' }}
             />
-            <Bar dataKey="previous" fill="#8A877D" radius={[0, 4, 4, 0]} barSize={8} opacity={0.5} isAnimationActive={true} />
+            <Bar dataKey="previous" fill="var(--muted-foreground)" radius={[0, 4, 4, 0]} barSize={8} opacity={0.5} isAnimationActive={true} />
             <Bar dataKey="current" radius={[0, 4, 4, 0]} barSize={8} isAnimationActive={true}
               cursor={onCategoryClick ? 'pointer' : undefined}
               onClick={onCategoryClick ? (entry) => onCategoryClick((entry as unknown as { categoria: string }).categoria) : undefined}
@@ -147,7 +147,7 @@ export function CategoryComparison({ allTransactions, currentMonth, currentYear,
               {chartData.map((entry, i) => (
                 <Cell
                   key={i}
-                  fill={entry.change > 10 ? '#D85A30' : entry.change < -10 ? '#1D9E75' : '#EF9F27'}
+                  fill={entry.change > 10 ? 'var(--negative)' : entry.change < -10 ? 'var(--positive)' : 'var(--warning)'}
                 />
               ))}
             </Bar>
@@ -162,8 +162,8 @@ export function CategoryComparison({ allTransactions, currentMonth, currentYear,
             key={d.categoria}
             className="rounded-full px-2 py-0.5 text-[10px] font-medium"
             style={{
-              backgroundColor: d.change > 0 ? 'rgba(216,90,48,0.1)' : 'rgba(29,158,117,0.1)',
-              color: d.change > 0 ? '#D85A30' : '#1D9E75',
+              backgroundColor: d.change > 0 ? 'color-mix(in srgb, var(--negative) 10%, transparent)' : 'color-mix(in srgb, var(--positive) 10%, transparent)',
+              color: d.change > 0 ? 'var(--negative)' : 'var(--positive)',
             }}
           >
             {d.emoji} {d.change > 0 ? '+' : ''}{d.change}%
@@ -175,7 +175,7 @@ export function CategoryComparison({ allTransactions, currentMonth, currentYear,
       {hasMore && (
         <button
           onClick={() => setExpanded(!expanded)}
-          className="flex items-center justify-center gap-1.5 w-full mt-3 py-2 rounded-lg text-xs font-medium text-[#8A877D] hover:text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.03)] transition-colors"
+          className="flex items-center justify-center gap-1.5 w-full mt-3 py-2 rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground-soft hover:bg-foreground/3 transition-colors"
         >
           {expanded ? 'Ver menos' : `Ver todas (${data.length})`}
           <motion.span

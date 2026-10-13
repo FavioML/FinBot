@@ -24,19 +24,16 @@ interface MetodoDatum {
   porcentaje: number;
 }
 
-const COLORS = [
-  '#1D9E75', '#378ADD', '#EF9F27', '#D85A30', '#8A877D',
-  '#6CC4A1', '#5FA0E0', '#D4A843', '#E8845C', '#B0ADA5',
-];
+const COLORS = ['var(--chart-1)', 'var(--chart-3)', 'var(--chart-2)', 'var(--chart-4)', 'var(--chart-5)', 'var(--chart-6)', 'var(--chart-7)', 'var(--chart-8)'];
 
 function CustomTooltip({ active, payload }: ChartTooltipProps<MetodoDatum>) {
   if (!active || !payload?.[0]) return null;
   const d = payload[0].payload;
   return (
-    <div className="px-3 py-2.5 text-[12px] shadow-xl rounded-lg border border-[rgba(255,255,255,0.1)]" style={{ background: '#1A1A17', backdropFilter: 'blur(12px)' }}>
-      <p className="text-[#F0EFE8] font-medium">{d.icon} {d.metodo}</p>
-      <p className="text-[#C8C6BC]">{formatCurrency(d.total)}</p>
-      <p className="text-[#8A877D]">{d.porcentaje.toFixed(1)}% · {d.count} transacciones</p>
+    <div className="px-3 py-2.5 text-[12px] shadow-xl rounded-lg border border-border" style={{ background: 'var(--surface-elevated)', backdropFilter: 'blur(12px)' }}>
+      <p className="text-foreground font-medium">{d.icon} {d.metodo}</p>
+      <p className="text-foreground-soft">{formatCurrency(d.total)}</p>
+      <p className="text-muted-foreground">{d.porcentaje.toFixed(1)}% · {d.count} transacciones</p>
     </div>
   );
 }
@@ -86,7 +83,7 @@ export function PaymentMethodDonut({ transactions, onMethodClick }: PaymentMetho
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay: 0.15 }}
     >
-      <h3 className="text-sm font-medium md:text-base md:font-semibold text-[#C8C6BC] mb-4">Metodos de pago</h3>
+      <h3 className="text-sm font-medium md:text-base md:font-semibold text-foreground-soft mb-4">Metodos de pago</h3>
       <div className="flex flex-col md:flex-row items-center gap-4">
         <div className="relative w-[180px] h-[180px] shrink-0">
           <ResponsiveContainer width="100%" height="100%">
@@ -115,8 +112,8 @@ export function PaymentMethodDonut({ transactions, onMethodClick }: PaymentMetho
             </PieChart>
           </ResponsiveContainer>
           <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-            <span className="text-[10px] text-[#8A877D]">Total</span>
-            <span className="text-xs font-bold text-[#F0EFE8]">{formatCurrency(total)}</span>
+            <span className="text-[10px] text-muted-foreground">Total</span>
+            <span className="text-xs font-bold text-foreground">{formatCurrency(total)}</span>
           </div>
         </div>
 
@@ -125,20 +122,20 @@ export function PaymentMethodDonut({ transactions, onMethodClick }: PaymentMetho
           {data.map((item, i) => (
             <div
               key={item.metodo}
-              className={`flex items-center gap-2 text-xs ${onMethodClick ? 'cursor-pointer rounded-lg px-1.5 py-1 -mx-1.5 hover:bg-[rgba(255,255,255,0.04)] transition-colors' : ''}`}
+              className={`flex items-center gap-2 text-xs ${onMethodClick ? 'cursor-pointer rounded-lg px-1.5 py-1 -mx-1.5 hover:bg-foreground/4 transition-colors' : ''}`}
               onClick={onMethodClick ? () => onMethodClick(item.metodoBase) : undefined}
             >
               <span
                 className="h-2 w-2 rounded-full shrink-0"
                 style={{ backgroundColor: COLORS[i % COLORS.length] }}
               />
-              <span className="text-[#C8C6BC] truncate">
+              <span className="text-foreground-soft truncate">
                 {item.icon} {item.metodo}
               </span>
-              <span className="ml-auto shrink-0 font-medium text-[#F0EFE8] tabular-nums">
+              <span className="ml-auto shrink-0 font-medium text-foreground tabular-nums">
                 {formatCurrency(item.total)}
               </span>
-              <span className="shrink-0 text-[#8A877D] tabular-nums w-[36px] text-right">
+              <span className="shrink-0 text-muted-foreground tabular-nums w-[36px] text-right">
                 {item.porcentaje.toFixed(0)}%
               </span>
             </div>

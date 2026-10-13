@@ -38,19 +38,19 @@ export function GmailDesconectadoBanner() {
   // "Reconectar": esa cuenta no tiene bandeja y otra gasta un cupo de Google. Va por soporte.
   if (data.sinBuzon) {
     return (
-      <div className="mb-4 flex items-center gap-3 rounded-2xl border border-[#EF9F27]/40 bg-[#EF9F27]/10 px-4 py-3">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#EF9F27]/15 text-[#EF9F27]">
+      <div className="mb-4 flex items-center gap-3 rounded-2xl border border-warning/40 bg-warning/10 px-4 py-3">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-warning/15 text-warning-ink">
           <AlertTriangle className="h-5 w-5" />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-[#F0EFE8]">La cuenta de Google que conectaste no tiene Gmail</p>
-          <p className="text-xs text-[#8A877D]">
+          <p className="text-sm font-medium text-foreground">La cuenta de Google que conectaste no tiene Gmail</p>
+          <p className="text-xs text-muted-foreground">
             Neto no puede leer los avisos de tu banco desde ahí. Lo que anotas por WhatsApp sigue igual.
           </p>
         </div>
         <Link
           href="/dashboard/pro"
-          className="shrink-0 rounded-lg border border-[#EF9F27]/50 px-3 py-2 text-xs font-semibold text-[#EF9F27] transition-colors hover:bg-[#EF9F27]/10"
+          className="shrink-0 rounded-lg border border-warning/50 px-3 py-2 text-xs font-semibold text-warning-ink transition-colors hover:bg-warning/10"
         >
           Ver detalle
         </Link>
@@ -67,23 +67,23 @@ export function GmailDesconectadoBanner() {
   });
 
   return (
-    <div className="mb-4 flex items-center gap-3 rounded-2xl border border-[#EF9F27]/40 bg-[#EF9F27]/10 px-4 py-3">
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#EF9F27]/15 text-[#EF9F27]">
+    <div className="mb-4 flex items-center gap-3 rounded-2xl border border-warning/40 bg-warning/10 px-4 py-3">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-warning/15 text-warning-ink">
         <AlertTriangle className="h-5 w-5" />
       </span>
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-[#F0EFE8]">
-          Tu Gmail se desconectó <span className="text-[#EF9F27]">el {desde}</span>
+        <p className="text-sm font-medium text-foreground">
+          Tu Gmail se desconectó <span className="text-warning">el {desde}</span>
         </p>
         {/* Se nombra lo que SIGUE funcionando: si no, "se desconectó" se lee como que Neto
             entero dejó de servir, y lo que se rompió es una de las dos vías de registro. */}
-        <p className="text-xs text-[#8A877D]">
+        <p className="text-xs text-muted-foreground">
           Neto no está registrando los gastos que te llegan por correo. Lo que anotas por WhatsApp sigue igual.
         </p>
       </div>
       <Link
         href="/dashboard/pro"
-        className="shrink-0 rounded-lg bg-[#EF9F27] px-3 py-2 text-xs font-semibold text-[#1A1A18] transition-colors hover:bg-[#EF9F27]/90"
+        className="shrink-0 rounded-lg bg-warning px-3 py-2 text-xs font-semibold text-warning-foreground transition-colors hover:bg-warning/90"
       >
         Reconectar
       </Link>

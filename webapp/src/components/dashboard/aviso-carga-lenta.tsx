@@ -76,8 +76,8 @@ export function AvisoCargaLenta({ placeholder = null }: { placeholder?: React.Re
         placeholder
       ) : (
         <>
-          <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#1D9E75] animate-pulse-dot" />
-          <span className="text-sm text-[#8A877D]">{UMBRALES[nivel].texto}</span>
+          <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary animate-pulse-dot" />
+          <span className="text-sm text-muted-foreground">{UMBRALES[nivel].texto}</span>
         </>
       )}
     </div>

@@ -27,7 +27,7 @@ export function InsightCard({ insight, aiContext, enableAI = true }: InsightCard
     <motion.div
       className="glass-card glass-card-glow p-5 relative overflow-hidden"
       style={{
-        borderTopColor: 'rgba(29, 158, 117, 0.4)',
+        borderTopColor: 'color-mix(in srgb, var(--primary) 40%, transparent)',
         borderTopWidth: '2px',
       }}
       initial={{ opacity: 0, y: 16 }}
@@ -39,37 +39,37 @@ export function InsightCard({ insight, aiContext, enableAI = true }: InsightCard
         className="absolute top-0 left-0 right-0 h-16 pointer-events-none"
         style={{
           background:
-            'linear-gradient(180deg, rgba(29,158,117,0.08) 0%, transparent 100%)',
+            'linear-gradient(180deg, color-mix(in srgb, var(--primary) 8%, transparent) 0%, transparent 100%)',
         }}
       />
       <div className="relative flex items-start gap-3">
         <motion.div
-          className="rounded-lg bg-[rgba(29,158,117,0.12)] p-2 shrink-0"
+          className="rounded-lg bg-primary/12 p-2 shrink-0"
           animate={loading ? { rotate: 360 } : { rotate: [0, 5, -5, 0] }}
           transition={loading ? { duration: 1, repeat: Infinity, ease: 'linear' } : { duration: 3, repeat: Infinity, repeatDelay: 5 }}
         >
           {loading ? (
-            <RefreshCw className="h-5 w-5 text-[#1D9E75]" />
+            <RefreshCw className="h-5 w-5 text-primary" />
           ) : (
-            <Sparkles className="h-5 w-5 text-[#1D9E75]" />
+            <Sparkles className="h-5 w-5 text-primary" />
           )}
         </motion.div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
-            <h3 className="text-sm font-medium md:text-base md:font-semibold text-[#F0EFE8]">
+            <h3 className="text-sm font-medium md:text-base md:font-semibold text-foreground">
               {loading ? 'Analizando...' : 'Consejo del mes'}
             </h3>
             {isAI && !loading && (
-              <span className="text-[9px] font-medium text-[#1D9E75] bg-[rgba(29,158,117,0.1)] rounded px-1.5 py-0.5">IA</span>
+              <span className="text-[9px] font-medium text-primary-ink bg-primary/10 rounded px-1.5 py-0.5">IA</span>
             )}
           </div>
-          <p className="text-sm text-[#8A877D] leading-relaxed">
+          <p className="text-sm text-muted-foreground leading-relaxed">
             {loading ? 'NETO esta analizando tus finanzas con IA...' : text}
           </p>
           {isAI && !loading && aiContext && (
             <button
               onClick={() => refetch()}
-              className="mt-2 text-[10px] text-[#8A877D] hover:text-[#1D9E75] transition-colors flex items-center gap-1"
+              className="mt-2 text-[10px] text-muted-foreground hover:text-primary transition-colors flex items-center gap-1"
             >
               <RefreshCw className="h-2.5 w-2.5" />
               Generar otro consejo

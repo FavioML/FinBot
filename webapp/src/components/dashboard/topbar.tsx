@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation';
 import { Menu } from 'lucide-react';
 import { NotificationBell } from './notification-bell';
 import { UserMenu } from './user-menu';
+import { ThemeToggle } from './theme-toggle';
 
 const PAGE_TITLES: Record<string, string> = {
   '/dashboard': 'Dashboard',
@@ -29,17 +30,18 @@ export function Topbar({ onMenuClick }: TopbarProps) {
   const title = PAGE_TITLES[pathname] || 'NETO';
 
   return (
-    <header className="flex h-12 shrink-0 items-center justify-between border-b border-[rgba(255,255,255,0.04)] md:hidden">
+    <header className="flex h-12 shrink-0 items-center justify-between border-b border-border md:hidden">
       <div className="flex items-center gap-3 px-4">
         <button
           onClick={onMenuClick}
-          className="rounded-md p-2 text-[#8A877D] hover:text-[#C8C6BC] transition-colors"
+          className="rounded-md p-2 text-muted-foreground hover:text-foreground-soft transition-colors"
         >
           <Menu className="h-5 w-5" />
         </button>
-        <span className="text-sm font-medium text-[#C8C6BC]">{title}</span>
+        <span className="text-sm font-medium text-foreground-soft">{title}</span>
       </div>
       <div className="flex items-center gap-2 px-4">
+        <ThemeToggle />
         <NotificationBell />
         <UserMenu />
       </div>
@@ -55,6 +57,7 @@ export function HeaderActions({ children }: { children?: React.ReactNode }) {
     <div className="flex items-center gap-2 sm:gap-3 flex-nowrap min-w-0">
       {children}
       <div className="hidden md:flex items-center gap-3">
+        <ThemeToggle />
         <NotificationBell />
         <UserMenu />
       </div>

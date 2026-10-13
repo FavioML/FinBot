@@ -81,15 +81,15 @@ export function SpendingProjection({
     >
       <div className="flex items-start justify-between mb-3">
         <div>
-          <p className="text-[10px] text-[#8A877D] uppercase tracking-wider mb-0.5">Proyeccion del mes</p>
-          <p className="text-xl font-bold text-[#F0EFE8] tabular-nums">{formatCurrency(projection.projected)}</p>
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Proyeccion del mes</p>
+          <p className="text-xl font-bold text-foreground tabular-nums">{formatCurrency(projection.projected)}</p>
         </div>
         {projection.prevGastos > 0 && (
           <div
             className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium"
             style={{
-              backgroundColor: isOverPrev ? 'rgba(216,90,48,0.1)' : 'rgba(29,158,117,0.1)',
-              color: isOverPrev ? '#D85A30' : '#1D9E75',
+              backgroundColor: isOverPrev ? 'color-mix(in srgb, var(--negative) 10%, transparent)' : 'color-mix(in srgb, var(--positive) 10%, transparent)',
+              color: isOverPrev ? 'var(--negative)' : 'var(--positive)',
             }}
           >
             {isOverPrev ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
@@ -100,15 +100,15 @@ export function SpendingProjection({
 
       {/* Progress bar */}
       <div className="space-y-1.5 mb-3">
-        <div className="h-1.5 rounded-full bg-[rgba(255,255,255,0.06)] overflow-hidden">
+        <div className="h-1.5 rounded-full bg-foreground/6 overflow-hidden">
           <motion.div
-            className="h-full rounded-full bg-[#1D9E75]"
+            className="h-full rounded-full bg-primary"
             initial={{ width: 0 }}
             animate={{ width: `${projection.progress}%` }}
             transition={{ duration: 0.6 }}
           />
         </div>
-        <div className="flex justify-between text-[10px] text-[#8A877D]">
+        <div className="flex justify-between text-[10px] text-muted-foreground">
           <span>Dia {projection.dayOfMonth} de {projection.daysInMonth}</span>
           <span>{projection.daysRemaining} dias restantes</span>
         </div>
@@ -117,13 +117,13 @@ export function SpendingProjection({
       {/* Stats row */}
       <div className="flex items-center gap-4 text-xs">
         <div>
-          <span className="text-[#8A877D]">Gastado: </span>
-          <span className="text-[#D85A30] font-medium tabular-nums">{formatCurrency(projection.totalSpent)}</span>
+          <span className="text-muted-foreground">Gastado: </span>
+          <span className="text-negative font-medium tabular-nums">{formatCurrency(projection.totalSpent)}</span>
         </div>
-        <ArrowRight className="h-3 w-3 text-[#8A877D]" />
+        <ArrowRight className="h-3 w-3 text-muted-foreground" />
         <div>
-          <span className="text-[#8A877D]">Promedio diario: </span>
-          <span className="text-[#C8C6BC] font-medium tabular-nums">{formatCurrency(projection.dailyAvg)}</span>
+          <span className="text-muted-foreground">Promedio diario: </span>
+          <span className="text-foreground-soft font-medium tabular-nums">{formatCurrency(projection.dailyAvg)}</span>
         </div>
       </div>
     </motion.div>

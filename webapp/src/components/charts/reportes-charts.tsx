@@ -11,7 +11,7 @@ import { etiquetaDiaLarga } from '@/lib/periodo-reporte';
 
 // Shared palette for all report charts (moved out of the page so recharts
 // only loads inside this lazy chunk).
-const PIE_COLORS = ['#1D9E75', '#EF9F27', '#D85A30', '#3B82F6', '#8B5CF6', '#EC4899', '#14B8A6', '#F97316'];
+const PIE_COLORS = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-4)', 'var(--chart-3)', 'var(--chart-5)', 'var(--chart-7)', 'var(--chart-6)', 'var(--chart-8)'];
 
 interface CategoryDatum { label: string; total: number; categoria: string }
 interface PaymentDatum { name: string; value: number }
@@ -24,12 +24,12 @@ export function CategoryBarChart({ data, onSelect }: { data: CategoryDatum[]; on
         <XAxis type="number" hide />
         <YAxis
           type="category" dataKey="label" width={140}
-          tick={{ fill: '#C8C6BC', fontSize: 12 }}
+          tick={{ fill: 'var(--foreground-soft)', fontSize: 12 }}
         />
         <Tooltip
-          contentStyle={{ background: 'rgba(28,28,26,0.8)', backdropFilter: 'blur(12px)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8 }}
-          labelStyle={{ color: '#F0EFE8', fontSize: 12 }}
-          itemStyle={{ color: '#F0EFE8', fontSize: 12 }}
+          contentStyle={{ background: 'var(--popover)', border: '1px solid var(--border)', borderRadius: 8 }}
+          labelStyle={{ color: 'var(--foreground)', fontSize: 12 }}
+          itemStyle={{ color: 'var(--foreground)', fontSize: 12 }}
           formatter={(v) => formatCurrency(Number(v))}
         />
         <Bar
@@ -63,11 +63,11 @@ export function PaymentMethodsPieChart({ data, onSelect }: { data: PaymentDatum[
           ))}
         </Pie>
         <Tooltip
-          contentStyle={{ background: 'rgba(26,26,24,0.8)', backdropFilter: 'blur(12px)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, color: '#F0EFE8', fontSize: 12 }}
+          contentStyle={{ background: 'var(--popover)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--foreground)', fontSize: 12 }}
           formatter={(v) => formatCurrency(Number(v))}
         />
         <Legend
-          formatter={(value: string) => <span className="text-xs text-[#C8C6BC]">{getMetodoIcon(value)} {value}</span>}
+          formatter={(value: string) => <span className="text-xs text-foreground-soft">{getMetodoIcon(value)} {value}</span>}
         />
       </PieChart>
     </ResponsiveContainer>
@@ -79,12 +79,12 @@ export function DailySpendingChart({ data, dailyAverage, onSelect }: { data: Dai
     <ResponsiveContainer width="100%" height={220}>
       <BarChart data={data} margin={{ left: 0, right: 0 }}>
         <XAxis
-          dataKey="label" tick={{ fill: '#8A877D', fontSize: 11 }}
+          dataKey="label" tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
           axisLine={false} tickLine={false}
         />
         <YAxis hide />
         <Tooltip
-          contentStyle={{ background: 'rgba(26,26,24,0.8)', backdropFilter: 'blur(12px)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, color: '#F0EFE8', fontSize: 12 }}
+          contentStyle={{ background: 'var(--popover)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--foreground)', fontSize: 12 }}
           formatter={(v) => formatCurrency(Number(v))}
           labelFormatter={(_, payload) => {
             const fecha = (payload?.[0]?.payload as DailyDatum | undefined)?.fecha;
@@ -94,12 +94,12 @@ export function DailySpendingChart({ data, dailyAverage, onSelect }: { data: Dai
         {dailyAverage > 0 && (
           <ReferenceLine
             y={dailyAverage}
-            stroke="#EF9F27"
+            stroke="var(--warning)"
             strokeDasharray="6 4"
             strokeOpacity={0.5}
           />
         )}
-        <Bar dataKey="total" fill="#EF9F27" radius={[4, 4, 0, 0]} cursor="pointer"
+        <Bar dataKey="total" fill="var(--warning)" radius={[4, 4, 0, 0]} cursor="pointer"
           onClick={(e) => { const d = e as unknown as { fecha?: string; total?: number }; if (d?.fecha && (d.total ?? 0) > 0) onSelect(d.fecha); }}
         />
       </BarChart>

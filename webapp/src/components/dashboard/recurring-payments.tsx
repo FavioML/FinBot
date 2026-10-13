@@ -26,15 +26,15 @@ const OVERDUE_ALARM_DAYS = 40; // vencido menos que esto = alarma; más = "sin c
 
 function statusLine(c: RecurringCluster): { text: string; color: string } {
   if (c.status === 'inactive') {
-    return { text: 'Inactivo — sin cobro reciente', color: '#8A877D' };
+    return { text: 'Inactivo — sin cobro reciente', color: 'var(--muted-foreground)' };
   }
   const d = c.daysUntil;
-  if (d < -OVERDUE_ALARM_DAYS) return { text: 'Sin cobro reciente', color: '#8A877D' };
-  if (d < 0) return { text: `Esperado hace ${Math.abs(d)} dias`, color: '#EF9F27' };
-  if (d === 0) return { text: 'Hoy', color: '#EF9F27' };
+  if (d < -OVERDUE_ALARM_DAYS) return { text: 'Sin cobro reciente', color: 'var(--muted-foreground)' };
+  if (d < 0) return { text: `Esperado hace ${Math.abs(d)} dias`, color: 'var(--warning)' };
+  if (d === 0) return { text: 'Hoy', color: 'var(--warning)' };
   return {
     text: `En ${d} dias (~dia ${c.dayOfMonth})`,
-    color: d <= 5 ? '#EF9F27' : '#8A877D',
+    color: d <= 5 ? 'var(--warning)' : 'var(--muted-foreground)',
   };
 }
 
@@ -45,22 +45,22 @@ function ClusterRow({ c, onClick }: { c: RecurringCluster; onClick: () => void }
   return (
     <button
       onClick={onClick}
-      className="w-full flex items-center justify-between rounded-lg px-3 py-2 -mx-1 hover:bg-[rgba(255,255,255,0.03)] transition-colors text-left"
+      className="w-full flex items-center justify-between rounded-lg px-3 py-2 -mx-1 hover:bg-foreground/3 transition-colors text-left"
     >
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <p className="text-sm text-[#F0EFE8] truncate">{c.label}</p>
+          <p className="text-sm text-foreground truncate">{c.label}</p>
           {c.variantKeys.length > 1 && (
-            <span className="shrink-0 rounded bg-[rgba(29,158,117,0.12)] px-1.5 py-0.5 text-[9px] text-[#1D9E75]">
+            <span className="shrink-0 rounded bg-primary/12 px-1.5 py-0.5 text-[9px] text-primary-ink">
               {c.variantKeys.length} nombres
             </span>
           )}
-          <span className="shrink-0 rounded bg-[rgba(255,255,255,0.06)] px-1.5 py-0.5 text-[9px] text-[#8A877D]">
+          <span className="shrink-0 rounded bg-foreground/6 px-1.5 py-0.5 text-[9px] text-muted-foreground">
             {c.monthsDetected} meses
           </span>
         </div>
         <div className="flex items-center gap-1 mt-0.5">
-          <Calendar className="h-2.5 w-2.5 text-[#8A877D]" />
+          <Calendar className="h-2.5 w-2.5 text-muted-foreground" />
           <span className="text-[10px]" style={{ color: st.color }}>
             {st.text}
           </span>
@@ -68,7 +68,7 @@ function ClusterRow({ c, onClick }: { c: RecurringCluster; onClick: () => void }
       </div>
       <span
         className="text-sm font-medium tabular-nums shrink-0 ml-3"
-        style={{ color: c.status === 'inactive' ? '#8A877D' : '#D85A30' }}
+        style={{ color: c.status === 'inactive' ? 'var(--muted-foreground)' : 'var(--negative)' }}
       >
         {formatCurrency(c.amountPen)}
       </span>
@@ -181,15 +181,15 @@ export function RecurringPayments({ transactions }: RecurringPaymentsProps) {
     >
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <Repeat className="h-4 w-4 text-[#8A877D]" />
-          <h3 className="text-sm font-medium md:text-base md:font-semibold text-[#C8C6BC]">Pagos recurrentes</h3>
+          <Repeat className="h-4 w-4 text-muted-foreground" />
+          <h3 className="text-sm font-medium md:text-base md:font-semibold text-foreground-soft">Pagos recurrentes</h3>
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-xs text-[#8A877D]">~{formatCurrency(totalMonthly)}/mes</span>
+          <span className="text-xs text-muted-foreground">~{formatCurrency(totalMonthly)}/mes</span>
           <button
             onClick={() => setAddOpen(true)}
             aria-label="Marcar un pago como recurrente"
-            className="flex h-6 w-6 items-center justify-center rounded-full bg-[rgba(255,255,255,0.06)] text-[#C8C6BC] hover:bg-[rgba(29,158,117,0.15)] hover:text-[#1D9E75] transition-colors"
+            className="flex h-6 w-6 items-center justify-center rounded-full bg-foreground/6 text-foreground-soft hover:bg-primary/15 hover:text-primary transition-colors"
           >
             <Plus className="h-3.5 w-3.5" />
           </button>
@@ -202,23 +202,23 @@ export function RecurringPayments({ transactions }: RecurringPaymentsProps) {
           {suggestions.slice(0, 3).map((s) => (
             <div
               key={`${s.aId}|${s.bId}`}
-              className="rounded-lg bg-[rgba(29,158,117,0.06)] border border-[rgba(29,158,117,0.15)] px-3 py-2"
+              className="rounded-lg bg-primary/6 border border-primary/15 px-3 py-2"
             >
-              <p className="text-xs text-[#C8C6BC]">
+              <p className="text-xs text-foreground-soft">
                 ¿<span className="font-medium">{s.aLabel}</span> y{' '}
                 <span className="font-medium">{s.bLabel}</span> son el mismo pago?
               </p>
-              <p className="text-[10px] text-[#8A877D] mt-0.5">{s.reason}</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">{s.reason}</p>
               <div className="mt-1.5 flex gap-2">
                 <button
                   onClick={() => doMerge(s.aId, s.bId)}
-                  className="inline-flex items-center gap-1 rounded-md bg-[rgba(29,158,117,0.15)] px-2 py-1 text-[11px] font-medium text-[#1D9E75] hover:bg-[rgba(29,158,117,0.25)] transition-colors"
+                  className="inline-flex items-center gap-1 rounded-md bg-primary/15 px-2 py-1 text-[11px] font-medium text-primary-ink hover:bg-primary/25 transition-colors"
                 >
                   <Link2 className="h-3 w-3" /> Unir
                 </button>
                 <button
                   onClick={() => doIgnoreSuggestion(s.aId, s.bId)}
-                  className="rounded-md px-2 py-1 text-[11px] text-[#8A877D] hover:text-[#C8C6BC] transition-colors"
+                  className="rounded-md px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground-soft transition-colors"
                 >
                   No, son distintos
                 </button>
@@ -238,7 +238,7 @@ export function RecurringPayments({ transactions }: RecurringPaymentsProps) {
       {clusters.length > visible.length && (
         <button
           onClick={() => setShowAllOpen(true)}
-          className="mt-3 w-full text-center text-[11px] text-[#8A877D] hover:text-[#C8C6BC] transition-colors py-1"
+          className="mt-3 w-full text-center text-[11px] text-muted-foreground hover:text-foreground-soft transition-colors py-1"
         >
           Ver todos ({clusters.length}) &rarr;
         </button>
@@ -260,7 +260,7 @@ export function RecurringPayments({ transactions }: RecurringPaymentsProps) {
               <div className="px-4 pb-4 space-y-4">
                 {/* Renombrar */}
                 <div>
-                  <label className="text-[11px] text-[#8A877D] flex items-center gap-1.5 mb-1.5">
+                  <label className="text-[11px] text-muted-foreground flex items-center gap-1.5 mb-1.5">
                     <Pencil className="h-3 w-3" /> Nombre
                   </label>
                   <div className="flex gap-2">
@@ -273,7 +273,7 @@ export function RecurringPayments({ transactions }: RecurringPaymentsProps) {
                     <button
                       onClick={() => doRename(sheetCluster)}
                       disabled={!renameValue.trim() || renameValue.trim() === sheetCluster.label}
-                      className="inline-flex items-center gap-1 rounded-lg bg-[rgba(29,158,117,0.15)] px-3 text-sm font-medium text-[#1D9E75] disabled:opacity-40 hover:bg-[rgba(29,158,117,0.25)] transition-colors"
+                      className="inline-flex items-center gap-1 rounded-lg bg-primary/15 px-3 text-sm font-medium text-primary-ink disabled:opacity-40 hover:bg-primary/25 transition-colors"
                     >
                       <Check className="h-3.5 w-3.5" /> Guardar
                     </button>
@@ -285,7 +285,7 @@ export function RecurringPayments({ transactions }: RecurringPaymentsProps) {
                   <div>
                     <button
                       onClick={() => setShowMerge((v) => !v)}
-                      className="w-full flex items-center gap-1.5 text-[11px] text-[#8A877D] mb-1.5"
+                      className="w-full flex items-center gap-1.5 text-[11px] text-muted-foreground mb-1.5"
                     >
                       <Link2 className="h-3 w-3" /> Unir con otro pago
                     </button>
@@ -298,10 +298,10 @@ export function RecurringPayments({ transactions }: RecurringPaymentsProps) {
                               doMerge(sheetCluster.id, o.id);
                               setSheetCluster(null);
                             }}
-                            className="w-full flex items-center justify-between rounded-lg px-3 py-2 bg-[rgba(255,255,255,0.02)] hover:bg-[rgba(255,255,255,0.05)] transition-colors text-left"
+                            className="w-full flex items-center justify-between rounded-lg px-3 py-2 bg-foreground/2 hover:bg-foreground/5 transition-colors text-left"
                           >
-                            <span className="text-sm text-[#F0EFE8] truncate">{o.label}</span>
-                            <span className="text-xs text-[#8A877D] shrink-0 ml-2">{formatCurrency(o.amountPen)}</span>
+                            <span className="text-sm text-foreground truncate">{o.label}</span>
+                            <span className="text-xs text-muted-foreground shrink-0 ml-2">{formatCurrency(o.amountPen)}</span>
                           </button>
                         ))}
                       </div>
@@ -314,21 +314,21 @@ export function RecurringPayments({ transactions }: RecurringPaymentsProps) {
                   {sheetCluster.variantKeys.length > 1 && (
                     <button
                       onClick={() => doSeparate(sheetCluster)}
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-[rgba(255,255,255,0.04)] px-3 py-2 text-xs text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.07)] transition-colors"
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-foreground/4 px-3 py-2 text-xs text-foreground-soft hover:bg-foreground/7 transition-colors"
                     >
                       <Unlink className="h-3.5 w-3.5" /> Separar
                     </button>
                   )}
                   <button
                     onClick={() => doHide(sheetCluster)}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-[rgba(255,255,255,0.04)] px-3 py-2 text-xs text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.07)] transition-colors"
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-foreground/4 px-3 py-2 text-xs text-foreground-soft hover:bg-foreground/7 transition-colors"
                   >
                     <EyeOff className="h-3.5 w-3.5" /> Ocultar
                   </button>
                   {sheetHasOverride && (
                     <button
                       onClick={() => doReset(sheetCluster)}
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-[rgba(255,255,255,0.04)] px-3 py-2 text-xs text-[#8A877D] hover:text-[#C8C6BC] transition-colors"
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-foreground/4 px-3 py-2 text-xs text-muted-foreground hover:text-foreground-soft transition-colors"
                     >
                       <RotateCcw className="h-3.5 w-3.5" /> Restablecer
                     </button>
@@ -373,19 +373,19 @@ export function RecurringPayments({ transactions }: RecurringPaymentsProps) {
           </SheetHeader>
           <div className="px-4 pb-4 space-y-1">
             {addCandidates.length === 0 && (
-              <p className="text-xs text-[#8A877D] py-4 text-center">No hay comercios sugeridos.</p>
+              <p className="text-xs text-muted-foreground py-4 text-center">No hay comercios sugeridos.</p>
             )}
             {addCandidates.map((cand) => (
               <button
                 key={cand.key}
                 onClick={() => doMarkRecurring(cand.key, cand.label)}
-                className="w-full flex items-center justify-between rounded-lg px-3 py-2 hover:bg-[rgba(255,255,255,0.04)] transition-colors text-left"
+                className="w-full flex items-center justify-between rounded-lg px-3 py-2 hover:bg-foreground/4 transition-colors text-left"
               >
                 <div className="min-w-0">
-                  <p className="text-sm text-[#F0EFE8] truncate">{cand.label}</p>
-                  <p className="text-[10px] text-[#8A877D]">{cand.count} veces</p>
+                  <p className="text-sm text-foreground truncate">{cand.label}</p>
+                  <p className="text-[10px] text-muted-foreground">{cand.count} veces</p>
                 </div>
-                <Plus className="h-4 w-4 text-[#1D9E75] shrink-0 ml-2" />
+                <Plus className="h-4 w-4 text-primary shrink-0 ml-2" />
               </button>
             ))}
           </div>

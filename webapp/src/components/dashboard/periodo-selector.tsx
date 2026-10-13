@@ -99,14 +99,14 @@ export function PeriodoSelector({
 
         {modo === 'anio' && periodo.tipo === 'anio' && (
           <Select value={periodo.etiqueta} onValueChange={(v) => { if (v) navegar({ anio: String(v) }); }}>
-            <SelectTrigger className="w-[120px] border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] text-[#F0EFE8]">
+            <SelectTrigger className="w-[120px] border-border bg-foreground/3 text-foreground">
               <SelectValue>{periodo.etiqueta}</SelectValue>
             </SelectTrigger>
-            <SelectContent className="bg-[#141412] border-[rgba(255,255,255,0.06)]">
+            <SelectContent className="bg-card border-border">
               {Array.from(new Set([...aniosDisponibles, Number(hoy.slice(0, 4)), Number(periodo.etiqueta)]))
                 .sort((a, b) => b - a)
                 .map((y) => (
-                  <SelectItem key={y} value={String(y)} className="text-[#F0EFE8] focus:bg-[rgba(255,255,255,0.05)] focus:text-[#F0EFE8]">
+                  <SelectItem key={y} value={String(y)} className="text-foreground focus:bg-foreground/5 focus:text-foreground">
                     {y}
                   </SelectItem>
                 ))}
@@ -115,22 +115,22 @@ export function PeriodoSelector({
         )}
 
         {modo === 'semana' && periodo.tipo === 'semana' && (
-          <div className="flex items-center gap-1 rounded-md border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)]">
+          <div className="flex items-center gap-1 rounded-md border border-border bg-foreground/3">
             <Button
               variant="ghost"
               size="sm"
               aria-label="Semana anterior"
-              className="text-[#C8C6BC]"
+              className="text-foreground-soft"
               onClick={() => navegar({ semana: sumarDias(periodo.desde, -7) })}
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
-            <span className="min-w-[120px] text-center text-sm text-[#F0EFE8] tabular-nums">{periodo.etiqueta}</span>
+            <span className="min-w-[120px] text-center text-sm text-foreground tabular-nums">{periodo.etiqueta}</span>
             <Button
               variant="ghost"
               size="sm"
               aria-label="Semana siguiente"
-              className="text-[#C8C6BC]"
+              className="text-foreground-soft"
               disabled={esSemanaActual}
               onClick={() => navegar({ semana: sumarDias(periodo.desde, 7) })}
             >
@@ -142,7 +142,7 @@ export function PeriodoSelector({
 
       {modo === 'rango' && (
         <div className="flex flex-wrap items-end gap-2">
-          <label className="flex flex-col gap-1 text-xs text-[#8A877D]">
+          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
             Desde
             <input
               type="date"
@@ -152,7 +152,7 @@ export function PeriodoSelector({
               className="form-input h-9 px-3 text-sm [color-scheme:dark]"
             />
           </label>
-          <label className="flex flex-col gap-1 text-xs text-[#8A877D]">
+          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
             Hasta
             <input
               type="date"
@@ -165,13 +165,13 @@ export function PeriodoSelector({
           </label>
           <Button
             size="sm"
-            className="h-9 bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90"
+            className="h-9 bg-primary text-primary-foreground hover:bg-primary/90"
             disabled={!rangoValido}
             onClick={() => navegar({ desde, hasta })}
           >
             Ver
           </Button>
-          <p className="w-full text-xs text-[#8A877D]">
+          <p className="w-full text-xs text-muted-foreground">
             {periodo.recortado
               ? `Mostramos los últimos ${maxDias} días del rango que elegiste: es el máximo.`
               : `Hasta ${maxDias} días.`}

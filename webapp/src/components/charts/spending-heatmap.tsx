@@ -13,11 +13,11 @@ interface SpendingHeatmapProps {
 const DIAS = ['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab', 'Dom'];
 
 function getColor(intensity: number): string {
-  if (intensity === 0) return 'rgba(255,255,255,0.03)';
-  if (intensity < 0.25) return 'rgba(29,158,117,0.2)';
-  if (intensity < 0.5) return 'rgba(29,158,117,0.4)';
-  if (intensity < 0.75) return 'rgba(239,159,39,0.5)';
-  return 'rgba(216,90,48,0.6)';
+  if (intensity === 0) return 'color-mix(in srgb, var(--foreground) 3%, transparent)';
+  if (intensity < 0.25) return 'color-mix(in srgb, var(--primary) 20%, transparent)';
+  if (intensity < 0.5) return 'color-mix(in srgb, var(--primary) 40%, transparent)';
+  if (intensity < 0.75) return 'color-mix(in srgb, var(--warning) 50%, transparent)';
+  return 'color-mix(in srgb, var(--negative) 60%, transparent)';
 }
 
 export function SpendingHeatmap({ transactions }: SpendingHeatmapProps) {
@@ -74,7 +74,7 @@ export function SpendingHeatmap({ transactions }: SpendingHeatmapProps) {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, delay: 0.3 }}
     >
-      <h3 className="text-sm font-medium text-[#C8C6BC] mb-4">Actividad de gastos</h3>
+      <h3 className="text-sm font-medium text-foreground-soft mb-4">Actividad de gastos</h3>
 
       <div className="flex gap-1.5 overflow-x-auto pb-1">
         {/* Day labels */}
@@ -82,7 +82,7 @@ export function SpendingHeatmap({ transactions }: SpendingHeatmapProps) {
           {[0, 1, 2, 3, 4, 5, 6].map((d) => (
             <div key={d} className="h-[14px] flex items-center">
               {d % 2 === 0 && (
-                <span className="text-[9px] text-[#8A877D] w-6 text-right">{DIAS[d]}</span>
+                <span className="text-[9px] text-muted-foreground w-6 text-right">{DIAS[d]}</span>
               )}
             </div>
           ))}
@@ -109,7 +109,7 @@ export function SpendingHeatmap({ transactions }: SpendingHeatmapProps) {
       </div>
 
       {/* Legend */}
-      <div className="flex items-center gap-2 mt-3 text-[9px] text-[#8A877D]">
+      <div className="flex items-center gap-2 mt-3 text-[9px] text-muted-foreground">
         <span>Menos</span>
         {[0, 0.2, 0.4, 0.7, 1].map((v) => (
           <div

@@ -7,6 +7,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@/lib/hooks/use-user';
 import { IS_DEMO } from '@/lib/demo/is-demo';
 import type { Usuario } from '@/lib/types';
+import { conAlfa } from '@/lib/colores';
 
 const TOUR_KEY = 'neto_tour_v2';
 
@@ -15,25 +16,25 @@ const STEPS = [
     title: 'Registra tus gastos e ingresos',
     description: 'Agrega transacciones aqui en la app o por WhatsApp. Neto tambien lee fotos de Yape y Plin automaticamente.',
     icon: Receipt,
-    color: '#1D9E75',
+    color: 'var(--primary)',
   },
   {
     title: 'Establece tus presupuestos',
     description: 'Define limites de gasto por categoria para controlar tus finanzas. Neto te avisa cuando estes cerca del limite.',
     icon: Target,
-    color: '#EF9F27',
+    color: 'var(--warning)',
   },
   {
     title: 'Tu score financiero',
     description: 'Este numero refleja tu salud financiera. Mientras mejor controles tus gastos, mas alto sera tu score.',
     icon: Sparkles,
-    color: '#1D9E75',
+    color: 'var(--primary)',
   },
   {
     title: 'Todo en tu dashboard',
     description: 'Graficos, reportes PDF, suscripciones detectadas, calendario financiero y mas. Todo en un solo lugar.',
     icon: LayoutDashboard,
-    color: '#378ADD',
+    color: 'var(--info)',
   },
 ];
 
@@ -94,7 +95,7 @@ export function OnboardingTour() {
       >
         {/* Backdrop */}
         <div
-          className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+          className="absolute inset-0 bg-scrim backdrop-blur-sm"
           onClick={handleComplete}
         />
 
@@ -111,7 +112,7 @@ export function OnboardingTour() {
           {/* Close */}
           <button
             onClick={handleComplete}
-            className="absolute top-3 right-3 text-[#8A877D] hover:text-[#F0EFE8] transition-colors"
+            className="absolute top-3 right-3 text-muted-foreground hover:text-foreground transition-colors"
           >
             <X className="h-4 w-4" />
           </button>
@@ -119,15 +120,15 @@ export function OnboardingTour() {
           {/* Icon */}
           <div
             className="w-10 h-10 rounded-xl flex items-center justify-center"
-            style={{ backgroundColor: `${current.color}15` }}
+            style={{ backgroundColor: conAlfa(current.color, 8) }}
           >
             <Icon className="h-5 w-5" style={{ color: current.color }} />
           </div>
 
           {/* Content */}
           <div>
-            <h3 className="text-base font-semibold text-[#F0EFE8] mb-1">{current.title}</h3>
-            <p className="text-sm text-[#8A877D] leading-relaxed">{current.description}</p>
+            <h3 className="text-base font-semibold text-foreground mb-1">{current.title}</h3>
+            <p className="text-sm text-muted-foreground leading-relaxed">{current.description}</p>
           </div>
 
           {/* Footer */}
@@ -140,7 +141,7 @@ export function OnboardingTour() {
                   className="h-1.5 rounded-full transition-all duration-300"
                   style={{
                     width: i === step ? 16 : 6,
-                    backgroundColor: i === step ? current.color : 'rgba(255,255,255,0.1)',
+                    backgroundColor: i === step ? current.color : 'color-mix(in srgb, var(--foreground) 10%, transparent)',
                   }}
                 />
               ))}
@@ -149,8 +150,7 @@ export function OnboardingTour() {
             {/* Next / Finish button */}
             <button
               onClick={handleNext}
-              className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm font-medium text-white transition-colors"
-              style={{ backgroundColor: current.color }}
+              className="flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
             >
               {isLast ? 'Empezar' : 'Siguiente'}
               {!isLast && <ChevronRight className="h-3.5 w-3.5" />}
@@ -158,7 +158,7 @@ export function OnboardingTour() {
           </div>
 
           {/* Step counter */}
-          <p className="text-[10px] text-[#8A877D] text-center">
+          <p className="text-[10px] text-muted-foreground text-center">
             {step + 1} de {STEPS.length}
           </p>
         </motion.div>

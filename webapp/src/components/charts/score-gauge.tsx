@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { motion, useMotionValue, useTransform, animate } from 'motion/react';
+import { conAlfa } from '@/lib/colores';
 
 interface ScoreGaugeProps {
   score: number;
@@ -16,10 +17,10 @@ function getScoreLabel(score: number): string {
 }
 
 function getScoreColor(score: number): string {
-  if (score >= 80) return '#1D9E75';
-  if (score >= 60) return '#3B9EDB';
-  if (score >= 40) return '#E8A838';
-  return '#E85D3A';
+  if (score >= 80) return 'var(--positive)';
+  if (score >= 60) return 'var(--info)';
+  if (score >= 40) return 'var(--warning)';
+  return 'var(--negative)';
 }
 
 export function ScoreGauge({ score, size = 'sm' }: ScoreGaugeProps) {
@@ -72,7 +73,7 @@ export function ScoreGauge({ score, size = 'sm' }: ScoreGaugeProps) {
           cy={cy}
           r={r}
           fill="none"
-          stroke="rgba(255,255,255,0.06)"
+          stroke="color-mix(in srgb, var(--foreground) 6%, transparent)"
           strokeWidth={strokeW}
           strokeDasharray={`${halfCirc} ${halfCirc * 2}`}
           strokeDashoffset={0}
@@ -90,7 +91,7 @@ export function ScoreGauge({ score, size = 'sm' }: ScoreGaugeProps) {
           strokeDasharray={`${halfCirc} ${halfCirc * 2}`}
           style={{
             strokeDashoffset: motionOffset,
-            filter: `drop-shadow(0 0 6px ${color}44)`,
+            filter: `drop-shadow(0 0 6px ${conAlfa(color, 27)})`,
           }}
           transform={`rotate(180 ${cx} ${cy})`}
           strokeLinecap="round"
@@ -121,7 +122,7 @@ export function ScoreGauge({ score, size = 'sm' }: ScoreGaugeProps) {
             >
               {displayScore}
             </motion.span>
-            <span style={{ fontSize: fontSize * 0.4, color: 'rgba(248,247,240,0.4)', fontWeight: 600 }}>
+            <span style={{ fontSize: fontSize * 0.4, color: 'var(--muted-foreground)', fontWeight: 600 }}>
               /100
             </span>
           </div>
@@ -133,7 +134,7 @@ export function ScoreGauge({ score, size = 'sm' }: ScoreGaugeProps) {
           textAnchor="middle"
           fontSize={labelFontSize}
           fontWeight={500}
-          fill="rgba(248,247,240,0.5)"
+          fill="var(--muted-foreground)"
           letterSpacing="0.05em"
         >
           {label.toUpperCase()}

@@ -8,6 +8,7 @@ import { formatCurrency } from '@/lib/utils';
 import { capitalizeDisplay } from '@/lib/format';
 import { budgetStatus } from '@/lib/budget-status';
 import type { Presupuesto } from '@/lib/types';
+import { conAlfa, tinta } from '@/lib/colores';
 
 interface BudgetCardProps {
   categoria: string;
@@ -71,7 +72,7 @@ export function BudgetCard({
 
   return (
     <motion.div
-      className={`glass-card glass-card-glow p-5 flex flex-col gap-3 cursor-pointer ${isExceeded ? 'border-[#D85A30]/30 glow-red' : isWarning ? 'border-[#EF9F27]/20' : ''}`}
+      className={`glass-card glass-card-glow p-5 flex flex-col gap-3 cursor-pointer ${isExceeded ? 'border-negative/30 glow-red' : isWarning ? 'border-warning/20' : ''}`}
       onClick={() => onClick(categoria)}
       whileHover={{ y: -2 }}
       transition={{ duration: 0.2 }}
@@ -81,12 +82,12 @@ export function BudgetCard({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="text-lg">{emoji}</span>
-            <span className="font-semibold text-[#F0EFE8] truncate">
+            <span className="font-semibold text-foreground truncate">
               {capitalizeDisplay(categoria)}
             </span>
             {showAlert && (
               <span title={`Superaste el ${alertPct}% de tu presupuesto`}>
-                <AlertTriangle className="h-4 w-4 shrink-0" style={{ color: '#EF9F27' }} />
+                <AlertTriangle className="h-4 w-4 shrink-0" style={{ color: 'var(--warning)' }} />
               </span>
             )}
           </div>
@@ -99,7 +100,7 @@ export function BudgetCard({
               onClick={(e) => { e.stopPropagation(); onEdit(actionBudget); }}
               aria-label="Editar presupuesto"
             >
-              <Pencil className="h-3.5 w-3.5 text-[#8A877D]" />
+              <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
             </Button>
             <Button
               variant="ghost"
@@ -107,7 +108,7 @@ export function BudgetCard({
               onClick={(e) => { e.stopPropagation(); onDelete(actionBudget); }}
               aria-label="Eliminar presupuesto"
             >
-              <Trash2 className="h-3.5 w-3.5 text-[#8A877D]" />
+              <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
             </Button>
           </div>
         )}
@@ -115,7 +116,7 @@ export function BudgetCard({
 
       {/* Main progress bar */}
       <div className="w-full">
-        <div className="h-2 rounded-full bg-[rgba(255,255,255,0.06)] overflow-hidden">
+        <div className="h-2 rounded-full bg-foreground/6 overflow-hidden">
           <motion.div
             className="h-full rounded-full"
             style={{ backgroundColor: progressColor }}
@@ -131,8 +132,8 @@ export function BudgetCard({
         <div
           className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px]"
           style={{
-            backgroundColor: isExceeded ? 'rgba(216,90,48,0.08)' : 'rgba(239,159,39,0.08)',
-            color: isExceeded ? '#D85A30' : '#EF9F27',
+            backgroundColor: isExceeded ? 'color-mix(in srgb, var(--negative) 8%, transparent)' : 'color-mix(in srgb, var(--warning) 8%, transparent)',
+            color: isExceeded ? 'var(--negative)' : 'var(--warning)',
           }}
         >
           <AlertTriangle className="h-3 w-3 shrink-0" />
@@ -158,14 +159,14 @@ export function BudgetCard({
             return (
               <div key={sub.id} className="flex flex-col gap-1">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-[#C8C6BC]">
+                  <span className="text-xs text-foreground-soft">
                     {capitalizeDisplay(sub.subcategoria || '')}
                   </span>
-                  <span className="text-[10px] text-[#8A877D]">
+                  <span className="text-[10px] text-muted-foreground">
                     {formatCurrency(subSpent)} / {formatCurrency(sub.monto_limite)}
                   </span>
                 </div>
-                <div className="h-1 rounded-full bg-[rgba(255,255,255,0.06)] overflow-hidden">
+                <div className="h-1 rounded-full bg-foreground/6 overflow-hidden">
                   <motion.div
                     className="h-full rounded-full"
                     style={{ backgroundColor: subColor }}
@@ -182,14 +183,14 @@ export function BudgetCard({
 
       {/* Footer */}
       <div className="flex items-center justify-between">
-        <p className="text-sm text-[#C8C6BC]">
+        <p className="text-sm text-foreground-soft">
           {formatCurrency(totalSpent)} / {formatCurrency(totalLimit)}
         </p>
         <span
           className="text-xs font-medium rounded-full px-2 py-0.5"
           style={{
-            backgroundColor: `${progressColor}18`,
-            color: progressColor,
+            backgroundColor: conAlfa(progressColor, 9),
+            color: tinta(progressColor),
           }}
         >
           {rawPercentage.toFixed(0)}%

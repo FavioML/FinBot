@@ -10,31 +10,31 @@ const actions = [
     icon: Plus,
     href: '#',
     quickAdd: true,
-    color: '#1D9E75',
+    color: 'var(--primary)',
   },
   {
     label: 'Reportes',
     icon: FileText,
     href: '/dashboard/reportes',
-    color: '#EF9F27',
+    color: 'var(--warning)',
   },
   {
     label: 'Planes',
     icon: Flag,
     href: '/dashboard/planes',
-    color: '#1D9E75',
+    color: 'var(--primary)',
   },
   {
     label: 'Presupuestos',
     icon: PiggyBank,
     href: '/dashboard/presupuestos',
-    color: '#D85A30',
+    color: 'var(--negative)',
   },
   {
     label: 'Suscripciones',
     icon: CreditCard,
     href: '/dashboard/suscripciones',
-    color: '#8A877D',
+    color: 'var(--muted-foreground)',
   },
 ];
 
@@ -48,8 +48,8 @@ export function QuickActions() {
           <motion.div
             className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-medium whitespace-nowrap transition-all hover:translate-y-[-1px] cursor-pointer shrink-0 ${
               isPrimary
-                ? 'bg-[#1D9E75] text-white hover:bg-[#1D9E75]/90 shadow-sm shadow-[#1D9E75]/20'
-                : 'border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.02)] text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.05)] hover:border-[rgba(255,255,255,0.12)]'
+                ? 'bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm shadow-primary/20'
+                : 'border border-border bg-foreground/2 text-foreground-soft hover:bg-foreground/5 hover:border-border'
             }`}
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}

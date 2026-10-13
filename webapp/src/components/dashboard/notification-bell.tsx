@@ -19,19 +19,19 @@ import { track, EVENTS } from '@/lib/analytics';
  * lib/notify-user.js); si agregas uno nuevo y quieres que se vea distinto, agrégalo acá.
  */
 const TIPO_CONFIG: Record<string, { icon: typeof Bell; color: string; bg: string }> = {
-  deuda_vence: { icon: AlertTriangle, color: '#D85A30', bg: 'rgba(216,90,48,0.12)' },
+  deuda_vence: { icon: AlertTriangle, color: 'var(--negative)', bg: 'color-mix(in srgb, var(--negative) 12%, transparent)' },
   // El resumen semanal (backend `checkResumenDeudasSemanal`). Comparte la familia de deudas
   // pero NO el triángulo de alerta: un repaso de lo pendiente no es una alerta, y con el mismo
   // icono las dos filas del lunes se ven como el mismo aviso repetido.
-  deuda_resumen: { icon: Receipt, color: '#D85A30', bg: 'rgba(216,90,48,0.12)' },
-  milestone: { icon: Trophy, color: '#EF9F27', bg: 'rgba(239,159,39,0.12)' },
-  meta_completada: { icon: Target, color: '#1D9E75', bg: 'rgba(29,158,117,0.12)' },
-  recordatorio: { icon: Bell, color: '#C8C6BC', bg: 'rgba(255,255,255,0.06)' },
-  sistema: { icon: Zap, color: '#C8C6BC', bg: 'rgba(255,255,255,0.06)' },
-  alerta: { icon: ShieldAlert, color: '#E53E3E', bg: 'rgba(229,62,62,0.15)' },
-  alerta_fugas: { icon: TrendingDown, color: '#D85A30', bg: 'rgba(216,90,48,0.12)' },
-  pro: { icon: Star, color: '#EF9F27', bg: 'rgba(239,159,39,0.12)' },
-  espacio: { icon: Users, color: '#1D9E75', bg: 'rgba(29,158,117,0.12)' },
+  deuda_resumen: { icon: Receipt, color: 'var(--negative)', bg: 'color-mix(in srgb, var(--negative) 12%, transparent)' },
+  milestone: { icon: Trophy, color: 'var(--warning)', bg: 'color-mix(in srgb, var(--warning) 12%, transparent)' },
+  meta_completada: { icon: Target, color: 'var(--primary)', bg: 'color-mix(in srgb, var(--primary) 12%, transparent)' },
+  recordatorio: { icon: Bell, color: 'var(--foreground-soft)', bg: 'color-mix(in srgb, var(--foreground) 6%, transparent)' },
+  sistema: { icon: Zap, color: 'var(--foreground-soft)', bg: 'color-mix(in srgb, var(--foreground) 6%, transparent)' },
+  alerta: { icon: ShieldAlert, color: 'var(--negative)', bg: 'color-mix(in srgb, var(--negative) 15%, transparent)' },
+  alerta_fugas: { icon: TrendingDown, color: 'var(--negative)', bg: 'color-mix(in srgb, var(--negative) 12%, transparent)' },
+  pro: { icon: Star, color: 'var(--warning)', bg: 'color-mix(in srgb, var(--warning) 12%, transparent)' },
+  espacio: { icon: Users, color: 'var(--primary)', bg: 'color-mix(in srgb, var(--primary) 12%, transparent)' },
 };
 
 function timeAgo(dateStr: string): string {
@@ -127,13 +127,13 @@ export function NotificationBell() {
       {/* Bell button */}
       <button
         onClick={handleToggle}
-        className="relative rounded-lg p-2 text-[#8A877D] hover:text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.04)] transition-all"
+        className="relative rounded-lg p-2 text-muted-foreground hover:text-foreground-soft hover:bg-foreground/4 transition-all"
         aria-label="Notificaciones"
       >
         <Bell className="h-5 w-5" />
         {unreadCount > 0 && (
           <motion.span
-            className="absolute -top-0.5 -right-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-[#D85A30] px-1 text-[9px] font-bold text-white"
+            className="absolute -top-0.5 -right-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-negative px-1 text-[9px] font-bold text-negative-foreground"
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
             transition={{ type: 'spring', stiffness: 500, damping: 25 }}
@@ -147,20 +147,20 @@ export function NotificationBell() {
       <AnimatePresence>
         {open && (
           <motion.div
-            className="absolute right-0 top-full mt-2 w-80 max-h-[400px] overflow-y-auto rounded-xl border border-[rgba(255,255,255,0.06)] bg-[#1A1A17] shadow-2xl shadow-black/40 z-50"
+            className="absolute right-0 top-full mt-2 w-80 max-h-[400px] overflow-y-auto rounded-xl border border-border bg-surface-elevated shadow-2xl shadow-scrim/60 z-50"
             initial={{ opacity: 0, y: -8, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -8, scale: 0.95 }}
             transition={{ duration: 0.15 }}
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-[rgba(255,255,255,0.06)]">
-              <span className="text-sm font-medium text-[#C8C6BC]">Notificaciones</span>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+              <span className="text-sm font-medium text-foreground-soft">Notificaciones</span>
               <div className="flex items-center gap-2">
                 {unreadCount > 0 && (
                   <button
                     onClick={handleMarkAllRead}
-                    className="text-[10px] text-[#1D9E75] hover:text-[#1D9E75]/80 transition-colors flex items-center gap-1"
+                    className="text-[10px] text-primary hover:text-primary/80 transition-colors flex items-center gap-1"
                   >
                     <Check className="h-3 w-3" />
                     Marcar todas
@@ -168,7 +168,7 @@ export function NotificationBell() {
                 )}
                 <button
                   onClick={() => setOpen(false)}
-                  className="text-[#8A877D] hover:text-[#C8C6BC] transition-colors"
+                  className="text-muted-foreground hover:text-foreground-soft transition-colors"
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -178,15 +178,15 @@ export function NotificationBell() {
             {/* Notifications list */}
             {isLoading ? (
               <div className="px-4 py-8 text-center">
-                <span className="text-xs text-[#8A877D]">Cargando...</span>
+                <span className="text-xs text-muted-foreground">Cargando...</span>
               </div>
             ) : notifications.length === 0 ? (
               <div className="px-4 py-8 text-center">
-                <Bell className="h-8 w-8 text-[#8A877D] mx-auto mb-2 opacity-30" />
-                <p className="text-xs text-[#8A877D]">Sin notificaciones</p>
+                <Bell className="h-8 w-8 text-muted-foreground mx-auto mb-2 opacity-30" />
+                <p className="text-xs text-muted-foreground">Sin notificaciones</p>
               </div>
             ) : (
-              <div className="divide-y divide-[rgba(255,255,255,0.04)]">
+              <div className="divide-y divide-border">
                 {notifications.map((notif: Notificacion) => {
                   const config = TIPO_CONFIG[notif.tipo] || TIPO_CONFIG.sistema;
                   const Icon = config.icon;
@@ -208,8 +208,8 @@ export function NotificationBell() {
                           router.push(link);
                         }
                       }}
-                      className={`w-full text-left px-4 py-3 flex items-start gap-3 hover:bg-[rgba(255,255,255,0.03)] transition-colors cursor-pointer ${
-                        !notif.leida ? 'bg-[rgba(29,158,117,0.04)]' : ''
+                      className={`w-full text-left px-4 py-3 flex items-start gap-3 hover:bg-foreground/3 transition-colors cursor-pointer ${
+                        !notif.leida ? 'bg-primary/4' : ''
                       }`}
                     >
                       <div
@@ -219,18 +219,18 @@ export function NotificationBell() {
                         <Icon className="h-4 w-4" style={{ color: config.color }} />
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className={`text-xs font-medium ${!notif.leida ? 'text-[#F0EFE8]' : 'text-[#C8C6BC]'}`}>
+                        <p className={`text-xs font-medium ${!notif.leida ? 'text-foreground' : 'text-foreground-soft'}`}>
                           {notif.titulo}
                         </p>
-                        <p className="text-[10px] text-[#8A877D] mt-0.5 line-clamp-2">
+                        <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2">
                           {notif.mensaje}
                         </p>
                       </div>
-                      <span className="text-[9px] text-[#8A877D] shrink-0 mt-0.5">
+                      <span className="text-[9px] text-muted-foreground shrink-0 mt-0.5">
                         {timeAgo(notif.fecha)}
                       </span>
                       {!notif.leida && (
-                        <span className="h-2 w-2 rounded-full bg-[#1D9E75] shrink-0 mt-1.5" />
+                        <span className="h-2 w-2 rounded-full bg-primary shrink-0 mt-1.5" />
                       )}
                     </button>
                   );

@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Mail, MessageCircle, BarChart3, ChevronRight, ChevronLeft } from 'lucide-react';
+import { conAlfa } from '@/lib/colores';
 
 const STORAGE_KEY = 'neto_welcome_seen';
 
@@ -21,7 +22,7 @@ const slides = [
   },
   {
     icon: BarChart3,
-    iconColor: '#1D9E75',
+    iconColor: 'var(--primary)',
     title: 'Visualiza tus finanzas',
     description: 'Dashboard con gráficos, score financiero, presupuestos y reportes. Todo en un solo lugar para tomar mejores decisiones.',
   },
@@ -73,7 +74,7 @@ export function WelcomeModal() {
         exit={{ opacity: 0 }}
       >
         {/* Backdrop */}
-        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={handleClose} />
+        <div className="absolute inset-0 bg-scrim backdrop-blur-sm" onClick={handleClose} />
 
         {/* Modal */}
         <motion.div
@@ -86,7 +87,7 @@ export function WelcomeModal() {
           {/* Close button */}
           <button
             onClick={handleClose}
-            className="absolute top-3 right-3 rounded-lg p-1 text-[#8A877D] transition-colors hover:bg-[rgba(255,255,255,0.06)] hover:text-[#C8C6BC]"
+            className="absolute top-3 right-3 rounded-lg p-1 text-muted-foreground transition-colors hover:bg-foreground/6 hover:text-foreground-soft"
           >
             <X className="h-4 w-4" />
           </button>
@@ -104,14 +105,14 @@ export function WelcomeModal() {
               {/* Icon */}
               <div
                 className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl"
-                style={{ backgroundColor: `${slide.iconColor}15` }}
+                style={{ backgroundColor: conAlfa(slide.iconColor, 8) }}
               >
                 <slide.icon className="h-8 w-8" style={{ color: slide.iconColor }} />
               </div>
 
               {/* Text */}
-              <h3 className="mb-2 text-lg font-semibold text-[#F0EFE8]">{slide.title}</h3>
-              <p className="text-sm leading-relaxed text-[#8A877D]">{slide.description}</p>
+              <h3 className="mb-2 text-lg font-semibold text-foreground">{slide.title}</h3>
+              <p className="text-sm leading-relaxed text-muted-foreground">{slide.description}</p>
             </motion.div>
           </AnimatePresence>
 
@@ -121,7 +122,7 @@ export function WelcomeModal() {
               <button
                 key={i}
                 onClick={() => setStep(i)}
-                className={`h-1.5 rounded-full transition-all ${i === step ? 'w-6 bg-[#1D9E75]' : 'w-1.5 bg-[#8A877D]/30'}`}
+                className={`h-1.5 rounded-full transition-all ${i === step ? 'w-6 bg-primary' : 'w-1.5 bg-muted-foreground/30'}`}
               />
             ))}
           </div>
@@ -131,7 +132,7 @@ export function WelcomeModal() {
             {step > 0 ? (
               <button
                 onClick={() => setStep(step - 1)}
-                className="flex items-center gap-1 text-xs text-[#8A877D] transition-colors hover:text-[#C8C6BC]"
+                className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground-soft"
               >
                 <ChevronLeft className="h-3.5 w-3.5" />
                 Anterior
@@ -139,7 +140,7 @@ export function WelcomeModal() {
             ) : (
               <button
                 onClick={handleClose}
-                className="text-xs text-[#8A877D] transition-colors hover:text-[#C8C6BC]"
+                className="text-xs text-muted-foreground transition-colors hover:text-foreground-soft"
               >
                 Saltar
               </button>
@@ -147,7 +148,7 @@ export function WelcomeModal() {
 
             <button
               onClick={handleNext}
-              className="flex items-center gap-1 rounded-lg bg-[#1D9E75] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#1D9E75]/90"
+              className="flex items-center gap-1 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
             >
               {isLast ? 'Empezar' : 'Siguiente'}
               {!isLast && <ChevronRight className="h-3.5 w-3.5" />}

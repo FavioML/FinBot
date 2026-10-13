@@ -46,26 +46,26 @@ export function ReferralDiscountBanner() {
     <div
       className={`mb-4 flex items-center gap-3 rounded-2xl border px-4 py-3 ${
         urgente
-          ? 'border-[#EF9F27]/40 bg-[#EF9F27]/10'
-          : 'border-[#EF9F27]/25 bg-[#EF9F27]/[0.06]'
+          ? 'border-accent-pro/40 bg-accent-pro/10'
+          : 'border-accent-pro/25 bg-accent-pro/[0.06]'
       }`}
     >
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#EF9F27]/15 text-[#EF9F27]">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-pro/15 text-accent-pro-ink">
         <Gift className="h-5 w-5" />
       </span>
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-[#F0EFE8]">
+        <p className="text-sm font-medium text-foreground">
           Tu 50% de bienvenida sigue activo — estrena Pro por{' '}
-          <span className="font-semibold text-[#EF9F27]">S/{precio}</span>{' '}
-          <span className="text-[#8A877D] line-through">S/{PRO_PRICE_MONTHLY_PEN}</span>
+          <span className="font-semibold text-accent-pro">S/{precio}</span>{' '}
+          <span className="text-muted-foreground line-through">S/{PRO_PRICE_MONTHLY_PEN}</span>
         </p>
-        <p className={`text-xs ${urgente ? 'font-medium text-[#EF9F27]' : 'text-[#8A877D]'}`}>
+        <p className={`text-xs ${urgente ? 'font-medium text-accent-pro' : 'text-muted-foreground'}`}>
           {cuando}. Aplica a tu primer mes (plan mensual).
         </p>
       </div>
       <Link
         href="/dashboard/pro"
-        className="shrink-0 rounded-lg bg-[#EF9F27] px-3 py-2 text-xs font-semibold text-[#1A1A18] transition-colors hover:bg-[#EF9F27]/90"
+        className="shrink-0 rounded-lg bg-accent-pro px-3 py-2 text-xs font-semibold text-accent-pro-foreground transition-colors hover:bg-accent-pro/90"
       >
         Activar Pro
       </Link>

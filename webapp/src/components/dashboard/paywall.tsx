@@ -84,11 +84,11 @@ export function Paywall() {
     // mentir. Si se renombra, el barrido sale rojo nombrando la ruta; eso es lo correcto.
     <div data-testid="paywall" className="mx-auto max-w-lg py-6">
       <div className="glass-card rounded-2xl p-6">
-        <span className="mb-5 flex h-11 w-11 items-center justify-center rounded-full bg-[#1D9E75]/15 text-[#1D9E75]">
+        <span className="mb-5 flex h-11 w-11 items-center justify-center rounded-full bg-primary/15 text-primary-ink">
           <Lock className="h-5 w-5" />
         </span>
 
-        <h1 className="mb-2 text-2xl font-bold leading-tight text-[#F0EFE8]">
+        <h1 className="mb-2 text-2xl font-bold leading-tight text-foreground">
           {nuncaTuvoTrial ? (
             <>
               {primerNombre ? `${primerNombre}, tienes ` : 'Tienes '}
@@ -103,7 +103,7 @@ export function Paywall() {
             </>
           )}
         </h1>
-        <p className="mb-6 text-[#8A877D]">
+        <p className="mb-6 text-muted-foreground">
           {/* Sin mencionar la tarjeta: en el mismo mensaje que pide registrar un gasto,
               nombrar una tarjeta que nunca existió puede leerse como que anotar dispara un
               cobro. Se dice la condición real y nada más. */}
@@ -119,21 +119,21 @@ export function Paywall() {
             ver en qué se fue" sobre cero es una frase sin sentido, así que el bloque
             desaparece hasta que haya un gasto del mes. */}
         {!!datos && datos.totalMes > 0 && (
-          <div className="mb-6 rounded-xl border border-[rgba(240,239,232,0.08)] bg-[#1C1C19] p-4">
-            <p className="text-xs uppercase tracking-wide text-[#8A877D]">Van este mes</p>
-            <p className="mt-1 text-3xl font-bold text-[#F0EFE8]">
+          <div className="mb-6 rounded-xl border border-border bg-surface-elevated p-4">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">Van este mes</p>
+            <p className="mt-1 text-3xl font-bold text-foreground">
               S/{datos.totalMes.toFixed(2)}
             </p>
-            <p className="mt-1 text-sm text-[#8A877D]">
+            <p className="mt-1 text-sm text-muted-foreground">
               Activa Pro para ver en qué se fue.
             </p>
           </div>
         )}
 
-        <p className="mb-3 text-sm text-[#8A877D]">
+        <p className="mb-3 text-sm text-muted-foreground">
           {nuncaTuvoTrial ? 'Con Pro tienes:' : 'Con Pro recuperas:'}
         </p>
-        <ul className="mb-6 space-y-1.5 text-sm text-[#F0EFE8]">
+        <ul className="mb-6 space-y-1.5 text-sm text-foreground">
           <li>Gráficos y desglose por categoría</li>
           <li>Historial completo, sin límite de meses</li>
           <li>Presupuestos, metas y reportes</li>
@@ -141,10 +141,10 @@ export function Paywall() {
               obligatorio de Gmail (opcional, complemento de lo que la persona anota). */}
           <li>
             Lectura de tus correos bancarios{' '}
-            <span className="ml-1 rounded-full border border-[#EF9F27]/40 bg-[#EF9F27]/10 px-1.5 py-0.5 align-middle text-[10px] font-semibold uppercase tracking-wide text-[#EF9F27]">
+            <span className="ml-1 rounded-full border border-accent-pro/40 bg-accent-pro/10 px-1.5 py-0.5 align-middle text-[10px] font-semibold uppercase tracking-wide text-accent-pro-ink">
               beta
             </span>
-            <span className="mt-0.5 block text-xs text-[#8A877D]">
+            <span className="mt-0.5 block text-xs text-muted-foreground">
               Opcional y la conectas tú: suma los gastos que tu banco te avisa por correo, lo demás lo sigues anotando tú.
             </span>
           </li>
@@ -152,7 +152,7 @@ export function Paywall() {
 
         <Link
           href="/dashboard/pro"
-          className="mb-3 block rounded-lg bg-[#1D9E75] px-4 py-3 text-center text-sm font-semibold text-[#0E0E0C] transition-colors hover:bg-[#1D9E75]/90"
+          className="mb-3 block rounded-lg bg-primary px-4 py-3 text-center text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
         >
           {nuncaTuvoTrial
             ? `Activar Pro ahora — S/${PRO_PRICE_MONTHLY_PEN}/mes o S/${PRO_PRICE_YEARLY_PEN}/año`
@@ -161,7 +161,7 @@ export function Paywall() {
 
         {/* Mismo motivo que arriba: a quien no conectó WhatsApp, "sigue anotando por
             WhatsApp como siempre" le habla de una costumbre que no tiene. */}
-        <p className="flex items-center justify-center gap-1.5 text-xs text-[#8A877D]">
+        <p className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
           <MessageCircle className="h-3.5 w-3.5" />
           {soloWeb
             ? 'Mientras tanto, sigues anotando gastos gratis desde acá.'

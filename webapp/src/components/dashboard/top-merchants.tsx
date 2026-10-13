@@ -78,8 +78,8 @@ export function TopMerchants({ transactions, onMerchantClick }: TopMerchantsProp
       transition={{ duration: 0.5, delay: 0.1 }}
     >
       <div className="flex items-center gap-2 mb-4">
-        <Store className="h-4 w-4 text-[#8A877D]" />
-        <h3 className="text-sm font-medium md:text-base md:font-semibold text-[#C8C6BC]">Top comercios</h3>
+        <Store className="h-4 w-4 text-muted-foreground" />
+        <h3 className="text-sm font-medium md:text-base md:font-semibold text-foreground-soft">Top comercios</h3>
       </div>
 
       <div className="space-y-3">
@@ -92,22 +92,22 @@ export function TopMerchants({ transactions, onMerchantClick }: TopMerchantsProp
           return (
             <div
               key={key}
-              className={`space-y-1 ${onMerchantClick ? 'cursor-pointer rounded-lg px-2 py-1.5 -mx-2 hover:bg-[rgba(255,255,255,0.04)] transition-colors' : ''}`}
+              className={`space-y-1 ${onMerchantClick ? 'cursor-pointer rounded-lg px-2 py-1.5 -mx-2 hover:bg-foreground/4 transition-colors' : ''}`}
               onClick={onMerchantClick ? () => onMerchantClick(name) : undefined}
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 min-w-0 flex-1">
                   <span className="text-xs shrink-0">{getCategoriaEmoji(data.categoria)}</span>
-                  <span className="text-sm text-[#F0EFE8] truncate">{name}</span>
-                  <span className="text-[10px] text-[#8A877D] shrink-0">{data.count}x</span>
+                  <span className="text-sm text-foreground truncate">{name}</span>
+                  <span className="text-[10px] text-muted-foreground shrink-0">{data.count}x</span>
                 </div>
-                <span className="text-sm font-medium text-[#D85A30] tabular-nums shrink-0 ml-2">
+                <span className="text-sm font-medium text-negative tabular-nums shrink-0 ml-2">
                   {formatCurrency(data.total)}
                 </span>
               </div>
-              <div className="h-1 rounded-full bg-[rgba(255,255,255,0.06)] overflow-hidden">
+              <div className="h-1 rounded-full bg-foreground/6 overflow-hidden">
                 <motion.div
-                  className="h-full rounded-full bg-[#D85A30]"
+                  className="h-full rounded-full bg-negative"
                   initial={{ width: 0 }}
                   animate={{ width: `${barPct}%` }}
                   transition={{ duration: 0.6, delay: i * 0.08, ease: [0.25, 0.46, 0.45, 0.94] }}

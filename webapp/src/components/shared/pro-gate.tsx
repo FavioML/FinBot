@@ -24,16 +24,16 @@ export function ProGate({ featureName, description }: ProGateProps) {
       transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
     >
       <div className="text-center max-w-sm space-y-6">
-        <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-[#1D9E75]/10 border border-[#1D9E75]/30">
-          <Lock className="w-8 h-8 text-[#1D9E75]" />
+        <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 border border-primary/30">
+          <Lock className="w-8 h-8 text-primary" />
         </div>
 
         <div className="space-y-2">
-          <h3 className="text-xl font-bold text-[#F0EFE8]">
+          <h3 className="text-xl font-bold text-foreground">
             {featureName} es Pro
           </h3>
           {description && (
-            <p className="text-sm text-[#8A877D]">
+            <p className="text-sm text-muted-foreground">
               {description}
             </p>
           )}
@@ -42,7 +42,7 @@ export function ProGate({ featureName, description }: ProGateProps) {
         <div className="space-y-3">
           <Link
             href="/dashboard/pro"
-            className="block w-full px-4 py-3 bg-[#1D9E75] hover:bg-[#1a8a6a] active:scale-[0.98] text-[#F0EFE8] font-semibold rounded-lg transition-all duration-200"
+            className="block w-full px-4 py-3 bg-primary hover:bg-primary/90 active:scale-[0.98] text-foreground font-semibold rounded-lg transition-all duration-200"
           >
             Pasar a Pro
           </Link>
@@ -50,11 +50,11 @@ export function ProGate({ featureName, description }: ProGateProps) {
             href="https://wa.me/51933014505?text=Hola%20Neto%2C%20quiero%20activar%20Pro%20%E2%AD%90"
             target="_blank"
             rel="noopener noreferrer"
-            className="block text-xs text-[#8A877D] hover:text-[#C8C6BC] transition-colors"
+            className="block text-xs text-muted-foreground hover:text-foreground-soft transition-colors"
           >
             o hazlo por WhatsApp
           </a>
-          <p className="text-xs text-[#8A877D]">
+          <p className="text-xs text-muted-foreground">
             S/{PRO_PRICE_MONTHLY_PEN}/mes • Cancelar en cualquier momento
           </p>
         </div>
@@ -78,10 +78,10 @@ export function ProBadge({ size = 'md' }: ProBadgeProps) {
       href="https://wa.me/51933014505?text=Hola%20Neto%2C%20quiero%20activar%20Pro%20%E2%AD%90"
       target="_blank"
       rel="noopener noreferrer"
-      className={`inline-flex items-center gap-1 rounded-full bg-[#1D9E75]/15 border border-[#1D9E75]/40 hover:bg-[#1D9E75]/25 transition-colors duration-200 ${sizeClasses[size]}`}
+      className={`inline-flex items-center gap-1 rounded-full bg-primary/15 border border-primary/40 hover:bg-primary/25 transition-colors duration-200 ${sizeClasses[size]}`}
     >
-      <Crown className={size === 'sm' ? 'w-3 h-3' : 'w-4 h-4'} style={{ color: '#68dbae' }} />
-      <span style={{ color: '#68dbae' }} className="font-semibold">
+      <Crown className={size === 'sm' ? 'w-3 h-3' : 'w-4 h-4'} style={{ color: 'var(--primary)' }} />
+      <span style={{ color: 'var(--primary)' }} className="font-semibold">
         Pro
       </span>
     </a>

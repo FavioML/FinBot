@@ -107,10 +107,10 @@ export function FinancialCalendar({ transactions, currentMonth, currentYear, deb
   function getCellColor(amount: number): string {
     if (amount === 0) return 'transparent';
     const intensity = maxSpend > 0 ? amount / maxSpend : 0;
-    if (intensity < 0.25) return 'rgba(29,158,117,0.15)';
-    if (intensity < 0.5) return 'rgba(29,158,117,0.3)';
-    if (intensity < 0.75) return 'rgba(239,159,39,0.3)';
-    return 'rgba(216,90,48,0.35)';
+    if (intensity < 0.25) return 'color-mix(in srgb, var(--primary) 15%, transparent)';
+    if (intensity < 0.5) return 'color-mix(in srgb, var(--primary) 30%, transparent)';
+    if (intensity < 0.75) return 'color-mix(in srgb, var(--warning) 30%, transparent)';
+    return 'color-mix(in srgb, var(--negative) 35%, transparent)';
   }
 
   const MESES_NOMBRE = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
@@ -140,15 +140,15 @@ export function FinancialCalendar({ transactions, currentMonth, currentYear, deb
     >
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-medium md:text-base md:font-semibold text-[#C8C6BC]">Calendario financiero</h3>
+        <h3 className="text-sm font-medium md:text-base md:font-semibold text-foreground-soft">Calendario financiero</h3>
         <div className="flex items-center gap-2">
-          <button onClick={prevMonth} className="p-1 rounded text-[#8A877D] hover:text-[#F0EFE8] transition-colors">
+          <button onClick={prevMonth} className="p-1 rounded text-muted-foreground hover:text-foreground transition-colors">
             <ChevronLeft className="h-4 w-4" />
           </button>
-          <span className="text-xs font-medium text-[#C8C6BC] w-28 text-center">
+          <span className="text-xs font-medium text-foreground-soft w-28 text-center">
             {MESES_NOMBRE[viewMonth]} {viewYear}
           </span>
-          <button onClick={nextMonth} className="p-1 rounded text-[#8A877D] hover:text-[#F0EFE8] transition-colors">
+          <button onClick={nextMonth} className="p-1 rounded text-muted-foreground hover:text-foreground transition-colors">
             <ChevronRight className="h-4 w-4" />
           </button>
         </div>
@@ -157,7 +157,7 @@ export function FinancialCalendar({ transactions, currentMonth, currentYear, deb
       {/* Day headers */}
       <div className="grid grid-cols-7 gap-1 mb-1">
         {DIAS_SEMANA.map((d) => (
-          <div key={d} className="text-center text-[9px] text-[#8A877D] font-medium py-1">{d}</div>
+          <div key={d} className="text-center text-[9px] text-muted-foreground font-medium py-1">{d}</div>
         ))}
       </div>
 
@@ -184,31 +184,31 @@ export function FinancialCalendar({ transactions, currentMonth, currentYear, deb
                   disabled={!isClickable}
                   className={`relative rounded-lg p-1 min-h-[40px] flex flex-col items-center justify-center transition-all duration-150 text-center ${
                     isSelected
-                      ? 'ring-1 ring-[#1D9E75] bg-[rgba(29,158,117,0.1)]'
+                      ? 'ring-1 ring-primary bg-primary/10'
                       : !isClickable
                       ? 'opacity-30 cursor-default'
-                      : 'hover:bg-[rgba(255,255,255,0.04)] cursor-pointer'
+                      : 'hover:bg-foreground/4 cursor-pointer'
                   }`}
                   style={{ backgroundColor: isSelected ? undefined : getCellColor(amount) }}
                 >
                   <span className={`text-[11px] font-medium ${
-                    isToday(day) ? 'text-[#1D9E75]' : 'text-[#C8C6BC]'
+                    isToday(day) ? 'text-primary' : 'text-foreground-soft'
                   }`}>
                     {day}
                   </span>
                   {amount > 0 && (
-                    <span className="text-[8px] text-[#8A877D] tabular-nums mt-0.5 leading-none">
+                    <span className="text-[8px] text-muted-foreground tabular-nums mt-0.5 leading-none">
                       {amount >= 1000 ? `${(amount / 1000).toFixed(1)}k` : Math.round(amount)}
                     </span>
                   )}
                   {isToday(day) && (
-                    <span className="absolute top-0.5 right-0.5 h-1.5 w-1.5 rounded-full bg-[#1D9E75]" />
+                    <span className="absolute top-0.5 right-0.5 h-1.5 w-1.5 rounded-full bg-primary" />
                   )}
                   {dayDebts.length > 0 && (
-                    <span className="absolute bottom-0.5 left-1 h-1.5 w-1.5 rounded-full bg-[#D85A30]" title={`${dayDebts.length} deuda(s)`} />
+                    <span className="absolute bottom-0.5 left-1 h-1.5 w-1.5 rounded-full bg-negative" title={`${dayDebts.length} deuda(s)`} />
                   )}
                   {dayGoals.length > 0 && (
-                    <span className="absolute bottom-0.5 right-1 h-1.5 w-1.5 rounded-full bg-[#1D9E75]" title={`${dayGoals.length} meta(s)`} />
+                    <span className="absolute bottom-0.5 right-1 h-1.5 w-1.5 rounded-full bg-primary" title={`${dayGoals.length} meta(s)`} />
                   )}
                 </button>
               );
@@ -218,14 +218,14 @@ export function FinancialCalendar({ transactions, currentMonth, currentYear, deb
       </div>
 
       {/* Legend */}
-      <div className="flex items-center gap-4 mt-3 pt-2 border-t border-[rgba(255,255,255,0.04)]">
+      <div className="flex items-center gap-4 mt-3 pt-2 border-t border-border">
         <div className="flex items-center gap-1.5">
-          <span className="h-2 w-2 rounded-full bg-[#D85A30]" />
-          <span className="text-[9px] text-[#8A877D]">Vencimiento deuda</span>
+          <span className="h-2 w-2 rounded-full bg-negative" />
+          <span className="text-[9px] text-muted-foreground">Vencimiento deuda</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="h-2 w-2 rounded-full bg-[#1D9E75]" />
-          <span className="text-[9px] text-[#8A877D]">Deadline meta</span>
+          <span className="h-2 w-2 rounded-full bg-primary" />
+          <span className="text-[9px] text-muted-foreground">Deadline meta</span>
         </div>
       </div>
 
@@ -233,17 +233,17 @@ export function FinancialCalendar({ transactions, currentMonth, currentYear, deb
       <AnimatePresence>
         {selectedDay && (selectedTxs.length > 0 || (debtDueMap.get(selectedDay) || []).length > 0 || (goalDeadlineMap.get(selectedDay) || []).length > 0) && (
           <motion.div
-            className="mt-4 pt-3 border-t border-[rgba(255,255,255,0.06)] space-y-1.5"
+            className="mt-4 pt-3 border-t border-border space-y-1.5"
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
           >
-            <p className="text-xs text-[#8A877D] mb-2">
+            <p className="text-xs text-muted-foreground mb-2">
               {new Date(selectedDay + 'T12:00:00').toLocaleDateString('es-PE', { weekday: 'long', day: 'numeric', month: 'long' })}
               {dayMap.get(selectedDay)?.total ? (
                 <>
                   {' — '}
-                  <span className="text-[#D85A30] font-medium">
+                  <span className="text-negative font-medium">
                     {formatCurrency(dayMap.get(selectedDay)?.total || 0)} en gastos
                   </span>
                 </>
@@ -252,14 +252,14 @@ export function FinancialCalendar({ transactions, currentMonth, currentYear, deb
 
             {/* Debt due dates */}
             {(debtDueMap.get(selectedDay) || []).map((debt) => (
-              <div key={debt.id} className="flex items-center justify-between py-1.5 px-2 rounded-lg bg-[rgba(216,90,48,0.08)]">
+              <div key={debt.id} className="flex items-center justify-between py-1.5 px-2 rounded-lg bg-negative/8">
                 <div className="flex items-center gap-2 min-w-0 flex-1">
                   <span className="text-xs shrink-0">📅</span>
-                  <span className="text-xs text-[#C8C6BC] truncate">
+                  <span className="text-xs text-foreground-soft truncate">
                     Vence deuda: {debt.contraparte || 'Sin nombre'}
                   </span>
                 </div>
-                <span className="text-xs font-medium tabular-nums shrink-0 ml-2 text-[#D85A30]">
+                <span className="text-xs font-medium tabular-nums shrink-0 ml-2 text-negative">
                   {formatCurrency(debt.monto_pendiente)}
                 </span>
               </div>
@@ -269,14 +269,14 @@ export function FinancialCalendar({ transactions, currentMonth, currentYear, deb
             {(goalDeadlineMap.get(selectedDay) || []).map((goal) => {
               const pct = goal.monto_objetivo > 0 ? Math.round((goal.monto_actual / goal.monto_objetivo) * 100) : 0;
               return (
-                <div key={goal.id} className="flex items-center justify-between py-1.5 px-2 rounded-lg bg-[rgba(29,158,117,0.08)]">
+                <div key={goal.id} className="flex items-center justify-between py-1.5 px-2 rounded-lg bg-primary/8">
                   <div className="flex items-center gap-2 min-w-0 flex-1">
                     <span className="text-xs shrink-0">{goal.icono || '🎯'}</span>
-                    <span className="text-xs text-[#C8C6BC] truncate">
+                    <span className="text-xs text-foreground-soft truncate">
                       {goal.nombre} ({pct}%)
                     </span>
                   </div>
-                  <span className="text-xs font-medium tabular-nums shrink-0 ml-2 text-[#1D9E75]">
+                  <span className="text-xs font-medium tabular-nums shrink-0 ml-2 text-primary">
                     {formatCurrency(goal.monto_actual)} / {formatCurrency(goal.monto_objetivo)}
                   </span>
                 </div>
@@ -291,13 +291,13 @@ export function FinancialCalendar({ transactions, currentMonth, currentYear, deb
                   <div key={tx.id} className="flex items-center justify-between py-1.5">
                     <div className="flex items-center gap-2 min-w-0 flex-1">
                       <span className="text-xs shrink-0">{getCategoriaEmoji(tx.categoria)}</span>
-                      <span className="text-xs text-[#C8C6BC] truncate">{tx.comercio || tx.subcategoria || tx.categoria}</span>
+                      <span className="text-xs text-foreground-soft truncate">{tx.comercio || tx.subcategoria || tx.categoria}</span>
                     </div>
                     <TxMonto
                       tx={tx}
                       signo={tx.tipo === 'ingreso' ? '+' : '-'}
                       className="text-xs font-medium shrink-0 ml-2"
-                      style={{ color: tx.tipo === 'ingreso' ? '#1D9E75' : '#D85A30' }}
+                      style={{ color: tx.tipo === 'ingreso' ? 'var(--positive)' : 'var(--negative)' }}
                     />
                   </div>
                 ))}

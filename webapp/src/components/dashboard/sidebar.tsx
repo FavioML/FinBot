@@ -65,7 +65,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
   ];
 
   const sidebarContent = (
-    <div className="flex h-full flex-col bg-[#141412] border-r border-[rgba(255,255,255,0.06)]">
+    <div className="flex h-full flex-col bg-card border-r border-border">
       {/* Logo */}
       <div className="flex h-16 items-center justify-center px-4">
         <Link href="/dashboard" className="flex items-center justify-center">
@@ -82,7 +82,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         {/* Close button - mobile only */}
         <button
           onClick={onClose}
-          className="ml-auto md:hidden rounded-md p-1 text-[#8A877D] hover:text-[#C8C6BC] transition-colors"
+          className="ml-auto md:hidden rounded-md p-1 text-muted-foreground hover:text-foreground-soft transition-colors"
         >
           <X className="h-5 w-5" />
         </button>
@@ -107,13 +107,13 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                 className={cn(
                   'relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200',
                   isActive
-                    ? 'bg-[rgba(29,158,117,0.12)] text-[#1D9E75] glow-green shadow-[inset_2px_0_0_rgba(29,158,117,0.6)]'
-                    : 'text-[#8A877D] hover:text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.03)]'
+                    ? 'bg-primary/12 text-primary-ink glow-green shadow-[inset_2px_0_0_var(--primary)]'
+                    : 'text-muted-foreground hover:text-foreground-soft hover:bg-foreground/3'
                 )}
               >
                 {isActive && (
                   <motion.div
-                    className="absolute left-0 top-1/2 -translate-y-1/2 h-6 w-[3px] rounded-r-full bg-[#1D9E75]"
+                    className="absolute left-0 top-1/2 -translate-y-1/2 h-6 w-[3px] rounded-r-full bg-primary"
                     layoutId="sidebar-active"
                     transition={{ type: 'spring', stiffness: 350, damping: 30 }}
                   />
@@ -129,7 +129,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         <div className="flex-1" />
 
         {/* Secondary nav */}
-        <div className="border-t border-[rgba(255,255,255,0.06)] pt-3 space-y-1">
+        <div className="border-t border-border pt-3 space-y-1">
           {secondaryNavItems.map((item) => {
             const isActive = pathname.startsWith(item.href);
             return (
@@ -141,15 +141,15 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                 className={cn(
                   'relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200',
                   isActive
-                    ? 'bg-[rgba(29,158,117,0.12)] text-[#1D9E75] glow-green shadow-[inset_2px_0_0_rgba(29,158,117,0.6)]'
+                    ? 'bg-primary/12 text-primary-ink glow-green shadow-[inset_2px_0_0_var(--primary)]'
                     : item.label === 'Admin'
-                      ? 'text-[#EF9F27] hover:text-[#EF9F27] hover:bg-[rgba(239,159,39,0.06)]'
-                      : 'text-[#8A877D] hover:text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.03)]'
+                      ? 'text-warning-ink hover:text-warning hover:bg-warning/6'
+                      : 'text-muted-foreground hover:text-foreground-soft hover:bg-foreground/3'
                 )}
               >
                 {isActive && (
                   <motion.div
-                    className="absolute left-0 top-1/2 -translate-y-1/2 h-6 w-[3px] rounded-r-full bg-[#1D9E75]"
+                    className="absolute left-0 top-1/2 -translate-y-1/2 h-6 w-[3px] rounded-r-full bg-primary"
                     layoutId="sidebar-active"
                     transition={{ type: 'spring', stiffness: 350, damping: 30 }}
                   />
@@ -163,13 +163,13 @@ export function Sidebar({ open, onClose }: SidebarProps) {
       </nav>
 
       {/* Bottom section - Social links + WhatsApp */}
-      <div className="border-t border-[rgba(255,255,255,0.06)] px-3 py-4 space-y-3">
+      <div className="border-t border-border px-3 py-4 space-y-3">
         <div className="flex items-center justify-center gap-4">
           <a
             href={SOCIAL_LINKS.facebook}
             target="_blank"
             rel="noopener noreferrer"
-            className="p-2.5 rounded-lg text-[#8A877D] hover:text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.03)] transition-colors"
+            className="p-2.5 rounded-lg text-muted-foreground hover:text-foreground-soft hover:bg-foreground/3 transition-colors"
             aria-label="Facebook"
           >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5">
@@ -180,7 +180,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             href={SOCIAL_LINKS.instagram}
             target="_blank"
             rel="noopener noreferrer"
-            className="p-2.5 rounded-lg text-[#8A877D] hover:text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.03)] transition-colors"
+            className="p-2.5 rounded-lg text-muted-foreground hover:text-foreground-soft hover:bg-foreground/3 transition-colors"
             aria-label="Instagram"
           >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5">
@@ -191,7 +191,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             href={SOCIAL_LINKS.tiktok}
             target="_blank"
             rel="noopener noreferrer"
-            className="p-2.5 rounded-lg text-[#8A877D] hover:text-[#C8C6BC] hover:bg-[rgba(255,255,255,0.03)] transition-colors"
+            className="p-2.5 rounded-lg text-muted-foreground hover:text-foreground-soft hover:bg-foreground/3 transition-colors"
             aria-label="TikTok"
           >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5">
@@ -203,7 +203,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           href={SOCIAL_LINKS.whatsapp}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex items-center justify-center gap-2 rounded-lg bg-[#1D9E75] px-3 py-2 text-sm font-medium text-white hover:bg-[#1D9E75]/90 hover:shadow-lg hover:shadow-[#1D9E75]/20 transition-all active:scale-[0.98]"
+          className="flex items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/20 transition-all active:scale-[0.98]"
         >
           Chatea con NETO
         </a>
@@ -224,7 +224,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         <div className="fixed inset-0 z-50 md:hidden">
           {/* Backdrop */}
           <motion.div
-            className="fixed inset-0 bg-black/60"
+            className="fixed inset-0 bg-scrim"
             onClick={onClose}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}

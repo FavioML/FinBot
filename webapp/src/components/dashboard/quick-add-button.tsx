@@ -66,7 +66,7 @@ export function QuickAddButton() {
           <>
             {/* Backdrop */}
             <motion.div
-              className="fixed inset-0 z-40 bg-black/30 backdrop-blur-[2px]"
+              className="fixed inset-0 z-40 bg-scrim/50 backdrop-blur-[2px]"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -75,7 +75,7 @@ export function QuickAddButton() {
             {/* Options */}
             <div className="fixed bottom-36 md:bottom-[5.5rem] right-5 z-50 flex flex-col items-end gap-2">
               <motion.button
-                className="flex items-center gap-2 rounded-full bg-[#1D9E75] pl-4 pr-3 py-2.5 text-sm font-medium text-white shadow-lg"
+                className="flex items-center gap-2 rounded-full bg-primary pl-4 pr-3 py-2.5 text-sm font-medium text-primary-foreground shadow-lg"
                 initial={{ opacity: 0, y: 16, scale: 0.8 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 8, scale: 0.9 }}
@@ -88,7 +88,7 @@ export function QuickAddButton() {
                 <span className="text-base">💸</span>
               </motion.button>
               <motion.button
-                className="flex items-center gap-2 rounded-full bg-[#1A1A18] border border-[#1D9E75]/30 pl-4 pr-3 py-2.5 text-sm font-medium text-[#1D9E75] shadow-lg"
+                className="flex items-center gap-2 rounded-full bg-surface-elevated border border-primary/30 pl-4 pr-3 py-2.5 text-sm font-medium text-primary shadow-lg"
                 initial={{ opacity: 0, y: 16, scale: 0.8 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 8, scale: 0.9 }}
@@ -114,7 +114,7 @@ export function QuickAddButton() {
                 haptic('tap');
                 setShowMenu(!showMenu);
               }}
-              className="fixed bottom-20 md:bottom-6 right-5 md:right-6 z-50 flex h-14 w-14 md:h-12 md:w-12 items-center justify-center rounded-full bg-[#1D9E75] text-white shadow-lg shadow-[#1D9E75]/30 transition-colors hover:bg-[#1D9E75]/90"
+              className="fixed bottom-20 md:bottom-6 right-5 md:right-6 z-50 flex h-14 w-14 md:h-12 md:w-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30 transition-colors hover:bg-primary/90"
               aria-label="Agregar transaccion"
               initial={{ scale: 0, opacity: 0 }}
               animate={{ scale: 1, opacity: 1, rotate: showMenu ? 45 : 0 }}

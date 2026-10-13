@@ -85,7 +85,7 @@ function MonedaToggle({
   onChange: (v: string) => void;
 }) {
   return (
-    <div className="inline-flex rounded-xl bg-[#131311] border border-[rgba(240,239,232,0.08)] p-1">
+    <div className="inline-flex rounded-xl bg-card border border-border p-1">
       {['PEN', 'USD'].map((code) => (
         <button
           key={code}
@@ -93,8 +93,8 @@ function MonedaToggle({
           onClick={() => onChange(code)}
           className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors touch-exempt ${
             value === code
-              ? 'bg-[#1D9E75] text-white shadow-sm shadow-[#1D9E75]/20'
-              : 'text-[#8A877D] hover:text-[#C8C6BC]'
+              ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/20'
+              : 'text-muted-foreground hover:text-foreground-soft'
           }`}
         >
           {code}
@@ -128,8 +128,8 @@ function MetodoPagoPills({
             onClick={() => onChange(m)}
             className={`shrink-0 px-3.5 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
               active
-                ? 'bg-[#1D9E75] text-white shadow-sm shadow-[#1D9E75]/20'
-                : 'bg-[#1A1A17] text-[#C8C6BC] border border-[rgba(240,239,232,0.08)] hover:border-[rgba(240,239,232,0.14)]'
+                ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/20'
+                : 'bg-surface-elevated text-foreground-soft border border-border hover:border-foreground/14'
             }`}
           >
             {m}
@@ -336,8 +336,8 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
     ? `Editar ${isIngreso ? 'ingreso' : 'gasto'}`
     : `Nuevo ${isIngreso ? 'ingreso' : 'gasto'}`;
 
-  const inputClasses = 'form-input placeholder:text-[#8A877D]';
-  const selectTriggerClasses = 'form-input w-full text-[#C8C6BC]';
+  const inputClasses = 'form-input placeholder:text-muted-foreground';
+  const selectTriggerClasses = 'form-input w-full text-foreground-soft';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -352,10 +352,10 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
         {/* Header */}
         <div className="px-5 pt-5 pb-3 min-w-0">
           <DialogHeader>
-            <DialogTitle className="text-[#F0EFE8] text-xl font-semibold">
+            <DialogTitle className="text-foreground text-xl font-semibold">
               {title}
             </DialogTitle>
-            <DialogDescription className="text-[#8A877D] text-sm">
+            <DialogDescription className="text-muted-foreground text-sm">
               {isEdit ? 'Modifica los datos de la transaccion.' : 'Registra una nueva transaccion manualmente.'}
             </DialogDescription>
           </DialogHeader>
@@ -367,13 +367,13 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
             (browser default) to 1ch, letting flex shrink it correctly. */}
         <div className="px-5 pb-4 min-w-0">
           <div className="flex items-center justify-between mb-2 gap-3 min-w-0">
-            <label className="text-xs font-medium uppercase tracking-wider text-[#8A877D] truncate">
+            <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground truncate">
               Monto ({form.moneda})
             </label>
             <MonedaToggle value={form.moneda} onChange={(v) => handleChange('moneda', v)} />
           </div>
           <div className="flex items-baseline gap-2 min-w-0 w-full">
-            <span className="text-[28px] font-bold text-[#8A877D] leading-none shrink-0">
+            <span className="text-[28px] font-bold text-muted-foreground leading-none shrink-0">
               {form.moneda === 'USD' ? '$' : 'S/'}
             </span>
             <input
@@ -385,9 +385,9 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
               value={form.monto}
               onChange={(e) => handleChange('monto', e.target.value)}
               inputMode="decimal"
-              className="min-w-0 bg-transparent border-0 outline-none text-[40px] font-bold tracking-tight leading-none text-[#F0EFE8] placeholder:text-[#2A2A28] focus:outline-none focus-visible:outline-none focus:ring-0"
+              className="min-w-0 bg-transparent border-0 outline-none text-[40px] font-bold tracking-tight leading-none text-foreground placeholder:text-muted-foreground focus:outline-none focus-visible:outline-none focus:ring-0"
               style={{
-                color: isIngreso ? '#1D9E75' : '#F0EFE8',
+                color: isIngreso ? 'var(--positive)' : 'var(--foreground)',
                 width: '100%',
                 minWidth: 0,
                 maxWidth: '100%',
@@ -401,7 +401,7 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
         <div className="px-5 pb-4 space-y-4">
           {/* Comercio */}
           <div>
-            <label className="text-sm font-medium text-[#C8C6BC] mb-1.5 block">Comercio</label>
+            <label className="text-sm font-medium text-foreground-soft mb-1.5 block">Comercio</label>
             <Input
               placeholder="Nombre del comercio"
               value={form.comercio}
@@ -413,7 +413,7 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
           {/* Categoria + Subcategoria (grid 2-col desktop, stacked mobile) */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="text-sm font-medium text-[#C8C6BC] mb-1.5 block">Categoría</label>
+              <label className="text-sm font-medium text-foreground-soft mb-1.5 block">Categoría</label>
               <Select value={form.categoria} onValueChange={(v) => handleChange('categoria', v as string)}>
                 <SelectTrigger className={selectTriggerClasses}>
                   <SelectValue placeholder="Seleccionar">
@@ -444,7 +444,7 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
               )}
             </div>
             <div>
-              <label className="text-sm font-medium text-[#C8C6BC] mb-1.5 block">Subcategoría</label>
+              <label className="text-sm font-medium text-foreground-soft mb-1.5 block">Subcategoría</label>
               <Select
                 value={form.subcategoria}
                 onValueChange={(v) => handleChange('subcategoria', v as string)}
@@ -482,7 +482,7 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
 
           {/* Fecha */}
           <div>
-            <label className="text-sm font-medium text-[#C8C6BC] mb-1.5 block">Fecha</label>
+            <label className="text-sm font-medium text-foreground-soft mb-1.5 block">Fecha</label>
             <Input
               type="date"
               value={form.fecha}
@@ -493,7 +493,7 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
 
           {/* Metodo pago — pills horizontal */}
           <div>
-            <label className="text-sm font-medium text-[#C8C6BC] mb-1.5 block">Método de pago</label>
+            <label className="text-sm font-medium text-foreground-soft mb-1.5 block">Método de pago</label>
             <MetodoPagoPills
               value={form.metodo_pago}
               onChange={(v) => handleChange('metodo_pago', v)}
@@ -504,7 +504,7 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
           {/* Banco (only if metodo needs it) */}
           {METODOS_CON_BANCO.includes(form.metodo_pago) && (
             <div>
-              <label className="text-sm font-medium text-[#C8C6BC] mb-1.5 block">Banco</label>
+              <label className="text-sm font-medium text-foreground-soft mb-1.5 block">Banco</label>
               <Select value={form.banco} onValueChange={(v) => handleChange('banco', v as string)}>
                 <SelectTrigger className={selectTriggerClasses}>
                   <SelectValue placeholder="Seleccionar" />
@@ -520,14 +520,14 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
         </div>
 
         {/* Sticky footer */}
-        <div className="sticky bottom-0 left-0 right-0 bg-[#131311] border-t border-[rgba(240,239,232,0.06)] px-5 py-4 flex gap-3">
+        <div className="sticky bottom-0 left-0 right-0 bg-card border-t border-border px-5 py-4 flex gap-3">
           {isEdit && (
             <Button
               type="button"
               variant="outline"
               onClick={() => setConfirmDelete(true)}
               disabled={saving}
-              className="h-12 px-3 text-[#D85A30] border-[rgba(216,90,48,0.3)] hover:bg-[rgba(216,90,48,0.08)] hover:text-[#D85A30]"
+              className="h-12 px-3 text-negative-ink border-negative/30 hover:bg-negative/8 hover:text-negative"
               aria-label="Eliminar transacción"
             >
               <Trash2 className="h-4 w-4" />
@@ -535,7 +535,7 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
             </Button>
           )}
           <DialogClose render={
-            <Button variant="outline" className="flex-1 h-12 text-[#C8C6BC] border-[rgba(240,239,232,0.14)] hover:bg-[#1C1C19]" />
+            <Button variant="outline" className="flex-1 h-12 text-foreground-soft border-foreground/14 hover:bg-surface-elevated" />
           }>
             Cancelar
           </DialogClose>
@@ -545,7 +545,7 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
               handleSubmit();
             }}
             disabled={!isValid || saving}
-            className="flex-1 h-12 bg-[#1D9E75] hover:bg-[#1D9E75]/90 active:scale-[0.98] transition-transform text-white font-semibold disabled:opacity-50"
+            className="flex-1 h-12 bg-primary hover:bg-primary/90 active:scale-[0.98] transition-transform text-primary-foreground font-semibold disabled:opacity-50"
           >
             {saving ? 'Guardando...' : isEdit ? 'Guardar cambios' : 'Registrar'}
           </Button>
@@ -599,14 +599,14 @@ export function DeleteConfirmDialog({ open, onOpenChange, transaction, onSuccess
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="glass-card-elevated border-0 sm:max-w-sm p-5">
         <DialogHeader>
-          <DialogTitle className="text-[#F0EFE8]">Eliminar transaccion</DialogTitle>
-          <DialogDescription className="text-[#8A877D]">
+          <DialogTitle className="text-foreground">Eliminar transaccion</DialogTitle>
+          <DialogDescription className="text-muted-foreground">
             Esta accion no se puede deshacer. Se eliminara permanentemente esta transaccion de tu historial.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter className="gap-3 sm:gap-2">
           <DialogClose render={
-            <Button variant="outline" className="flex-1 sm:flex-initial h-12 sm:h-10 text-[#C8C6BC] border-[rgba(240,239,232,0.14)]" />
+            <Button variant="outline" className="flex-1 sm:flex-initial h-12 sm:h-10 text-foreground-soft border-foreground/14" />
           }>
             Cancelar
           </DialogClose>

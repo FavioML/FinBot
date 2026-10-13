@@ -8,7 +8,7 @@ import { useUser } from '@/lib/hooks/use-user';
 import { tieneWhatsapp } from '@/lib/whatsapp-vinculo';
 
 const CTA_CLS =
-  'inline-flex items-center gap-2 rounded-xl bg-[#1D9E75] px-5 py-2.5 text-sm font-medium text-white shadow-lg shadow-[#1D9E75]/20 transition-all hover:bg-[#1D9E75]/90 hover:shadow-[#1D9E75]/30 active:scale-[0.98]';
+  'inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground shadow-lg shadow-primary/20 transition-all hover:bg-primary/90 hover:shadow-primary/30 active:scale-[0.98]';
 
 interface EmptyStateAction {
   label: string;
@@ -42,16 +42,16 @@ export function EmptyState({ title, description, showWhatsApp = true, icon: Icon
       transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
     >
       <motion.div
-        className="relative rounded-full bg-[rgba(255,255,255,0.03)] p-6 mb-5"
+        className="relative rounded-full bg-foreground/3 p-6 mb-5"
         initial={{ scale: 0.8 }}
         animate={{ scale: 1 }}
         transition={{ duration: 0.6, delay: 0.1, ease: [0.16, 1, 0.3, 1] }}
       >
-        <div className="absolute inset-0 rounded-full bg-[#1D9E75]/5 animate-pulse" />
-        <Icon className="relative h-8 w-8 text-[#8A877D] animate-float" />
+        <div className="absolute inset-0 rounded-full bg-primary/5 animate-pulse" />
+        <Icon className="relative h-8 w-8 text-muted-foreground animate-float" />
       </motion.div>
-      <h3 className="text-lg font-semibold text-[#F0EFE8] mb-2">{title}</h3>
-      <p className="text-sm text-[#8A877D] max-w-md mb-6 leading-relaxed">{description}</p>
+      <h3 className="text-lg font-semibold text-foreground mb-2">{title}</h3>
+      <p className="text-sm text-muted-foreground max-w-md mb-6 leading-relaxed">{description}</p>
 
       {/* Custom actions */}
       {actions && actions.length > 0 && (
@@ -59,8 +59,8 @@ export function EmptyState({ title, description, showWhatsApp = true, icon: Icon
           {actions.map((action) => {
             const isPrimary = action.variant !== 'secondary';
             const cls = isPrimary
-              ? 'inline-flex items-center gap-2 rounded-xl bg-[#1D9E75] px-5 py-2.5 text-sm font-medium text-white shadow-lg shadow-[#1D9E75]/20 transition-all hover:bg-[#1D9E75]/90 hover:shadow-[#1D9E75]/30 active:scale-[0.98]'
-              : 'inline-flex items-center gap-2 rounded-xl border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] px-5 py-2.5 text-sm font-medium text-[#C8C6BC] transition-all hover:bg-[rgba(255,255,255,0.06)] active:scale-[0.98]';
+              ? 'inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground shadow-lg shadow-primary/20 transition-all hover:bg-primary/90 hover:shadow-primary/30 active:scale-[0.98]'
+              : 'inline-flex items-center gap-2 rounded-xl border border-border bg-foreground/3 px-5 py-2.5 text-sm font-medium text-foreground-soft transition-all hover:bg-foreground/6 active:scale-[0.98]';
 
             if (action.onClick) {
               return (

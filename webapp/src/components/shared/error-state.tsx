@@ -38,7 +38,7 @@ interface ErrorStateProps {
 }
 
 const BOTON =
-  'inline-flex items-center gap-2 rounded-lg bg-[#1D9E75] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#1D9E75]/90';
+  'inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90';
 
 export function ErrorState({
   titulo,
@@ -52,9 +52,9 @@ export function ErrorState({
 }: ErrorStateProps) {
   const cuerpo = (
     <div className="glass-card flex w-full flex-col items-center gap-3 p-8 text-center">
-      <Icono className="h-10 w-10 text-[#8A877D]/50" />
-      <h2 className="text-lg font-semibold text-[#F0EFE8]">{titulo}</h2>
-      <p className="max-w-xs text-sm text-[#8A877D]">{descripcion}</p>
+      <Icono className="h-10 w-10 text-muted-foreground/50" />
+      <h2 className="text-lg font-semibold text-foreground">{titulo}</h2>
+      <p className="max-w-xs text-sm text-muted-foreground">{descripcion}</p>
       <button type="button" onClick={onReintentar} className={BOTON}>
         Reintentar
       </button>

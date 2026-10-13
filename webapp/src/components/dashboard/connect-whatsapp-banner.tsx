@@ -43,23 +43,23 @@ export function ConnectWhatsappBanner() {
 
   return (
     <div className="glass-card mb-4 flex items-center gap-3 rounded-2xl px-4 py-3">
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#1D9E75]/15 text-[#1D9E75]">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary-ink">
         <MessageCircle className="h-5 w-5" />
       </span>
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-[#F0EFE8]">{titulo}</p>
-        <p className="text-xs text-[#8A877D]">{descripcion}</p>
+        <p className="text-sm font-medium text-foreground">{titulo}</p>
+        <p className="text-xs text-muted-foreground">{descripcion}</p>
       </div>
       <Link
         href="/onboarding"
-        className="shrink-0 rounded-lg bg-[#1D9E75] px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-[#1D9E75]/90"
+        className="shrink-0 rounded-lg bg-primary px-3 py-2 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
       >
         Conectar
       </Link>
       <button
         onClick={dismiss}
         aria-label="Descartar"
-        className="shrink-0 rounded-lg p-1.5 text-[#8A877D] transition-colors hover:text-[#C8C6BC]"
+        className="shrink-0 rounded-lg p-1.5 text-muted-foreground transition-colors hover:text-foreground-soft"
       >
         <X className="h-4 w-4" />
       </button>

@@ -70,13 +70,13 @@ export function ImportDialog({ open, onOpenChange, onSuccess }: ImportDialogProp
         onOpenChange(o);
       }}
     >
-      <DialogContent className="glass-card-elevated text-[#F0EFE8] max-w-md">
+      <DialogContent className="glass-card-elevated text-foreground max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <FileSpreadsheet className="h-5 w-5 text-[#1D9E75]" />
+            <FileSpreadsheet className="h-5 w-5 text-primary" />
             Importar Excel / CSV
           </DialogTitle>
-          <DialogDescription className="text-[#8A877D]">
+          <DialogDescription className="text-muted-foreground">
             Sube tu estado de cuenta bancario (CSV) o la plantilla de gastos (Excel).
             Neto detecta las columnas fecha, monto y descripción automáticamente.
           </DialogDescription>
@@ -85,33 +85,33 @@ export function ImportDialog({ open, onOpenChange, onSuccess }: ImportDialogProp
         {result ? (
           <div className="space-y-4 py-2">
             <div className="flex flex-col items-center gap-2 text-center">
-              <CheckCircle2 className="h-10 w-10 text-[#1D9E75]" />
-              <p className="text-lg font-semibold text-[#F0EFE8]">
+              <CheckCircle2 className="h-10 w-10 text-primary" />
+              <p className="text-lg font-semibold text-foreground">
                 {result.insertados} movimientos importados
               </p>
             </div>
-            <div className="space-y-2 rounded-xl bg-[rgba(255,255,255,0.03)] p-4 text-sm">
+            <div className="space-y-2 rounded-xl bg-foreground/3 p-4 text-sm">
               {result.gastos > 0 && (
                 <div className="flex justify-between">
-                  <span className="text-[#8A877D]">Gastos ({result.gastos})</span>
-                  <span className="font-medium text-[#D85A30]">{formatCurrency(result.totalGastos)}</span>
+                  <span className="text-muted-foreground">Gastos ({result.gastos})</span>
+                  <span className="font-medium text-negative">{formatCurrency(result.totalGastos)}</span>
                 </div>
               )}
               {result.ingresos > 0 && (
                 <div className="flex justify-between">
-                  <span className="text-[#8A877D]">Ingresos ({result.ingresos})</span>
-                  <span className="font-medium text-[#1D9E75]">{formatCurrency(result.totalIngresos)}</span>
+                  <span className="text-muted-foreground">Ingresos ({result.ingresos})</span>
+                  <span className="font-medium text-positive">{formatCurrency(result.totalIngresos)}</span>
                 </div>
               )}
               {result.descartadas > 0 && (
                 <div className="flex justify-between">
-                  <span className="text-[#8A877D]">Filas descartadas</span>
-                  <span className="text-[#8A877D]">{result.descartadas}</span>
+                  <span className="text-muted-foreground">Filas descartadas</span>
+                  <span className="text-muted-foreground">{result.descartadas}</span>
                 </div>
               )}
             </div>
             <Button
-              className="w-full bg-[#1D9E75] hover:bg-[#1D9E75]/90 text-white"
+              className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
               onClick={() => onOpenChange(false)}
             >
               Listo
@@ -123,18 +123,18 @@ export function ImportDialog({ open, onOpenChange, onSuccess }: ImportDialogProp
               type="button"
               disabled={uploading}
               onClick={() => inputRef.current?.click()}
-              className="flex w-full flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-[rgba(255,255,255,0.14)] bg-[rgba(255,255,255,0.02)] py-10 transition-colors hover:border-[#1D9E75]/50 hover:bg-[rgba(29,158,117,0.05)] disabled:opacity-60"
+              className="flex w-full flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-foreground/14 bg-foreground/2 py-10 transition-colors hover:border-primary/50 hover:bg-primary/5 disabled:opacity-60"
             >
               {uploading ? (
                 <>
-                  <Loader2 className="h-8 w-8 animate-spin text-[#1D9E75]" />
-                  <span className="text-sm text-[#8A877D]">Procesando tu archivo…</span>
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  <span className="text-sm text-muted-foreground">Procesando tu archivo…</span>
                 </>
               ) : (
                 <>
-                  <Upload className="h-8 w-8 text-[#8A877D]" />
-                  <span className="text-sm text-[#C8C6BC]">Toca para elegir un archivo</span>
-                  <span className="text-xs text-[#8A877D]">.xlsx o .csv · máx 5MB · 500 filas</span>
+                  <Upload className="h-8 w-8 text-muted-foreground" />
+                  <span className="text-sm text-foreground-soft">Toca para elegir un archivo</span>
+                  <span className="text-xs text-muted-foreground">.xlsx o .csv · máx 5MB · 500 filas</span>
                 </>
               )}
             </button>
@@ -152,7 +152,7 @@ export function ImportDialog({ open, onOpenChange, onSuccess }: ImportDialogProp
               href="https://neto.pe/plantilla_gastos.xlsx"
               target="_blank"
               rel="noopener noreferrer"
-              className="block text-center text-xs text-[#1D9E75] hover:underline"
+              className="block text-center text-xs text-primary hover:underline"
             >
               Descargar plantilla de gastos
             </a>

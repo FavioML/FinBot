@@ -6,8 +6,8 @@ function CustomTooltip({ active, payload, label }: { active?: boolean; payload?:
   if (!active || !payload?.length) return null;
   return (
     <div className="glass-card px-3 py-2 text-xs">
-      <p className="text-[#8A877D] mb-0.5">{label}</p>
-      <p className="text-[#1D9E75] font-semibold">{payload[0].value} pts</p>
+      <p className="text-muted-foreground mb-0.5">{label}</p>
+      <p className="text-primary font-semibold">{payload[0].value} pts</p>
     </div>
   );
 }
@@ -20,16 +20,16 @@ export function ScoreEvolutionChart({ data }: ScoreEvolutionChartProps) {
   return (
     <ResponsiveContainer width="100%" height={180}>
       <LineChart data={data}>
-        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+        <CartesianGrid strokeDasharray="3 3" stroke="color-mix(in srgb, var(--foreground) 4%, transparent)" />
         <XAxis
           dataKey="period"
-          tick={{ fill: '#8A877D', fontSize: 11 }}
+          tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
           axisLine={false}
           tickLine={false}
         />
         <YAxis
           domain={[0, 100]}
-          tick={{ fill: '#8A877D', fontSize: 11 }}
+          tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
           axisLine={false}
           tickLine={false}
           width={28}
@@ -38,10 +38,10 @@ export function ScoreEvolutionChart({ data }: ScoreEvolutionChartProps) {
         <Line
           type="monotone"
           dataKey="score"
-          stroke="#1D9E75"
+          stroke="var(--primary)"
           strokeWidth={2.5}
-          dot={{ fill: '#1D9E75', r: 4, strokeWidth: 0 }}
-          activeDot={{ r: 6, fill: '#1D9E75' }}
+          dot={{ fill: 'var(--primary)', r: 4, strokeWidth: 0 }}
+          activeDot={{ r: 6, fill: 'var(--primary)' }}
         />
       </LineChart>
     </ResponsiveContainer>

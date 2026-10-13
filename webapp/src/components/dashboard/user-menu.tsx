@@ -49,23 +49,23 @@ export function UserMenu() {
 
   return (
       <DropdownMenu>
-        <DropdownMenuTrigger className="cursor-pointer rounded-full outline-none focus-visible:ring-2 focus-visible:ring-[#1D9E75] transition-transform hover:scale-105 active:scale-95">
-          <Avatar className="h-10 w-10 ring-2 ring-transparent hover:ring-[#1D9E75]/30 transition-all">
+        <DropdownMenuTrigger className="cursor-pointer rounded-full outline-none focus-visible:ring-2 focus-visible:ring-primary transition-transform hover:scale-105 active:scale-95">
+          <Avatar className="h-10 w-10 ring-2 ring-transparent hover:ring-primary/30 transition-all">
             {avatarUrl && <AvatarImage src={avatarUrl} alt={user?.nombre || ''} />}
-            <AvatarFallback className="bg-[rgba(29,158,117,0.12)] text-[#1D9E75] text-xs font-semibold">
+            <AvatarFallback className="bg-primary/12 text-primary-ink text-xs font-semibold">
               {initials}
             </AvatarFallback>
           </Avatar>
         </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="bg-[#141412] border-[rgba(255,255,255,0.06)] min-w-[200px]">
+      <DropdownMenuContent align="end" className="bg-card border-border min-w-[200px]">
         <div className="px-2 py-2">
-          <p className="text-sm font-semibold text-[#F0EFE8]">{user?.nombre || 'Mi cuenta'}</p>
-          <p className="text-xs text-[#8A877D]">{user?.email || user?.whatsapp || ''}</p>
+          <p className="text-sm font-semibold text-foreground">{user?.nombre || 'Mi cuenta'}</p>
+          <p className="text-xs text-muted-foreground">{user?.email || user?.whatsapp || ''}</p>
         </div>
-        <DropdownMenuSeparator className="bg-[rgba(255,255,255,0.06)]" />
+        <DropdownMenuSeparator className="bg-foreground/6" />
         <button
           onClick={handleSignOut}
-          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[#D85A30] hover:bg-[rgba(255,255,255,0.05)] cursor-pointer"
+          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-negative hover:bg-foreground/5 cursor-pointer"
         >
           <LogOut className="h-4 w-4" />
           Cerrar sesion

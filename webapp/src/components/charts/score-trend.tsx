@@ -45,8 +45,8 @@ export function ScoreTrend() {
   return (
     <div className="glass-card glass-card-glow p-5">
       <div className="flex items-center gap-2 mb-4">
-        <Activity className="h-4 w-4 text-[#8A877D]" />
-        <h3 className="text-sm font-medium md:text-base md:font-semibold text-[#C8C6BC]">Tendencia del Score</h3>
+        <Activity className="h-4 w-4 text-muted-foreground" />
+        <h3 className="text-sm font-medium md:text-base md:font-semibold text-foreground-soft">Tendencia del Score</h3>
       </div>
       <div className="flex items-end gap-3 h-[100px]">
         {scores.map((month, i) => {
@@ -61,13 +61,13 @@ export function ScoreTrend() {
               <div className="w-full flex items-end" style={{ height: '72px' }}>
                 <motion.div
                   className="w-full rounded-t-md"
-                  style={{ backgroundColor: month.score > 0 ? month.color : 'rgba(255,255,255,0.05)', opacity: month.score > 0 ? 0.85 : 1 }}
+                  style={{ backgroundColor: month.score > 0 ? month.color : 'color-mix(in srgb, var(--foreground) 5%, transparent)', opacity: month.score > 0 ? 0.85 : 1 }}
                   initial={{ height: 0 }}
                   animate={{ height: month.score > 0 ? `${height}%` : '8px' }}
                   transition={{ duration: 0.6, delay: i * 0.1, ease: [0.25, 0.46, 0.45, 0.94] }}
                 />
               </div>
-              <span className="text-[10px] text-[#8A877D]">{month.label}</span>
+              <span className="text-[10px] text-muted-foreground">{month.label}</span>
             </div>
           );
         })}

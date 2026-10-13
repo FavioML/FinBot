@@ -5,7 +5,7 @@ describe('budgetStatus', () => {
   it('is ok (green) below 80%', () => {
     const s = budgetStatus(79, 100);
     expect(s.estado).toBe('ok');
-    expect(s.color).toBe('#1D9E75');
+    expect(s.color).toBe('var(--positive)');
   });
 
   it('is warning (amber) at exactly 80%', () => {
@@ -15,14 +15,14 @@ describe('budgetStatus', () => {
   it('is warning (amber) at exactly 100% — hitting the limit is NOT exceeded', () => {
     const s = budgetStatus(100, 100);
     expect(s.estado).toBe('warning');
-    expect(s.color).toBe('#EF9F27');
+    expect(s.color).toBe('var(--warning)');
     expect(s.pct).toBe(100);
   });
 
   it('is exceeded (red) only when strictly over the limit', () => {
     const s = budgetStatus(100.01, 100);
     expect(s.estado).toBe('exceeded');
-    expect(s.color).toBe('#D85A30');
+    expect(s.color).toBe('var(--negative)');
   });
 
   it('clamps the bar width to 100 while keeping the raw pct', () => {
