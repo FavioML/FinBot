@@ -109,7 +109,7 @@ function EstadoBadge({ user, hoyLima }: { user: AdminUser; hoyLima: string }) {
   const tone = ESTADO_TONE[estado];
   return (
     <span
-      className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
+      className="inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium"
       style={{ backgroundColor: conAlfa(tone, 13), color: tinta(tone) }}
       title={ESTADO_HINT[estado]}
     >
@@ -266,13 +266,13 @@ function UserFichaSheet({ user, onClose }: { user: AdminUser | null; onClose: ()
                     su Pro si vuelve), así que sin esta chip la ficha decía "Pro · vence 2027"
                     sobre alguien que se fue. Es la misma marca que lo saca del MRR. */}
                 {user.cuenta_borrada_at && (
-                  <span className="inline-flex items-center rounded-full bg-negative/15 px-2 py-0.5 text-xs font-medium text-negative-ink">
+                  <span className="inline-flex items-center whitespace-nowrap rounded-full bg-negative/15 px-2 py-0.5 text-xs font-medium text-negative-ink">
                     Pidió borrar su cuenta
                   </span>
                 )}
                 {seg && (
                   <span
-                    className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
+                    className="inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium"
                     style={{
                       backgroundColor: conAlfa(SEGMENT_TONE[seg], 13),
                       color: tinta(SEGMENT_TONE[seg]),
@@ -588,7 +588,7 @@ export default function AdminUsersPage() {
 
       {/* Lista del segmento seleccionado */}
       <section className="space-y-3">
-        <div className="flex items-baseline justify-between">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
           <h3 className="text-base font-semibold text-foreground">
             {segment === 'todos' ? 'Todos los usuarios' : SEGMENT_LABEL[segment]}
           </h3>
@@ -602,11 +602,11 @@ export default function AdminUsersPage() {
               <thead className="sticky top-0 z-10 bg-card">
                 <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
                   <th className="px-4 py-3 font-medium">Usuario</th>
-                  <th className="px-4 py-3 font-medium">Plan</th>
-                  <th className="px-4 py-3 font-medium">Canal</th>
-                  <th className="px-4 py-3 text-right font-medium">Tx</th>
-                  <th className="px-4 py-3 font-medium">Última actividad</th>
-                  <th className="px-4 py-3 font-medium">Registro</th>
+                  <th className="hidden px-4 py-3 font-medium md:table-cell">Plan</th>
+                  <th className="hidden px-4 py-3 font-medium md:table-cell">Canal</th>
+                  <th className="hidden px-4 py-3 text-right font-medium md:table-cell">Tx</th>
+                  <th className="hidden px-4 py-3 font-medium md:table-cell">Última actividad</th>
+                  <th className="hidden px-4 py-3 font-medium md:table-cell">Registro</th>
                 </tr>
               </thead>
               <tbody>
@@ -618,17 +618,25 @@ export default function AdminUsersPage() {
                   >
                     <td className="px-4 py-3">
                       <div className="font-medium text-foreground">{userLabel(u)}</div>
-                      <div className="text-xs text-muted-foreground">{u.email || u.whatsapp}</div>
+                      <div className="text-xs text-muted-foreground wrap-anywhere">{u.email || u.whatsapp}</div>
+                      {/* En celular las seis columnas no entran (el plan salía cortado): lo que
+                          importa va debajo del nombre y el resto de columnas se oculta. */}
+                      <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-foreground-soft md:hidden">
+                        <EstadoBadge user={u} hoyLima={hoyLima} />
+                        <span className="whitespace-nowrap">
+                          {u.transacciones} tx · {daysAgoLabel(u.last_activity_at)}
+                        </span>
+                      </div>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="hidden px-4 py-3 md:table-cell">
                       <EstadoBadge user={u} hoyLima={hoyLima} />
                     </td>
-                    <td className="px-4 py-3 text-foreground-soft">{CANAL_LABEL[u.canal]}</td>
-                    <td className="px-4 py-3 text-right font-mono text-xs tabular-nums text-foreground-soft">
+                    <td className="hidden px-4 py-3 text-foreground-soft md:table-cell">{CANAL_LABEL[u.canal]}</td>
+                    <td className="hidden px-4 py-3 text-right font-mono text-xs tabular-nums text-foreground-soft md:table-cell">
                       {u.transacciones}
                     </td>
-                    <td className="px-4 py-3 text-foreground-soft">{daysAgoLabel(u.last_activity_at)}</td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground">{fmtDate(u.created_at)}</td>
+                    <td className="hidden px-4 py-3 text-foreground-soft md:table-cell">{daysAgoLabel(u.last_activity_at)}</td>
+                    <td className="hidden px-4 py-3 text-xs text-muted-foreground md:table-cell">{fmtDate(u.created_at)}</td>
                   </tr>
                 ))}
                 {listedUsers.length === 0 && (
