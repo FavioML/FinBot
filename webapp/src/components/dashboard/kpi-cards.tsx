@@ -8,6 +8,7 @@ import { Sparkline } from '@/components/charts/sparkline';
 import type { KPIData } from '@/lib/types';
 import { etiquetaTasaDeAhorro } from '@/lib/tasa-ahorro';
 import { conAlfa, tinta } from '@/lib/colores';
+import { getScoreColor } from '@/lib/utils';
 
 interface KPICardsProps {
   data: KPIData;
@@ -53,7 +54,7 @@ function MiniScoreRing({ score, sobreHero = false }: { score: number; sobreHero?
   // desaparece contra el verde del fondo): ahí el anillo va en los tonos del propio bloque.
   const color = sobreHero
     ? 'var(--hero-foreground)'
-    : score >= 80 ? 'var(--positive)' : score >= 60 ? 'var(--info)' : score >= 40 ? 'var(--warning)' : 'var(--negative)';
+    : getScoreColor(score);
   const pista = sobreHero
     ? 'color-mix(in srgb, var(--hero-foreground) 22%, transparent)'
     : 'color-mix(in srgb, var(--foreground) 6%, transparent)';

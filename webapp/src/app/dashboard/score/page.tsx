@@ -18,6 +18,7 @@ import { FadeIn } from '@/components/shared/motion-wrapper';
 import { ScoreSkeleton } from '@/components/dashboard/skeletons';
 import { HeaderActions } from '@/components/dashboard/topbar';
 import { conAlfa } from '@/lib/colores';
+import { getScoreColor } from '@/lib/utils';
 
 const FACTORS = [
   { key: 'consistency', label: 'Consistencia de registro', description: 'Registras tus gastos con regularidad' },
@@ -29,7 +30,7 @@ const FACTORS = [
 ] as const;
 
 function FactorBar({ label, description, value }: { label: string; description: string; value: number }) {
-  const color = value >= 80 ? 'var(--primary)' : value >= 60 ? 'var(--info)' : value >= 40 ? 'var(--warning)' : 'var(--negative)';
+  const color = getScoreColor(value);
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">

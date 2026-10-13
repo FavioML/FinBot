@@ -25,17 +25,20 @@ export function formatFecha(dateStr: string): string {
   return `${date.getDate()} ${mesesCortos[date.getMonth()]} ${date.getFullYear()}`;
 }
 
-// Score color
+// Escala del Neto Score: la MISMA en toda la webapp y en el bot (services/neto-score.js usa
+// estas cuatro etiquetas por WhatsApp). Antes había una de 3 tramos acá y otra de 4 en el gauge
+// y en kpi-cards, y un 50 salía ámbar en un sitio y "Atención" en otro.
 export function getScoreColor(score: number): string {
   if (score >= 80) return 'var(--positive)';
-  if (score >= 60) return 'var(--warning)';
+  if (score >= 60) return 'var(--info)';
+  if (score >= 40) return 'var(--warning)';
   return 'var(--negative)';
 }
 
-// Score label
 export function getScoreLabel(score: number): string {
   if (score >= 80) return 'Excelente';
   if (score >= 60) return 'En camino';
+  if (score >= 40) return 'Puede mejorar';
   return 'Atención';
 }
 

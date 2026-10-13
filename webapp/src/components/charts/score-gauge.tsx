@@ -3,24 +3,11 @@
 import { useEffect } from 'react';
 import { motion, useMotionValue, useTransform, animate } from 'motion/react';
 import { conAlfa } from '@/lib/colores';
+import { getScoreColor, getScoreLabel } from '@/lib/utils';
 
 interface ScoreGaugeProps {
   score: number;
   size?: 'sm' | 'lg';
-}
-
-function getScoreLabel(score: number): string {
-  if (score >= 80) return 'Excelente';
-  if (score >= 60) return 'En camino';
-  if (score >= 40) return 'Puede mejorar';
-  return 'Atención';
-}
-
-function getScoreColor(score: number): string {
-  if (score >= 80) return 'var(--positive)';
-  if (score >= 60) return 'var(--info)';
-  if (score >= 40) return 'var(--warning)';
-  return 'var(--negative)';
 }
 
 export function ScoreGauge({ score, size = 'sm' }: ScoreGaugeProps) {
