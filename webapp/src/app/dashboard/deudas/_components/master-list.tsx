@@ -11,6 +11,11 @@ type DebtTipoTab = 'debo' | 'me_deben' | 'pagadas';
 const amountColor = (tab: DebtTipoTab) =>
   tab === 'debo' ? 'text-negative' : tab === 'me_deben' ? 'text-primary' : 'text-muted-foreground';
 
+// La fila seleccionada lleva tinte `bg-primary/8`: encima, el color base no llega a 4.5:1
+// (negative midió 4.3:1 en claro). Sobre un tinte va la tinta.
+const inkDe = (tab: DebtTipoTab) =>
+  tab === 'debo' ? 'text-negative-ink' : tab === 'me_deben' ? 'text-primary-ink' : 'text-muted-foreground';
+
 /** Panel izquierdo (desktop): filas seleccionables, agrupadas por persona o planas. */
 export function MasterList({
   mode,
@@ -50,15 +55,15 @@ export function MasterList({
               </div>
               <div className="min-w-0 flex-1">
                 <p className="font-semibold text-sm text-foreground truncate">{group.contraparte}</p>
-                <div className="flex items-center gap-1.5 mt-0.5">
-                  <span className="text-xs text-muted-foreground">
+                <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 mt-0.5">
+                  <span className="text-xs text-muted-foreground whitespace-nowrap">
                     {group.debts.length} deuda{group.debts.length !== 1 ? 's' : ''}
                   </span>
                   {urgente && <VencimientoBadge debt={urgente} />}
                 </div>
               </div>
               <div className="text-right shrink-0">
-                <p className={`text-sm font-bold tabular-nums ${color}`}>{fmtMulti(group.pen, group.usd)}</p>
+                <p className={`text-sm font-bold tabular-nums whitespace-nowrap ${active ? inkDe(tab) : color}`}>{fmtMulti(group.pen, group.usd)}</p>
               </div>
               <ChevronRight className={`h-4 w-4 shrink-0 transition-colors ${active ? 'text-primary-ink' : 'text-muted-foreground'}`} />
             </button>
@@ -95,12 +100,12 @@ export function MasterList({
                 {debt.contraparte}
                 <RecurrenteBadge debt={debt} />
               </p>
-              <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
+              <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 mt-0.5 min-w-0">
                 {debt.descripcion && <span className="text-xs text-muted-foreground truncate">{debt.descripcion}</span>}
                 {!isPagada && <VencimientoBadge debt={debt} />}
               </div>
             </div>
-            <p className={`text-sm font-bold tabular-nums shrink-0 ${rowColor}`}>{fmtMoneda(debt.moneda, debt.monto_pendiente)}</p>
+            <p className={`text-sm font-bold tabular-nums shrink-0 whitespace-nowrap ${active && !isPagada ? (esDebo ? 'text-negative-ink' : 'text-primary-ink') : rowColor}`}>{fmtMoneda(debt.moneda, debt.monto_pendiente)}</p>
           </button>
         );
       })}

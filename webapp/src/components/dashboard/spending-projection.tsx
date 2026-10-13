@@ -79,14 +79,15 @@ export function SpendingProjection({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay: 0.15 }}
     >
-      <div className="flex items-start justify-between mb-3">
+      {/* Rótulo, monto y pastilla no se parten: si no entran juntos, la pastilla baja de renglón. */}
+      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 mb-3">
         <div>
-          <p className="text-xs text-muted-foreground uppercase tracking-wider mb-0.5">Proyeccion del mes</p>
-          <p className="text-xl font-bold text-foreground tabular-nums">{formatCurrency(projection.projected)}</p>
+          <p className="text-xs text-muted-foreground uppercase tracking-wider mb-0.5 whitespace-nowrap">Proyeccion del mes</p>
+          <p className="text-xl font-bold text-foreground tabular-nums whitespace-nowrap">{formatCurrency(projection.projected)}</p>
         </div>
         {projection.prevGastos > 0 && (
           <div
-            className="flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium"
+            className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium"
             style={{
               backgroundColor: isOverPrev ? 'color-mix(in srgb, var(--negative) 10%, transparent)' : 'color-mix(in srgb, var(--positive) 10%, transparent)',
               color: isOverPrev ? 'var(--negative-ink)' : 'var(--positive-ink)',

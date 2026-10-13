@@ -77,9 +77,11 @@ export function TransactionFilters({
 
   return (
     <div className="glass-card glass-card-glow p-4">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:flex-wrap">
-        {/* Search */}
-        <div className="relative flex-1 min-w-0">
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+        {/* Search: renglón propio hasta xl. Con el riel lateral, a 1040 px compartía fila con las pestañas
+            y dos selects de 180 y le quedaban 69 px ("Buscar po"). En xl comparte, con piso de 14rem:
+            si aparece el filtro de subcategoría, lo que no entra baja de renglón. */}
+        <div className="relative min-w-0 sm:basis-full xl:basis-0 xl:flex-1 xl:min-w-56">
           <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="Buscar por comercio..."

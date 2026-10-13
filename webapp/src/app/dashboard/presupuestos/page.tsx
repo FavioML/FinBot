@@ -276,7 +276,7 @@ export default function PresupuestosPage() {
     <FadeIn>
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Presupuestos</h1>
         </div>
@@ -289,8 +289,10 @@ export default function PresupuestosPage() {
             disabled={budgetsLimitReached && !isPremium}
           >
             <Plus className="h-4 w-4" />
-            <span className="hidden sm:inline">Nuevo presupuesto</span>
-            <span className="sm:hidden">Nuevo</span>
+            {/* Con el riel lateral (md) el selector de mes + este botón + los tres íconos no entran al lado
+                del título hasta lg: a 944 px empujaban el avatar fuera de la pantalla. */}
+            <span className="hidden lg:inline">Nuevo presupuesto</span>
+            <span className="lg:hidden">Nuevo</span>
           </Button>
         </HeaderActions>
       </div>
@@ -370,8 +372,10 @@ export default function PresupuestosPage() {
             );
           })()}
 
-          {/* Budget cards grid — one card per CATEGORY */}
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {/* Budget cards grid — one card per CATEGORY. Las columnas salen del ancho del CONTENIDO, no del
+              viewport: con el riel lateral, lg:grid-cols-3 dejaba tarjetas de 189 px a 1040. */}
+          <div className="@container">
+          <div className="grid grid-cols-1 gap-4 @xl:grid-cols-2 @4xl:grid-cols-3">
             {Array.from(groupedBudgets.entries())
               .sort(([a], [b]) => a.localeCompare(b))
               .map(([cat, group]) => (
@@ -386,6 +390,7 @@ export default function PresupuestosPage() {
                   onClick={(c) => setDetailCategoria(c)}
                 />
               ))}
+          </div>
           </div>
         </>
       ) : (

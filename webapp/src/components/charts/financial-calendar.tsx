@@ -139,9 +139,10 @@ export function FinancialCalendar({ transactions, currentMonth, currentYear, deb
       transition={{ duration: 0.5 }}
     >
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-medium md:text-base md:font-semibold text-foreground-soft">Calendario financiero</h3>
-        <div className="flex items-center gap-2">
+      {/* Si el título y el selector de mes no entran juntos, el selector baja de renglón: a 1040 px el título se partía. */}
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 mb-4">
+        <h3 className="whitespace-nowrap text-sm font-medium md:text-base md:font-semibold text-foreground-soft">Calendario financiero</h3>
+        <div className="flex shrink-0 items-center gap-2">
           <button onClick={prevMonth} className="p-1 rounded text-muted-foreground hover:text-foreground transition-colors">
             <ChevronLeft className="h-4 w-4" />
           </button>

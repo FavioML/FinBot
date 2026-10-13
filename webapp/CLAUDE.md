@@ -325,10 +325,15 @@ Claro y oscuro; por defecto sigue al sistema. Porqué de B: `products/neto/docs/
   `--text-section` (18px), `--text-label` (12px), en `@theme`.
 - **Letra en celular:** piso 12px (`text-xs`) en todo `src/`; `text-sm` es 15px bajo `md` (variable
   `--text-sm` en `globals.css`), 14px en desktop; `text-badge` (11px) sólo para el número de un
-  contador. Lo hace cumplir `src/app/letra-minima.test.ts`. Un tamaño nuevo se mide a 360 y 390 px
-  con `paleta-neto-capturas.mjs` (`NETO_ANCHO`): ningún test ve un desborde; el script sí (gutter 16 px).
+  contador. Lo hace cumplir `src/app/letra-minima.test.ts`. Un cambio de tamaño o de layout se mide
+  con `paleta-neto-capturas.mjs NETO_ANCHO=todos` (360, 390, 944, 1040, 1280; `NETO_MES=2026-7` para
+  tener datos): ningún test ve un desborde, un solape ni un monto partido; el script sí.
+- **Columnas por el ancho del CONTENIDO, no del viewport.** Desde `md` el riel lateral se come 240 px:
+  a 1040 de viewport `<main>` mide 736, y a 768 mide 480 (a 767, sin riel, 735). Una grilla de
+  tarjetas va con `@container` local (`@xl:grid-cols-2 @4xl:grid-cols-3`), nunca en el shell (rompe
+  los `fixed`); una grilla con pistas `fr`, con `minmax(0,…)`. Caso y medición: `docs/DEFECTOS.md` 13-oct.
 - `DialogContent` lleva el margen de celular en el ANCHO (`w-[calc(100%-2rem)]`): un `max-w-*` del consumidor borraba el tope base.
-- Monto, fecha o pastilla partidos en dos líneas (el script los lista como `PARTIDO`): `whitespace-nowrap`, y si no entra, su tabla scrollea.
+- Monto, fecha o pastilla partidos en dos líneas (el script los lista como `PARTIDO`): `whitespace-nowrap`, y si no entra, su tabla scrollea; en una fila, `flex-wrap` para que baje la pieza entera. Una pastilla `nowrap` sin `flex-wrap` alrededor pisa al vecino (`SOLAPE`).
 
 ## Deploy
 - Vercel: **el auto-deploy de `main` esta APAGADO** (`webapp/vercel.json`,

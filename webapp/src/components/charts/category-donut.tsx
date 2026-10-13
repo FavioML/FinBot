@@ -42,13 +42,15 @@ export function CategoryDonut({ data, onCategoryClick }: CategoryDonutProps) {
 
   return (
     <motion.div
-      className="glass-card glass-card-glow p-5"
+      className="@container glass-card glass-card-glow p-5"
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay: 0.1, ease: [0.25, 0.46, 0.45, 0.94] }}
     >
       <h3 className="text-sm font-medium md:text-base md:font-semibold text-foreground-soft mb-4">Gastos por Categoria</h3>
-      <div className="flex flex-col md:flex-row items-center gap-4">
+      {/* Lado a lado según el ancho de la TARJETA (@sm = 384 px), no del viewport: con el riel lateral, a 1040
+          la tarjeta mide 320 por dentro y la leyenda quedaba con 104 px; el monto pisaba el nombre. */}
+      <div className="flex flex-col @sm:flex-row items-center gap-4">
         <div className="relative w-[200px] h-[200px] shrink-0">
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>

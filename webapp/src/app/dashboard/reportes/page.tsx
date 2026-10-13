@@ -956,7 +956,7 @@ function KPICard({
           <ComparisonBadge current={value} previous={prevValue} invertColor={invertColor} comparacion={comparacion} />
         )}
       </div>
-      <p className="text-xl font-bold" style={{ color }}>
+      <p className="text-xl font-bold whitespace-nowrap" style={{ color }}>
         {isCurrency ? formatCurrency(value) : <NumberTicker value={value} className="!text-inherit" />}
       </p>
     </div>

@@ -430,7 +430,10 @@ export default function MetasPage() {
           actions={[{ label: 'Nuevo plan', onClick: openCreate }]}
         />
       ) : (
-        <StaggerContainer className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        // Columnas por el ancho del CONTENIDO, no del viewport: con el riel lateral, lg:grid-cols-3 dejaba
+        // a 1040 px tarjetas de 205 px por dentro y el título se partía palabra por palabra.
+        <div className="@container">
+        <StaggerContainer className="grid grid-cols-1 @xl:grid-cols-2 @4xl:grid-cols-3 gap-4">
           {activeGoals.map((goal) => {
             const pct = Number(goal.monto_objetivo) > 0
               ? Math.min(100, (Number(goal.monto_actual) / Number(goal.monto_objetivo)) * 100)
@@ -593,16 +596,17 @@ export default function MetasPage() {
             );
           })}
         </StaggerContainer>
+        </div>
       )}
 
       {/* Completed goals */}
       {completedGoals.length > 0 && (
-        <div className="space-y-3">
+        <div className="@container space-y-3">
           <h2 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
             <Trophy className="h-4 w-4 text-warning" />
             Planes completados ({completedGoals.length})
           </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 @xl:grid-cols-2 @4xl:grid-cols-3 gap-3">
             {completedGoals.map((goal) => (
               <div key={goal.id} className="glass-card p-4 opacity-60 group">
                 <div className="flex items-center justify-between">
@@ -628,12 +632,12 @@ export default function MetasPage() {
 
       {/* Abandoned plans */}
       {abandonedGoals.length > 0 && (
-        <div className="space-y-3">
+        <div className="@container space-y-3">
           <h2 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
             <XCircle className="h-4 w-4 text-muted-foreground" />
             Planes abandonados ({abandonedGoals.length})
           </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 @xl:grid-cols-2 @4xl:grid-cols-3 gap-3">
             {abandonedGoals.map((goal) => (
               <div key={goal.id} className="glass-card p-4 opacity-50 group">
                 <div className="flex items-center justify-between">

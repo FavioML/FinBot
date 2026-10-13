@@ -287,8 +287,10 @@ export function KPICards({ data, sparklines, netoScore }: KPICardsProps) {
               <p className="text-xs font-medium mb-1" style={{ color: 'var(--muted-foreground)' }}>
                 {card.label}
               </p>
-              <div className="flex items-end justify-between gap-2">
-                <p className="text-2xl font-bold tracking-tight" style={{ color: card.color }}>
+              {/* El monto no se parte ("S/" arriba, "10,400.00" abajo a 944 px): si no entra con el
+                  sparkline o el anillo al lado, ellos bajan de renglón. */}
+              <div className="flex flex-wrap items-end justify-between gap-2">
+                <p className="text-2xl font-bold tracking-tight whitespace-nowrap" style={{ color: card.color }}>
                   {card.prefix}
                   <NumberTicker
                     value={card.value}

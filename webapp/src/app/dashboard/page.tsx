@@ -510,13 +510,18 @@ export default function DashboardPage() {
           {/* Projection + Today spending + Exchange rate row */}
           {viewMode === 'mensual' && (
             <FadeIn delay={0.12}>
-            <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-4">
+            {/* Las tres en una fila sólo desde xl: con el riel lateral, a 944 px la proyección quedaba con
+                232 px y partía su rótulo y su pastilla. Debajo de xl va sola arriba y las otras dos al lado.
+                El envoltorio se esconde vacío: fuera del mes en curso la proyección no se pinta. */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-[1fr_auto_auto] gap-4">
+              <div className="empty:hidden sm:col-span-2 xl:col-span-1">
               <SpendingProjection
                 transactions={transactions}
                 allTransactions={allTransactions}
                 currentMonth={currentMonth}
                 currentYear={currentYear}
               />
+              </div>
               <TodaySpending
                 transactions={allTransactions}
                 currentMonth={currentMonth}
@@ -721,9 +726,10 @@ export default function DashboardPage() {
             <TierLabel label="Seguimiento" question="¿qué debo atender?" />
           )}
 
-          {/* Transacciones Recientes + Pagos Recurrentes — 2-col on desktop */}
+          {/* Transacciones Recientes + Pagos Recurrentes — 2-col desde xl. Una pista `fr` no baja de su
+              min-content: a 1040 px la fila de transacciones empujaba Pagos recurrentes 87 px fuera de <main>. */}
           <FadeIn delay={0.35}>
-          <div className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-4">
+          <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] gap-4">
             {/* Transacciones Recientes */}
             <div className="glass-card glass-card-glow p-5">
               <div className="flex items-center justify-between mb-4">

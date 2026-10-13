@@ -158,11 +158,11 @@ export function BudgetCard({
 
             return (
               <div key={sub.id} className="flex flex-col gap-1">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-foreground-soft">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="min-w-0 truncate text-xs text-foreground-soft">
                     {capitalizeDisplay(sub.subcategoria || '')}
                   </span>
-                  <span className="text-xs text-muted-foreground">
+                  <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
                     {formatCurrency(subSpent)} / {formatCurrency(sub.monto_limite)}
                   </span>
                 </div>
@@ -182,12 +182,13 @@ export function BudgetCard({
       )}
 
       {/* Footer */}
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-foreground-soft">
+      {/* Montos y pastilla no se parten: si no entran juntos, la pastilla baja de renglón. */}
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+        <p className="text-sm text-foreground-soft whitespace-nowrap">
           {formatCurrency(totalSpent)} / {formatCurrency(totalLimit)}
         </p>
         <span
-          className="text-xs font-medium rounded-full px-2 py-0.5"
+          className="text-xs font-medium rounded-full px-2 py-0.5 whitespace-nowrap"
           style={{
             backgroundColor: conAlfa(progressColor, 9),
             color: tinta(progressColor),
