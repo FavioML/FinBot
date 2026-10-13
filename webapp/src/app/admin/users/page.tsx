@@ -523,8 +523,8 @@ export default function AdminUsersPage() {
       {/* Estado comercial. Va ARRIBA de los segmentos de actividad a propósito: "cuántos pagan"
           es la primera pregunta del panel, y hasta hoy no se podía contestar desde acá. */}
       <section className="space-y-3">
-        <div className="flex items-baseline justify-between">
-          <h3 className="text-base font-semibold text-foreground">Estado comercial</h3>
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+          <h3 className="whitespace-nowrap text-base font-semibold text-foreground">Estado comercial</h3>
           <span className="text-xs text-muted-foreground">
             Durante la prueba el plan es Pro, así que “Pro” no significa “paga”
           </span>
@@ -712,11 +712,11 @@ export default function AdminUsersPage() {
           <div className="space-y-3">
             {porCanal.map((c) => (
               <div key={c.canal}>
-                <div className="mb-1 flex items-center justify-between text-xs">
-                  <span className="text-foreground-soft">{CANAL_LABEL[c.canal]}</span>
-                  <span className="tabular-nums text-muted-foreground">
+                <div className="mb-1 flex items-start justify-between gap-3 text-xs">
+                  <span className="shrink-0 whitespace-nowrap text-foreground-soft">{CANAL_LABEL[c.canal]}</span>
+                  <span className="text-right tabular-nums text-muted-foreground">
                     {c.total} usuarios · {c.pro} pagan · {c.enPrueba} probando{' '}
-                    <span className="text-muted-foreground">({c.conv}% conversión)</span>
+                    <span className="whitespace-nowrap text-muted-foreground">({c.conv}% conversión)</span>
                   </span>
                 </div>
                 <div className="h-2 w-full overflow-hidden rounded-full bg-foreground/5">
