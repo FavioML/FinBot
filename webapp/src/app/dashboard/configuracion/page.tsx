@@ -925,7 +925,7 @@ export default function ConfiguracionPage() {
             <div className="space-y-4">
               {NAV_GROUPS.map((group) => (
                 <div key={group.label} className="space-y-1">
-                  <p className="px-3 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground/60">
+                  <p className="px-3 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
                     {group.label}
                   </p>
                   {group.items.map((item) => (

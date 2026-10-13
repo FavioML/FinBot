@@ -196,8 +196,10 @@ export function FinancialCalendar({ transactions, currentMonth, currentYear, deb
                   }`}>
                     {day}
                   </span>
+                  {/* foreground-soft y no muted: sobre el tinte más fuerte de la escala (negative 35%) el gris
+                      quedaba en 4.4:1 en oscuro y 4.0:1 en claro. */}
                   {amount > 0 && (
-                    <span className="text-xs text-muted-foreground tabular-nums mt-0.5 leading-none">
+                    <span className="text-xs text-foreground-soft tabular-nums mt-0.5 leading-none">
                       {amount >= 1000 ? `${(amount / 1000).toFixed(1)}k` : Math.round(amount)}
                     </span>
                   )}
