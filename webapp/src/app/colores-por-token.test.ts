@@ -106,6 +106,10 @@ function tramosExentos(rel: string, linea: string): Array<[number, number]> {
 
 export function hallazgos(rel: string, src: string): string[] {
   const out: string[] = [];
+  // Quitar comentarios sólo puede BORRAR hallazgos, nunca crearlos: si el texto crudo no tiene
+  // ningún candidato, no hace falta parsear. Parsear los ~200 archivos con TypeScript le sumaba
+  // segundos a la suite y empujaba a otros tests pesados a su timeout de 5 s.
+  if (!PATRONES.some((p) => new RegExp(p.source, p.flags.replace('g', '')).test(src))) return out;
   sinComentarios(src, rel)
     .split('\n')
     .forEach((linea, i) => {
