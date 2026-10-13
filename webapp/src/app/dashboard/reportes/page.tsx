@@ -103,6 +103,8 @@ export default function ReportesPage() {
     try {
       const html2canvas = (await import('html2canvas-pro')).default;
       const { jsPDF } = await import('jspdf');
+      const { fuenteSvgParaPdf } = await import('@/lib/pdf-fuente-svg');
+      const ponerFuenteEnSvgs = await fuenteSvgParaPdf();
       document.head.appendChild(sinTransiciones);
       html.setAttribute('data-theme', 'light');
       html.style.colorScheme = 'light';
@@ -113,6 +115,8 @@ export default function ReportesPage() {
         scale: 2,
         useCORS: true,
         logging: false,
+        // Los ejes de Recharts salían en serif: ver `lib/pdf-fuente-svg.ts`.
+        onclone: ponerFuenteEnSvgs,
       });
       if (temaPrevio) html.setAttribute('data-theme', temaPrevio);
       html.style.colorScheme = esquemaPrevio;
@@ -453,14 +457,15 @@ if (!isLoading && transactions.length === 0) {
             {topMerchants.map((m, i) => (
               <div
                 key={m.name}
-                className="flex items-center justify-between cursor-pointer rounded-lg px-2 py-1 -mx-2 hover:bg-foreground/4 transition-colors"
+                className="flex items-center justify-between gap-3 cursor-pointer rounded-lg px-2 py-1 -mx-2 hover:bg-foreground/4 transition-colors"
                 onClick={() => setDetailComercio(m.name)}
               >
-                <div className="flex items-center gap-3">
+                <div className="flex min-w-0 items-center gap-3">
                   <span className="text-xs font-mono text-muted-foreground w-5 text-right">{i + 1}.</span>
                   <span className="text-sm text-foreground">{m.name}</span>
                 </div>
-                <div className="flex items-center gap-4">
+                {/* Sin `shrink-0` el monto se partía en celular ("S/" arriba, "1,800.00" abajo). */}
+                <div className="flex shrink-0 items-center gap-4 whitespace-nowrap">
                   <span className="text-xs text-muted-foreground">{m.count} {m.count === 1 ? 'transacción' : 'transacciones'}</span>
                   <span className="text-sm font-medium text-negative">{formatCurrency(m.total)}</span>
                 </div>
