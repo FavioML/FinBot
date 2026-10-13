@@ -1080,8 +1080,8 @@ export default function AdminOperacionPage() {
           href="/admin/pagos"
           className="glass-card block rounded-xl p-4 transition-colors hover:border-primary/35"
         >
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-xs text-muted-foreground">Caja del mes</span>
+          <div className="flex flex-wrap items-center justify-between gap-x-2">
+            <span className="whitespace-nowrap text-xs text-muted-foreground">Caja del mes</span>
             <span className="whitespace-nowrap text-xs text-primary">Ver pagos →</span>
           </div>
           <div className="mt-1 text-2xl font-semibold text-foreground">
