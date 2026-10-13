@@ -687,7 +687,7 @@ export default function TransaccionesPage() {
               <p className="min-w-0 flex-1 text-xs text-muted-foreground">
                 {porRevisarGlobalCount} {plural(porRevisarGlobalCount)} por revisar fuera de este periodo
               </p>
-              <span className="shrink-0 text-xs font-medium text-warning">Ver todas</span>
+              <span className="shrink-0 text-xs font-medium text-warning-ink">Ver todas</span>
             </button>
           );
         }
