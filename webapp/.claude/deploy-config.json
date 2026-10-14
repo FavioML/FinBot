@@ -38,7 +38,7 @@
       {
         "name": "api_health",
         "type": "http",
-        "url": "https://api.neto.pe/health",
+        "url": "https://api.neto.pe/health?strict=1",
         "expect_status": 200
       }
     ],
