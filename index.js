@@ -13,6 +13,8 @@ const { formatFecha, barraProgreso } = require('./lib/formatters');
 const { parsearCorreoBancario, parsearRegistroManual, extraerLast4 } = require('./services/parsers');
 const { notificarErrorAdmin } = require('./lib/admin-notify');
 const { registrarError } = require('./lib/error-monitor');
+const { supabase } = require('./lib/db');
+const { saludBase } = require('./lib/salud-base');
 const publicRoutes = require('./routes/public');
 const adminRoutes = require('./routes/admin');
 const proRoutes = require('./routes/pro');
@@ -109,8 +111,13 @@ const proLimiter = rateLimit({
 });
 
 // === Routes ===
-app.get('/health', (req, res) => {
-  res.json({ ok: true, service: 'NETO', uptime: Math.floor(process.uptime()), ts: new Date().toISOString() });
+app.get('/health', async (req, res) => {
+  const base = { service: 'NETO', uptime: Math.floor(process.uptime()), ts: new Date().toISOString() };
+  // `?strict=1` también pregunta si la base contesta (lib/salud-base.js). Sin él, sólo el proceso.
+  if (req.query.strict !== '1') return res.json({ ok: true, ...base });
+  res.set('Cache-Control', 'no-store');
+  const salud = await saludBase(supabase);
+  res.status(salud.ok ? 200 : 503).json({ ...salud, ...base });
 });
 
 // SHA del commit desplegado, para el canary de frescura del deploy (backend-deploy-fresh).
