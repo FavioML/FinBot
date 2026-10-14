@@ -216,7 +216,7 @@ export default function EspaciosPage() {
           </h2>
           <div className="flex gap-2">
             <Input
-              placeholder="Código de invitación (ej: ABC1234)"
+              placeholder="Código (ej: ABC1234)"
               value={joinCode}
               onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
               className="bg-foreground/4 border-border text-foreground uppercase"

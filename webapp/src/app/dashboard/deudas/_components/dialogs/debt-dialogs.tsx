@@ -148,7 +148,7 @@ export function NuevaDeudaDialog({
               type="text"
               value={descripcion}
               onChange={(e) => setDescripcion(e.target.value)}
-              placeholder="Ej: la cancha, cena del viernes, préstamo personal"
+              placeholder="Ej: cena del viernes"
               className={INPUT_CLS}
             />
           </div>
