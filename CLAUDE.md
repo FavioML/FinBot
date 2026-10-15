@@ -280,6 +280,13 @@ guard corre. Es el testigo, no el gate.
 job `test`. Si `deploy-webapp` falla, el backend tampoco sale. Deja los dos lados en el
 commit anterior — coherente, y la suite roja lo dice.
 
+**Y no son solo los jobs de `ci.yml`: es cualquier check suite de github-actions sobre el commit.**
+El 15-oct-2026 los jobs de seguridad de Dependabot (event `dynamic`) dejaron un suite en `failure`
+sobre `2775b24` y `4daa3b7` y Railway los salteó con `CI check suite failed` mientras `ci.yml`
+estaba verde. Por eso este repo no tiene `.github/dependabot.yml` ni correcciones automáticas:
+solo las alertas, que avisan sin correr nada. Un workflow nuevo que falle por motivos ajenos
+al backend frena el deploy igual.
+
 **Verificado con un experimento controlado el 05-ago-2026**, no asumido, y midiendo el reloj:
 
 | commit | qué era | resultado |
