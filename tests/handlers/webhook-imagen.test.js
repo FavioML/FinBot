@@ -25,6 +25,8 @@ require('../../helpers/db-helpers').guardarMensaje = vi.fn().mockResolvedValue(u
 
 const guardarTransaccion = vi.fn();
 require('../../services/transactions').guardarTransaccion = guardarTransaccion;
+const { canalDeEntrada } = require('../../lib/canal-entrada');
+const canalAlGuardar = [];
 
 const procesarComprobantePro = vi.fn().mockResolvedValue(undefined);
 require('../../lib/pro-payment').procesarComprobantePro = procesarComprobantePro;
@@ -137,7 +139,11 @@ describe('Imágenes de pago (Yape/Plin/banco) → Vision → transacción', () =
     claimGana = true;
     claimOverride = null;
     enviarWhatsapp.mockClear();
-    guardarTransaccion.mockReset().mockResolvedValue({ categoria: 'Alimentación', subcategoria: 'Restaurantes', conteoTx: 5 });
+    canalAlGuardar.length = 0;
+    guardarTransaccion.mockReset().mockImplementation(async () => {
+      canalAlGuardar.push(canalDeEntrada());
+      return { categoria: 'Alimentación', subcategoria: 'Restaurantes', conteoTx: 5 };
+    });
     procesarComprobantePro.mockClear();
     notificarAdmin.mockClear();
     colaConfirmacionGasto.mockClear().mockResolvedValue(null);
@@ -165,6 +171,10 @@ describe('Imágenes de pago (Yape/Plin/banco) → Vision → transacción', () =
     expect(resp).toMatch(/Gasto registrado/);
     expect(resp).toMatch(/23\.45/);
     expect(resp).toMatch(/Alimentación/);
+
+    // El movimiento se escribe dentro del contexto del mensaje, con el canal de la captura:
+    // es lo que `guardarTransaccion` manda a PostHog en `wa_movimiento_canal`.
+    expect(canalAlGuardar).toEqual(['imagen']);
 
     // La foto no deja turno en `conversaciones`, y el cierre de la noche solo sale a quien
     // escribió hoy: prometerlo acá sería prometer algo que no llega (plan día 0→1, 14-sep). La

@@ -9,6 +9,7 @@ const log = require('../lib/logger');
 const { subcategoriaUtil } = require('../lib/subcategoria');
 const { resolverNombre, filasQueNombra, nombresParecidos, patronAmplio, listaNombres, mostrable } = require('../lib/resolver-nombre');
 const analytics = require('../lib/analytics');
+const { canalDeEntrada } = require('../lib/canal-entrada');
 
 // Dedup window for manual entries (gmail entries dedup separately).
 // Short enough that legitimate rapid entries (e.g. 5 taxis of S/50 in a
@@ -363,6 +364,14 @@ async function guardarTransaccion(usuarioId, datos) {
   // El conteo viaja de vuelta en la fila (`conteoTx`) porque es exactamente lo que
   // necesita la cadencia del empujón a la webapp (lib/activacion.js): "cuántos
   // gastos lleva" es la señal del corte, y calcularlo dos veces sería absurdo.
+  // Por qué canal entró el mensaje que escribió esta plata: texto, audio, imagen o archivo
+  // (`lib/canal-entrada.js`). Uno por movimiento NUEVO: el dedup de arriba ya devolvió antes las
+  // filas repetidas. Sin canal (crons, Gmail, cualquier escritura fuera de un mensaje) no sale.
+  // Ni monto ni comercio: solo el canal y el tipo.
+  const canal = canalDeEntrada();
+  if (canal && !datos.esGmail && data) {
+    analytics.capture(usuarioId, 'wa_movimiento_canal', { canal, tipo: data.tipo });
+  }
   if (!datos.esGmail) {
     try {
       const { count, error: errConteo } = await supabase.from('transacciones')
@@ -373,7 +382,7 @@ async function guardarTransaccion(usuarioId, datos) {
       // el registro por analytics" y esto lo respeta: solo log.
       if (errConteo) log.warn({ tag: 'ACTIVACION', usuarioId, err: errConteo.message }, 'No se pudo contar las transacciones: sin conteoTx ni evento de primer gasto');
       if (count === 1) {
-        analytics.capture(usuarioId, 'wa_first_transaction', { tipo: data.tipo, categoria: data.categoria });
+        analytics.capture(usuarioId, 'wa_first_transaction', { tipo: data.tipo, categoria: data.categoria, canal });
       }
       if (data && typeof count === 'number') data.conteoTx = count;
     } catch (e) { /* nunca romper el registro por analytics */ }

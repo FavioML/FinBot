@@ -38,8 +38,22 @@ const createWebhookHandler = require('../../handlers/webhook');
 // procesarMensajeLibre es lo que recibe el texto (transcrito o escrito).
 const procesarMensajeLibre = vi.fn().mockResolvedValue('ok');
 const webhookHandler = createWebhookHandler(procesarMensajeLibre);
+const { canalDeEntrada } = require('../../lib/canal-entrada');
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+function buildTextoReqRes(from, texto) {
+  const body = {
+    entry: [{
+      changes: [{
+        value: { messages: [{ from, id: 'wamid-' + Math.random().toString(36).slice(2), type: 'text', text: { body: texto } }] }
+      }]
+    }]
+  };
+  const rawBody = Buffer.from(JSON.stringify(body));
+  const signature = 'sha256=' + crypto.createHmac('sha256', 'test-secret').update(rawBody).digest('hex');
+  return { req: { headers: { 'x-hub-signature-256': signature }, rawBody, body }, res: { sendStatus: vi.fn() } };
+}
+
 function buildAudioReqRes(from, audioId) {
   const audio = audioId === null ? {} : { id: audioId, mime_type: 'audio/ogg' };
   const body = {
@@ -84,6 +98,24 @@ describe('Notas de voz (audio) → pipeline de texto', () => {
     expect(transcriptionsCreate).toHaveBeenCalledOnce();
     // El texto transcrito llega a procesarMensajeLibre igual que si lo hubiera escrito.
     expect(procesarMensajeLibre).toHaveBeenCalledWith('gasté 20 soles en el almuerzo', expect.any(Object), '51999000111', { sinBorrados: false });
+  });
+
+  // El audio se reinyecta como texto, así que lo único que lo distingue después es el canal del
+  // contexto del mensaje. Si `fijarCanal` se corriera DESPUÉS de reescribir `message.type`, o no
+  // se corriera, este movimiento saldría como 'texto' o sin canal (`wa_movimiento_canal`).
+  it('el texto transcrito corre con canal audio, y el escrito con canal texto', async () => {
+    const canales = [];
+    procesarMensajeLibre.mockImplementation(async () => { canales.push(canalDeEntrada()); return 'ok'; });
+    mockFetchOk();
+    transcriptionsCreate.mockResolvedValue({ text: 'gasté 20 soles en el almuerzo' });
+
+    await webhookHandler(...Object.values(buildAudioReqRes('51999000111', 'media-abc')));
+    await webhookHandler(...Object.values(buildTextoReqRes('51999000111', 'gasté 15 en taxi')));
+
+    expect(canales).toEqual(['audio', 'texto']);
+    // Y no se filtra fuera del request: después del webhook no hay canal.
+    expect(canalDeEntrada()).toBeNull();
+    procesarMensajeLibre.mockReset().mockResolvedValue('ok');
   });
 
   it('audio ilegible (transcripción vacía) → mensaje amable, sin tocar el NLP', async () => {

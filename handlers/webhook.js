@@ -20,6 +20,7 @@ const { escanearGmailYRegistrar } = require('../services/gmail-scanner');
 const { tieneGmailConectado } = require('../gmail');
 const { verificarCuentaWebPorBsuid, mensajeOtpBsuid } = require('../services/otp-sin-numero');
 const { descargarMedia, transcribirAudio, extraerPagoDeImagen } = require('../services/media-intake');
+const { conContextoDeMensaje, fijarCanal } = require('../lib/canal-entrada');
 const { generarResumenSemanal } = require('../services/summaries');
 const { guardarMensaje, resolverUsuarioEntrante, getUserPlanConfig } = require('../helpers/db-helpers');
 const { checkProWall } = require('../helpers/pro-wall');
@@ -216,7 +217,13 @@ function limiteRemitenteSuperado(clave) {
 }
 
 function createWebhookHandler(procesarMensajeLibre) {
-  return async function webhookHandler(req, res) {
+  // Cada request corre en su propio contexto para que `guardarTransaccion` sepa por qué canal
+  // entró el mensaje que la llamó (texto, audio, imagen, archivo). Ver `lib/canal-entrada.js`.
+  return function webhookHandler(req, res) {
+    return conContextoDeMensaje(() => procesarWebhook(req, res));
+  };
+
+  async function procesarWebhook(req, res) {
   const META_APP_SECRET = process.env.META_APP_SECRET;
   if (!META_APP_SECRET) {
     log.error({ tag: 'WEBHOOK' }, 'META_APP_SECRET no configurado — rechazando request');
@@ -283,6 +290,9 @@ function createWebhookHandler(procesarMensajeLibre) {
     }
     if (!messages || messages.length === 0) return;
     const message = messages[0];
+    // El canal se fija con el tipo ORIGINAL: el bloque de audio de más abajo reescribe
+    // `message.type` a 'text' para reusar el pipeline, y después de eso el audio ya no se ve.
+    fijarCanal(message.type);
     // Tres nombres para dos datos, y la separación es a propósito (12-sep-2026):
     //   · `numero` es la identidad por teléfono, cuando Meta la manda;
     //   · `bsuid` es el BSUID del remitente. Medido con tráfico real el 08-ago-2026: llega en
@@ -718,7 +728,8 @@ function createWebhookHandler(procesarMensajeLibre) {
         }
 
         // 4. Reinyectar en el pipeline de texto: el resto del handler procesa `message`
-        // como si el usuario hubiera escrito la transcripción.
+        // como si el usuario hubiera escrito la transcripción. El canal 'audio' ya quedó fijado
+        // arriba con el tipo original, así que el movimiento que salga de acá se cuenta como audio.
         message.type = 'text';
         message.text = { body: texto };
       } catch (e) {
@@ -1349,7 +1360,7 @@ function createWebhookHandler(procesarMensajeLibre) {
     }
   } catch (error) { log.error({ tag: 'WEBHOOK', err: error.message }, 'Error en webhook'); notificarErrorAdmin('WEBHOOK', error.message); registrarError('WEBHOOK', error.message, { stack: error.stack, whatsapp: numero, bsuid, usuarioId: usuarioCtx && usuarioCtx.id }); }
 
-  };
+  }
 }
 
 module.exports = createWebhookHandler;
