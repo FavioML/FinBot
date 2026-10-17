@@ -5,7 +5,7 @@ const log = require('../../lib/logger');
 const { colaConfirmacionGasto, estaEnMuro } = require('../../lib/trial');
 const { validarMonto } = require('../../lib/validators');
 const { subcategoriaUtil, esSubSinClasificar } = require('../../lib/subcategoria');
-const { extraerGastoSinIA, quitarTokensDeMoneda, contarMontosCandidatos, mencionaMonedaNoSoportada, montoEscritoEnMensaje, tipoContradiceElMensaje, montosDeMovimiento, sentidosDelTexto } = require('../../lib/nlp-guards');
+const { extraerGastoSinIA, quitarTokensDeMoneda, contarMontosCandidatos, mencionaMonedaNoSoportada, montoEscritoEnMensaje, tipoContradiceElMensaje, montosDeMovimiento } = require('../../lib/nlp-guards');
 const { registrarError } = require('../../lib/error-monitor');
 const { revisarEdicion, pedirOrden } = require('../../lib/orden-edicion');
 const { pideAlcanceRetroactivo } = require('../../lib/datos-dichos');
@@ -61,11 +61,21 @@ function preguntaTipoDudoso(parsed) {
 
 const RE_PREGUNTA_TIPO = /^¿Esos (S\/|\$)(\d+(?:\.\d{2})?) entraron o salieron\?/;
 const VENTANA_RESPUESTA_TIPO_MS = 30 * 60 * 1000;
-const NO_LETRA = '(?<![a-zñáéíóúü])';
-const FIN_LETRA = '(?![a-zñáéíóúü])';
-const RE_SALIO = new RegExp(NO_LETRA + 'sali(?:ó|o|eron)' + FIN_LETRA, 'i');
-const RE_ENTRO = new RegExp(NO_LETRA + 'entr(?:ó|o|aron)' + FIN_LETRA, 'i');
-const RE_NEGACION = new RegExp(NO_LETRA + '(?:no|ni|nunca|tampoco)' + FIN_LETRA, 'i');
+// Las respuestas que valen, cerradas. La primera versión aceptaba "cualquier frase corta que nombre un
+// sentido" y la revisión adversarial midió lo que eso hacía: "Borra ese gasto", "mis gastos del mes",
+// "pagué la deuda", "ya lo anoté como gasto" o "Gasto de mañana" se guardaban como un gasto de S/X.
+// Se comparan sobre el texto sin tildes, sin puntuación y en minúsculas.
+const PREFIJO_RESPUESTA = '^(?:(?:si|ok|ya|claro) )?';
+const SUFIJO_RESPUESTA = '(?: (?:nomas|no mas))?$';
+const RE_RESPUESTA_GASTO = new RegExp(PREFIJO_RESPUESTA + '(?:(?:(?:es|fue|era) )?(?:(?:un|una) )?(?:gasto|egreso)|(?:lo )?gaste|salio|salieron)' + SUFIJO_RESPUESTA);
+const RE_RESPUESTA_INGRESO = new RegExp(PREFIJO_RESPUESTA + '(?:(?:(?:es|fue|era) )?(?:(?:un|una) )?ingreso|entro|entraron|me (?:lo |los )?pagaron)' + SUFIJO_RESPUESTA);
+const sinTildes = (t) => String(t).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+// Las fechas que el código resuelve solo, con los mismos guards de `ajustarFechaRegistro`. Lo que
+// quede después de sacarlas no puede parecer una fecha: no hay modelo que la lea, y saldría con la de hoy.
+const RE_FECHA_RESUELTA = /(?<![a-z])(?:ayer|antier|anteayer|hoy)(?![a-z])|(?<![a-z])hace\s+(?:\d{1,3}|un|una|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s+dias?(?![a-z])|(?<![a-z])el\s+(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo)\s+pasad[oa](?![a-z])/g;
+const RE_PISTA_DE_FECHA = new RegExp('(?<![a-z])(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|setiembre|septiembre|octubre|noviembre|diciembre'
+  + '|ene|feb|mar|abr|may|jun|jul|ago|sep|sept|set|oct|nov|dic|mes|semana|finde|anoche|pasad[oa]|manana|madrugada|tarde|noche|quincena|hace'
+  + '|lunes|martes|miercoles|jueves|viernes|sabado|domingo)(?![a-z])|(?<![a-z])del\\s+\\d|\\d(?:ro|ero|do|to|vo|mo|no|°|º)(?![a-z])');
 
 /**
  * ¿El mensaje contesta la pregunta FIJA de tipo ("¿Esos S/28 entraron o salieron?")? Devuelve
@@ -81,15 +91,17 @@ const RE_NEGACION = new RegExp(NO_LETRA + '(?:no|ni|nunca|tampoco)' + FIN_LETRA,
  * Es estado entre dos mensajes, lo que la memoria del borrado decidió evitar con el "sí". Por eso
  * todo lo que no calza vuelve al camino de siempre, y cada condición falla hacia ese lado:
  *  · lo ÚLTIMO de la ventana es la pregunta, idéntica a la que arma `preguntaTipoDudoso` (con algo
- *    pegado, o recortada, ya no es la pregunta fija), y de hace menos de 30 minutos;
- *  · la respuesta no trae cifras ni un monto en palabras ("gasté cincuenta" es otra plata), ni una
- *    pregunta, ni una negación ("no es gasto"), y tiene hasta seis palabras;
- *  · nombra UN sentido: `sentidosDelTexto` más "salió"/"entró", los verbos de la pregunta;
- *  · el turno anterior es de la persona, tiene cifras y el monto está escrito ahí (una pregunta
- *    sobre un monto que el modelo leyó mal no se convierte en plata), sin otra moneda;
- *  · si ese turno o la respuesta nombran una fecha que el código no resuelve solo ("el 13-oct",
- *    "el lunes"), no se toma: hoy saldría con la fecha de hoy. "ayer", "antier", "hace N días" y
- *    "el lunes pasado" sí, con los mismos guards del registro.
+ *    pegado, o recortada, ya no es la pregunta fija), de hace menos de 30 minutos, y el turno de antes
+ *    es de la persona;
+ *  · la respuesta es UNA de una lista cerrada ("gasto", "es un ingreso", "gasté", "salió", "entró",
+ *    "me pagaron", con "sí"/"ok" adelante o "nomás" atrás). `sentidosDelTexto` no alcanza para
+ *    decidir esto: dice "gasto" de "Borra ese gasto";
+ *  · el monto está escrito con cifras en el mensaje de la persona (una pregunta sobre un monto que el
+ *    modelo leyó mal no se convierte en plata), y la moneda de la pregunta es la de ese mensaje: "$35"
+ *    no entra como S/35, ni una moneda que Neto no anota;
+ *  · ese mensaje no nombra una fecha que el código no resuelva solo ("del 13 de oct", "anoche", "el
+ *    mes pasado"): sin el extractor saldría con la de hoy. "ayer", "antier", "hace N días" y "el
+ *    lunes pasado" sí, con los mismos guards del registro.
  */
 function respuestaAPreguntaDeTipo(msg, historial, ahora = Date.now()) {
   const h = Array.isArray(historial) ? historial : [];
@@ -104,22 +116,19 @@ function respuestaAPreguntaDeTipo(msg, historial, ahora = Date.now()) {
   const monto = Number(m[2]);
   if (!(monto > 0) || pregunta.mensaje !== preguntaTipoDudoso({ monto_dudoso: monto, moneda })) return null;
 
-  const texto = String(msg == null ? '' : msg).trim();
-  if (!texto || /\d/.test(texto) || montosDeMovimiento(texto).length > 0) return null;
-  if (/[?¿]/.test(texto) || RE_NEGACION.test(texto) || texto.split(/\s+/).length > 6) return null;
-  const s = sentidosDelTexto(texto);
-  const salio = s.gasto || RE_SALIO.test(texto);
-  const entro = s.ingreso || RE_ENTRO.test(texto);
-  if (salio === entro) return null;
+  const texto = String(msg == null ? '' : msg);
+  if (/[\d?¿]/.test(texto)) return null;
+  const respuesta = sinTildes(texto).replace(/[.,;:!¡]+/g, ' ').replace(/\s+/g, ' ').trim();
+  const tipo = RE_RESPUESTA_GASTO.test(respuesta) ? 'gasto' : RE_RESPUESTA_INGRESO.test(respuesta) ? 'ingreso' : null;
+  if (!tipo) return null;
 
   const original = String(previo.mensaje || '');
   if (!/\d/.test(original) || !montoEscritoEnMensaje(monto, original) || mencionaMonedaNoSoportada(original)) return null;
+  if (/\$|d[oó]lar|usd|dls|dlls|verdes/i.test(original) !== (moneda === 'USD')) return null;
   const { RE_FECHA_EXPLICITA } = require('../registro-multiple');
-  const { resolverFechaRelativa, resolverDiaSemanaPasado, hoyPeru } = require('../../lib/dates');
-  const ambos = original + ' ' + texto;
-  if (RE_FECHA_EXPLICITA.test(ambos.toLowerCase()) && !/(?<![a-z])hoy(?![a-z])/i.test(ambos)
-    && !resolverFechaRelativa(ambos, null, hoyPeru()) && !resolverDiaSemanaPasado(ambos, null, hoyPeru())) return null;
-  return { monto, moneda, tipo: salio ? 'gasto' : 'ingreso', texto: original };
+  const resto = sinTildes(original).replace(RE_FECHA_RESUELTA, ' ');
+  if (RE_FECHA_EXPLICITA.test(resto) || RE_PISTA_DE_FECHA.test(resto)) return null;
+  return { monto, moneda, tipo, texto: original };
 }
 
 // El LLM a veces clasifica queries como register_transaction tras un burst de gastos
@@ -765,7 +774,7 @@ module.exports = {
           // Los tres guards de fecha post-modelo (día de semana, fecha relativa y fecha inventada
           // sin mención). Viven en `ajustarFechaRegistro` para que el camino de varios movimientos
           // aplique exactamente los mismos.
-          parsed.fecha = require('../registro-multiple').ajustarFechaRegistro(respTipo ? respTipo.texto + ' ' + msg : msg, parsed.fecha, fechaHoy);
+          parsed.fecha = require('../registro-multiple').ajustarFechaRegistro(textoMovimiento, parsed.fecha, fechaHoy);
           // Re-clasificar con categorías y subcategorías custom del usuario
           // (disparada arriba, en paralelo con el parser).
           const detCat = await pDetCat;

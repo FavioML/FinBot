@@ -238,6 +238,7 @@ describe('fechas cortas que no son un segundo monto', () => {
   it.each([
     ['13 soles huevos el 13-oct', [13]],
     ['06.10 gaste 300', [300]],
+    ['06.10 di 300 soles a padres manutención', [300]],
     ['gasté 300 el 06.10.', [300]],
     ['06.10.2026 gaste 30', [30]],
     ['6.10.26 gaste 30', [30]],
@@ -257,6 +258,14 @@ describe('fechas cortas que no son un segundo monto', () => {
     ['pan 05.10 soles y leche 6', [5.1, 6]],
     ['gasté 06.10 en pan y 5 en leche', [6.1, 5]],
     ['1.500.000 y 20', [1500000, 20]],
+    // La primera versión tapaba todo "0X.YY" (revisión adversarial): el segundo gasto se perdía.
+    ['gasté 20 en taxi y 06.10 en pan', [20, 6.1]],
+    ['taxi 20, pan 06.10', [20, 6.1]],
+    ['uber 07.10 y taxi 8', [7.1, 8]],
+    ['pasaje 01.10 y menú 12', [1.1, 12]],
+    ['06.10 pan y taxi 5', [6.1, 5]],
+    ['06.10 dls y 5 pan', [6.1, 5]],
+    ['taxi 20 y pan 06.10 pagué con yape', [20, 6.1]],
   ])('sigue siendo plata: %s', (t, esperado) => {
     expect(seguros(t)).toEqual(esperado);
   });

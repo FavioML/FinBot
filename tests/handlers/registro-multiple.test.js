@@ -500,10 +500,11 @@ describe('ajustarFechaRegistro: los tres guards de fecha', () => {
     ['3-oct taxi 20', '2026-10-03'],
     ['17 de setiembre gasté 50', '2026-09-17'],
     ['gasté 30 el 03.10.2026', '2026-10-03'],
+    ['6.10.26 gaste 30', '2026-10-06'],
   ])('fecha corta dicha: se respeta (%s)', (texto, fecha) => {
     expect(ajustarFechaRegistro(texto, fecha, HOY)).toBe(fecha);
   });
-  it.each(['S/06.10 en pan', 'pan 6.10', '3-marketing 20'])('lo que no es fecha corta no la protege (%s)', (texto) => {
+  it.each(['S/06.10 en pan', 'pan 6.10', '3-marketing 20', 'gasté 06.10 soles en pan', 'uber 07.10', 'menú 12 a las 01.10', 'taxi 20, pan 06.10'])('lo que no es fecha corta no la protege (%s)', (texto) => {
     expect(ajustarFechaRegistro(texto, '2026-10-01', HOY)).toBe(HOY);
   });
 });

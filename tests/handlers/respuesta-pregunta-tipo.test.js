@@ -71,31 +71,33 @@ describe('respuestaAPreguntaDeTipo: cuándo un mensaje contesta la pregunta', ()
     ['Gasto', 'gasto'],
     ['Gasté', 'gasto'],
     ['fue un gasto', 'gasto'],
+    ['sí, gasto', 'gasto'],
+    ['Gasto nomás', 'gasto'],
     ['salió', 'gasto'],
     ['Salieron', 'gasto'],
     ['Es un ingreso', 'ingreso'],
     ['entró', 'ingreso'],
     ['entraron', 'ingreso'],
+    ['me pagaron', 'ingreso'],
   ])('"%s" → %s de S/28', (msg, tipo) => {
     expect(respuestaAPreguntaDeTipo(msg, ventana('28, tarjeta de débito'), AHORA))
       .toEqual({ monto: 28, moneda: 'PEN', tipo, texto: '28, tarjeta de débito' });
   });
 
   it('en dólares, con decimales', () => {
-    expect(respuestaAPreguntaDeTipo('gasto', ventana('12.50 netflix', PREGUNTA_USD), AHORA))
-      .toEqual({ monto: 12.5, moneda: 'USD', tipo: 'gasto', texto: '12.50 netflix' });
+    expect(respuestaAPreguntaDeTipo('gasto', ventana('12.50 dólares netflix', PREGUNTA_USD), AHORA))
+      .toEqual({ monto: 12.5, moneda: 'USD', tipo: 'gasto', texto: '12.50 dólares netflix' });
   });
 
+  // La lista cerrada es la defensa: la primera versión ("nombra un sentido y tiene hasta seis
+  // palabras") guardaba un gasto de S/X con cada uno de estos (revisión adversarial del 17-oct).
   it.each([
-    ['dos sentidos', 'gasto, no, ingreso'],
-    ['ningún sentido', 'ok'],
-    ['un sí suelto', 'sí'],
-    ['otra cifra', 'Gaste 300'],
-    ['un monto en palabras', 'gasté cincuenta'],
-    ['una negación', 'no es gasto'],
-    ['una pregunta', '¿gasto?'],
-    ['más de seis palabras', 'gasto en el mercado con mi tarjeta de débito ayer'],
-  ])('no contesta con %s ("%s")', (_, msg) => {
+    'mis gastos del mes', 'Quiero ver mis gastos', 'Borra ese gasto', 'elimina el gasto', 'cancela ese gasto',
+    'Gasto. Borra el anterior', 'gasto y borra el último', 'pagué la deuda', 'le pagué a Juan', 'Transferí a mi otra cuenta',
+    'ya lo anoté como gasto', 'ese gasto ya está', 'Gastos', 'ingresos', 'sin gasto', 'jamás gasté eso', 'nunca gasté eso',
+    'tampoco es gasto', 'no es gasto', 'Gasto de mañana', 'Gasto de ayer', 'gasto de una cosa que compré en el mercado',
+    'gasto, no, ingreso', 'ok', 'sí', 'Gaste 300', 'gasté cincuenta', '¿gasto?', 'pagué', 'entrada',
+  ])('no contesta: "%s"', (msg) => {
     expect(respuestaAPreguntaDeTipo(msg, ventana('28, tarjeta de débito'), AHORA)).toBeNull();
   });
 
@@ -109,21 +111,32 @@ describe('respuestaAPreguntaDeTipo: cuándo un mensaje contesta la pregunta', ()
     expect(respuestaAPreguntaDeTipo('Gasto', sinHora, AHORA)).toBeNull();
     // Después de la pregunta Neto ya dijo otra cosa: la pregunta no es lo último.
     expect(respuestaAPreguntaDeTipo('Gasto', [...ventana('28 x'), { rol: 'usuario', mensaje: 'hola', created_at: hace(0.5) }, { rol: 'neto', mensaje: '¡Hola!', created_at: hace(0.4) }], AHORA)).toBeNull();
+    // El turno de antes de la pregunta no es de la persona.
+    expect(respuestaAPreguntaDeTipo('Gasto', [{ rol: 'neto', mensaje: '28 te recuerdo tu deuda', created_at: hace(1.1) }, { rol: 'neto', mensaje: PREGUNTA_28, created_at: hace(1) }], AHORA)).toBeNull();
   });
 
-  it('el monto tiene que estar escrito en el mensaje que Neto preguntó', () => {
+  it('el monto tiene que estar escrito en el mensaje que Neto preguntó, con su moneda', () => {
     // Una pregunta sobre un monto que el modelo leyó mal no se vuelve plata.
     expect(respuestaAPreguntaDeTipo('Gasto', ventana('280 en algo'), AHORA)).toBeNull();
     expect(respuestaAPreguntaDeTipo('Gasto', ventana('veintiocho soles'), AHORA)).toBeNull();
     expect(respuestaAPreguntaDeTipo('Gasto', ventana('28 euros'), AHORA)).toBeNull();
     expect(respuestaAPreguntaDeTipo('Gasto', [{ rol: 'neto', mensaje: PREGUNTA_28, created_at: hace(1) }], AHORA)).toBeNull();
+    // La moneda de la pregunta la puso el modelo: tiene que ser la del mensaje.
+    expect(respuestaAPreguntaDeTipo('Gasto', ventana('$28 netflix'), AHORA)).toBeNull();
+    expect(respuestaAPreguntaDeTipo('Gasto', ventana('28 dólares'), AHORA)).toBeNull();
+    expect(respuestaAPreguntaDeTipo('Gasto', ventana('12.50 netflix', PREGUNTA_USD), AHORA)).toBeNull();
   });
 
-  it('una fecha que el código no resuelve solo no se toma; "ayer" sí', () => {
-    expect(respuestaAPreguntaDeTipo('Gasto', ventana('28 el 13-oct'), AHORA)).toBeNull();
-    expect(respuestaAPreguntaDeTipo('Gasto', ventana('28 el lunes'), AHORA)).toBeNull();
-    expect(respuestaAPreguntaDeTipo('Gasto', ventana('28 ayer'), AHORA)).not.toBeNull();
-    expect(respuestaAPreguntaDeTipo('Gasto', ventana('28 hoy'), AHORA)).not.toBeNull();
+  it.each([
+    '28 el 13-oct', '28 el lunes', '28.00 del 13 de oct', '28.00 13 oct', '28 del mes pasado', '28.00 hace una semana',
+    '28.00 el pasado 10', '28.00 del 1ro', '28 el finde', '28 en septiembre', '28.00 anoche', 'hoy vi 28.00 del 13-oct',
+    '06.10 gasté 28', '28 en la noche',
+  ])('una fecha que el código no resuelve solo no se toma: "%s"', (previo) => {
+    expect(respuestaAPreguntaDeTipo('Gasto', ventana(previo), AHORA)).toBeNull();
+  });
+
+  it.each(['28 ayer', '28 hoy', '28 hace 2 días', '28 el lunes pasado', '28 antier'])('las que sí resuelve: "%s"', (previo) => {
+    expect(respuestaAPreguntaDeTipo('Gasto', ventana(previo), AHORA)).not.toBeNull();
   });
 });
 
