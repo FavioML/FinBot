@@ -72,9 +72,13 @@ const RE_RESPUESTA_INGRESO = new RegExp(PREFIJO_RESPUESTA + '(?:(?:(?:es|fue|era
 const sinTildes = (t) => String(t).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 // Las fechas que el código resuelve solo, con los mismos guards de `ajustarFechaRegistro`. Lo que
 // quede después de sacarlas no puede parecer una fecha: no hay modelo que la lea, y saldría con la de hoy.
-const RE_FECHA_RESUELTA = /(?<![a-z])(?:ayer|antier|anteayer|hoy)(?![a-z])|(?<![a-z])hace\s+(?:\d{1,3}|un|una|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s+dias?(?![a-z])|(?<![a-z])el\s+(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo)\s+pasad[oa](?![a-z])/g;
+// "hace N días" sólo con cifras y hasta 365: con palabras ("hace dos días") el resolver la calcula pero el
+// guard de fecha inventada la pisa con hoy, y "antes de ayer" sale ayer (segunda revisión: los dos son
+// defectos de `ajustarFechaRegistro` también en el camino normal, en docs/DEFECTOS.md). Esos casos no se
+// toman: "hace" y "antes" quedan como pista.
+const RE_FECHA_RESUELTA = /(?<![a-z])(?:ayer|antier|anteayer|hoy)(?![a-z])|(?<![a-z])hace\s+(?:[1-9]\d?|[12]\d\d|3[0-5]\d|36[0-5])\s+dias?(?![a-z])|(?<![a-z])el\s+(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo)\s+pasad[oa](?![a-z])/g;
 const RE_PISTA_DE_FECHA = new RegExp('(?<![a-z])(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|setiembre|septiembre|octubre|noviembre|diciembre'
-  + '|ene|feb|mar|abr|may|jun|jul|ago|sep|sept|set|oct|nov|dic|mes|semana|finde|anoche|pasad[oa]|manana|madrugada|tarde|noche|quincena|hace'
+  + '|ene|feb|mar|abr|may|jun|jul|ago|sep|sept|set|oct|nov|dic|mes|semana|finde|anoche|pasad[oa]|manana|madrugada|tarde|noche|quincena|hace|antes|primero|primer|ultimo|navidad|cumple[a-z]*|vez'
   + '|lunes|martes|miercoles|jueves|viernes|sabado|domingo)(?![a-z])|(?<![a-z])del\\s+\\d|\\d(?:ro|ero|do|to|vo|mo|no|°|º)(?![a-z])');
 
 /**
@@ -125,6 +129,9 @@ function respuestaAPreguntaDeTipo(msg, historial, ahora = Date.now()) {
   const original = String(previo.mensaje || '');
   if (!/\d/.test(original) || !montoEscritoEnMensaje(monto, original) || mencionaMonedaNoSoportada(original)) return null;
   if (/\$|d[oó]lar|usd|dls|dlls|verdes/i.test(original) !== (moneda === 'USD')) return null;
+  // Con dos montos, uno quedaría afuera. Hoy no llega (ese mensaje va al camino de varios, que no hace
+  // esta pregunta), y la línea es para el día en que eso cambie.
+  if (montosDeMovimiento(original, { soloSeguras: true }).length > 1) return null;
   const { RE_FECHA_EXPLICITA } = require('../registro-multiple');
   const resto = sinTildes(original).replace(RE_FECHA_RESUELTA, ' ');
   if (RE_FECHA_EXPLICITA.test(resto) || RE_PISTA_DE_FECHA.test(resto)) return null;

@@ -239,6 +239,7 @@ describe('fechas cortas que no son un segundo monto', () => {
     ['13 soles huevos el 13-oct', [13]],
     ['06.10 gaste 300', [300]],
     ['06.10 di 300 soles a padres manutención', [300]],
+    ['06.10 gasté 20 en taxi', [20]],
     ['gasté 300 el 06.10.', [300]],
     ['06.10.2026 gaste 30', [30]],
     ['6.10.26 gaste 30', [30]],
@@ -266,6 +267,8 @@ describe('fechas cortas que no son un segundo monto', () => {
     ['06.10 pan y taxi 5', [6.1, 5]],
     ['06.10 dls y 5 pan', [6.1, 5]],
     ['taxi 20 y pan 06.10 pagué con yape', [20, 6.1]],
+    // Sin el monto detrás del verbo, el 06.10 es lo pagado (segunda revisión).
+    ['06.10 pagué de luz y taxi 20', [6.1, 20]],
   ])('sigue siendo plata: %s', (t, esperado) => {
     expect(seguros(t)).toEqual(esperado);
   });

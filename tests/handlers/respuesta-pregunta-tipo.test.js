@@ -124,6 +124,9 @@ describe('respuestaAPreguntaDeTipo: cuándo un mensaje contesta la pregunta', ()
     // La moneda de la pregunta la puso el modelo: tiene que ser la del mensaje.
     expect(respuestaAPreguntaDeTipo('Gasto', ventana('$28 netflix'), AHORA)).toBeNull();
     expect(respuestaAPreguntaDeTipo('Gasto', ventana('28 dólares'), AHORA)).toBeNull();
+    expect(respuestaAPreguntaDeTipo('Gasto', ventana('28 dls netflix'), AHORA)).toBeNull();
+    // Con dos montos en el mensaje uno quedaría afuera.
+    expect(respuestaAPreguntaDeTipo('Gasto', ventana('luz 28 agua 20'), AHORA)).toBeNull();
     expect(respuestaAPreguntaDeTipo('Gasto', ventana('12.50 netflix', PREGUNTA_USD), AHORA)).toBeNull();
   });
 
@@ -131,6 +134,9 @@ describe('respuestaAPreguntaDeTipo: cuándo un mensaje contesta la pregunta', ()
     '28 el 13-oct', '28 el lunes', '28.00 del 13 de oct', '28.00 13 oct', '28 del mes pasado', '28.00 hace una semana',
     '28.00 el pasado 10', '28.00 del 1ro', '28 el finde', '28 en septiembre', '28.00 anoche', 'hoy vi 28.00 del 13-oct',
     '06.10 gasté 28', '28 en la noche',
+    // Segunda revisión: "del 13" sin mes, palabras de número y "antes de ayer" (que los guards de fecha
+    // resuelven mal), "el primero" y un "hace" fuera de rango.
+    '28.00 del 13', '28.00 hace dos dias', '28 antes de ayer', '28 el primero', '28.00 hace 400 dias',
   ])('una fecha que el código no resuelve solo no se toma: "%s"', (previo) => {
     expect(respuestaAPreguntaDeTipo('Gasto', ventana(previo), AHORA)).toBeNull();
   });
