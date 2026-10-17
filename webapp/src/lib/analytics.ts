@@ -14,6 +14,11 @@ export const EVENTS = {
   // activo) y la respuesta es podar tipos. Si no abren, el problema es el CANAL.
   NOTIFICATIONS_OPENED: 'notifications_opened',
   NOTIFICATION_CLICKED: 'notification_clicked',
+  // Movimientos nuevos en Transacciones (migración 091). Miden si la marca se usa: "Ya los vi"
+  // de golpe contra OK fila por fila contra abrirlas, y si alguien filtra para verlas.
+  TX_NUEVOS_VISTOS_TODOS: 'tx_nuevos_vistos_todos',
+  TX_NUEVO_VISTO: 'tx_nuevo_visto',
+  TX_FILTRO_NUEVOS: 'tx_filtro_nuevos',
 } as const;
 
 type EventName = (typeof EVENTS)[keyof typeof EVENTS];

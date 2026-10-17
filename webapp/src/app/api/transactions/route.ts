@@ -207,6 +207,8 @@ export async function POST(request: Request) {
       fecha: body.fecha,
       metodo_pago: body.metodo_pago || null,
       dedup_hash: dedupHash,
+      // Lo acaba de crear la persona: nace visto. Sin esto se marcaría "Nuevo" su propio gasto.
+      vista_at: new Date().toISOString(),
     })
     .select()
     .single();
@@ -266,6 +268,8 @@ export async function PUT(request: Request) {
       subcategoria,
       fecha: body.fecha,
       metodo_pago: body.metodo_pago || null,
+      // Editarla es haberla visto: le quita la marca de "Nuevo".
+      vista_at: new Date().toISOString(),
     })
     .eq('id', body.id)
     .eq('usuario_id', userId)
@@ -323,6 +327,10 @@ export async function PATCH(request: Request) {
 
   if (Object.keys(cleanUpdates).length === 0)
     return NextResponse.json({ error: 'Sin campos validos' }, { status: 400 });
+
+  // Va DESPUÉS del chequeo de arriba a propósito: no es un campo que la persona elija, así que
+  // no puede convertir un lote vacío en válido. Editar en lote también es haberlas visto.
+  cleanUpdates.vista_at = new Date().toISOString();
 
   // Update all matching transactions owned by user
   const { error, count } = await getServiceClient()

@@ -25,6 +25,9 @@ import {
   ChevronsRight,
   Settings2,
   AlertCircle,
+  Sparkles,
+  Mail,
+  Check,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -68,6 +71,8 @@ import type { Transaccion } from '@/lib/types';
 import { montoPen } from '@/lib/tx-monto';
 import { TxMonto } from '@/components/shared/tx-monto';
 import { HeaderActions } from '@/components/dashboard/topbar';
+import { esNueva, contarNuevas, vinoDelCorreo, tandasDeIds } from '@/lib/tx-nuevas';
+import { track, EVENTS } from '@/lib/analytics';
 
 const PAGE_SIZE = 20;
 /** Selección vacía compartida: nunca se muta, los cambios siempre arman un Set nuevo. */
@@ -179,6 +184,18 @@ export default function TransaccionesPage() {
   // Alcance del filtro "Por revisar": 'periodo' (solo el mes/año visible, respeta el
   // selector) o 'global' (backlog de todos los meses, escape hatch).
   const [porRevisarScope, setPorRevisarScope] = useState<'periodo' | 'global'>('periodo');
+  // Movimientos nuevos (migración 091): los que entraron por WhatsApp o Gmail y todavía no se
+  // vieron acá. Se cuentan sobre TODO el historial, como "Por revisar" global: Gmail trae a veces
+  // cargos del mes anterior, y con el contador atado al periodo quedarían escondidos.
+  const nuevas = useMemo(() => contarNuevas(allTransactions), [allTransactions]);
+  const [filtroNuevosElegido, setFiltroNuevos] = useState<'off' | 'todos' | 'correo'>('off');
+  // Al ver la última, el filtro se apaga solo: si no, la lista queda en "Sin resultados". Y se
+  // apaga en el ESTADO, no solo en el valor derivado: si no, el siguiente movimiento que llegara
+  // lo volvería a prender solo, con el selector de periodo bloqueado.
+  const filtroNuevos =
+    nuevas.total === 0 || (filtroNuevosElegido === 'correo' && nuevas.delCorreo === 0) ? 'off' : filtroNuevosElegido;
+  if (filtroNuevos !== filtroNuevosElegido) setFiltroNuevos(filtroNuevos);
+  const verNuevos = filtroNuevos !== 'off';
   const [subcategoriaFilter, setSubcategoriaFilter] = useState(subParam ?? 'all');
   const [metodoPagoFilter, setMetodoPagoFilter] = useState('all');
 
@@ -189,7 +206,8 @@ export default function TransaccionesPage() {
   // Página y selección van atadas al periodo: al cambiarlo (por el selector, por el mes o por el
   // botón Atrás) vuelven solas a la página 1 y a nada seleccionado. Antes la selección sobrevivía
   // al cambio de periodo, y un borrado masivo podía llevarse filas que ya no estaban a la vista.
-  const clavePeriodo = `${periodo.tipo}:${periodo.desde}:${periodo.hasta}`;
+  // El filtro "Solo nuevos" entra en la clave por lo mismo: cambia qué filas se ven.
+  const clavePeriodo = `${periodo.tipo}:${periodo.desde}:${periodo.hasta}:${filtroNuevos}`;
 
   // Pagination
   const [pageState, setPageState] = useState({ clave: clavePeriodo, n: 1 });
@@ -316,7 +334,11 @@ export default function TransaccionesPage() {
     // en 'periodo' respeta el mes/año visible como cualquier otro filtro. El resto de
     // filtros siempre respetan el periodo.
     const porRevisarGlobal = categoriaFilter === CATEGORIA_POR_REVISAR && porRevisarScope === 'global';
-    let result = [...(porRevisarGlobal ? allTransactions : transactions)];
+    let result = [...(porRevisarGlobal || verNuevos ? allTransactions : transactions)];
+
+    if (verNuevos) {
+      result = result.filter((t) => esNueva(t) && (filtroNuevos === 'todos' || vinoDelCorreo(t)));
+    }
 
     // Type filter
     if (tipoFilter !== 'todos') {
@@ -366,10 +388,11 @@ export default function TransaccionesPage() {
     });
 
     return result;
-  }, [transactions, allTransactions, tipoFilter, categoriaFilter, porRevisarScope, subcategoriaFilter, metodoPagoFilter, search, sortField, sortDir]);
+  }, [transactions, allTransactions, verNuevos, filtroNuevos, tipoFilter, categoriaFilter, porRevisarScope, subcategoriaFilter, metodoPagoFilter, search, sortField, sortDir]);
 
   // Whether any filter narrows the period's transactions
   const hasActiveFilters =
+    verNuevos ||
     tipoFilter !== 'todos' ||
     categoriaFilter !== 'all' ||
     subcategoriaFilter !== 'all' ||
@@ -402,7 +425,66 @@ export default function TransaccionesPage() {
   );
   const porRevisarOtherCount = Math.max(0, porRevisarGlobalCount - porRevisarPeriodCount);
   const porRevisarActive = categoriaFilter === CATEGORIA_POR_REVISAR;
-  const periodBloqueado = porRevisarActive && porRevisarScope === 'global';
+  const periodBloqueado = (porRevisarActive && porRevisarScope === 'global') || verNuevos;
+
+  // Marca como vistas estas filas. Optimista: la marca se va al instante y, si el servidor falla,
+  // se vuelve a leer la lista, que trae la verdad. Siempre por id, nunca "todas las NULL": un
+  // movimiento que el barrido de Gmail escribió después de cargar la página no se vio.
+  const marcarVistas = useCallback(
+    async (ids: string[]) => {
+      if (ids.length === 0) return;
+      const ahora = new Date().toISOString();
+      const marcar = new Set(ids);
+      // Sin `cancelQueries` a propósito: cancelaba la PRIMERA carga (la pantalla quedaba sin
+      // historial) o la recarga que sigue a una edición (la edición desaparecía hasta 5 minutos).
+      // Lo que se arriesga sin él es menor: una lectura en vuelo, hecha antes del UPDATE, puede
+      // volver a mostrar "Nuevo" en esa fila hasta la siguiente lectura (revisión del 16-oct).
+      queryClient.setQueriesData<Transaccion[]>({ queryKey: ['transactions'] }, (prev) =>
+        Array.isArray(prev) ? prev.map((t) => (esNueva(t) && marcar.has(t.id) ? { ...t, vista_at: ahora } : t)) : prev,
+      );
+      try {
+        for (const tanda of tandasDeIds(ids)) {
+          const res = await fetch('/api/transactions/vistas', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids: tanda }),
+          });
+          if (!res.ok) throw new Error(String(res.status));
+        }
+      } catch {
+        toast.error('No pudimos guardar que los viste. Intenta de nuevo.');
+        refreshTransactions();
+      }
+    },
+    [queryClient, refreshTransactions],
+  );
+
+  const marcarUnaVista = (tx: Transaccion, via: 'ok' | 'abrir') => {
+    if (!esNueva(tx)) return;
+    track(EVENTS.TX_NUEVO_VISTO, { via });
+    // Con "Solo nuevos" la fila sale de la lista: no puede seguir seleccionada para un borrado.
+    setSelectedIds((prev) => {
+      if (!prev.has(tx.id)) return prev;
+      const next = new Set(prev);
+      next.delete(tx.id);
+      return next;
+    });
+    void marcarVistas([tx.id]);
+  };
+
+  const verTodasLasNuevas = () => {
+    track(EVENTS.TX_NUEVOS_VISTOS_TODOS, { cantidad: nuevas.total });
+    setFiltroNuevos('off');
+    setPage(1);
+    void marcarVistas(allTransactions.filter(esNueva).map((t) => t.id));
+  };
+
+  const alternarFiltroNuevos = (modo: 'todos' | 'correo') => {
+    const siguiente = filtroNuevos === modo ? 'off' : modo;
+    if (siguiente !== 'off') track(EVENTS.TX_FILTRO_NUEVOS, { modo });
+    setFiltroNuevos(siguiente);
+    setPage(1);
+  };
 
   const activarPorRevisar = (scope: 'periodo' | 'global') => {
     setCategoriaFilter(CATEGORIA_POR_REVISAR);
@@ -691,6 +773,53 @@ export default function TransaccionesPage() {
           </div>
         );
       })()}
+
+      {/* Movimientos nuevos (migración 091). Va antes de "Por revisar": es lo primero que hay que
+          mirar al volver, y "Por revisar" es otra cosa (lo que Neto no supo categorizar). */}
+      {nuevas.total > 0 && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-primary/30 bg-primary/6 px-4 py-3">
+          <Sparkles className="h-4 w-4 shrink-0 text-primary-ink" />
+          <div className="min-w-0 flex-1 basis-56">
+            <p className="text-sm font-medium text-foreground">
+              Neto registró {nuevas.total} {nuevas.total === 1 ? 'movimiento que todavía no viste' : 'movimientos que todavía no viste'}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {verNuevos
+                ? 'Mostrando solo los nuevos, de todos los meses.'
+                : nuevas.delCorreo > 0
+                  ? `${nuevas.delCorreo} ${nuevas.delCorreo === 1 ? 'llegó' : 'llegaron'} de tu correo. Revisa que el monto y la categoría estén bien.`
+                  : 'Revisa que el monto y la categoría estén bien.'}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              aria-pressed={filtroNuevos === 'todos'}
+              onClick={() => alternarFiltroNuevos('todos')}
+              className={filtroNuevos === 'todos' ? 'border-primary/50 bg-primary/10 text-primary-ink' : 'border-border text-foreground-soft'}
+            >
+              Solo nuevos ({nuevas.total})
+            </Button>
+            {nuevas.delCorreo > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                aria-pressed={filtroNuevos === 'correo'}
+                onClick={() => alternarFiltroNuevos('correo')}
+                className={filtroNuevos === 'correo' ? 'border-primary/50 bg-primary/10 text-primary-ink' : 'border-border text-foreground-soft'}
+              >
+                <Mail className="h-3.5 w-3.5" />
+                Del correo ({nuevas.delCorreo})
+              </Button>
+            )}
+            <Button size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={verTodasLasNuevas}>
+              <Check className="h-3.5 w-3.5" />
+              Ya los vi
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Por revisar — el banner se acota al periodo visible (matchea el contexto) y
           ofrece un escape hatch al backlog global de fuera del periodo. */}
@@ -987,8 +1116,9 @@ export default function TransaccionesPage() {
                     tx={tx}
                     selected={selectedIds.has(tx.id)}
                     onToggleSelect={() => toggleSelect(tx.id)}
-                    onEdit={() => setEditTransaction(tx)}
+                    onEdit={() => { setEditTransaction(tx); marcarUnaVista(tx, 'abrir'); }}
                     onDelete={() => setDeleteTransaction(tx)}
+                    onVista={() => marcarUnaVista(tx, 'ok')}
                   />
                 ))}
               </TableBody>
@@ -1008,8 +1138,9 @@ export default function TransaccionesPage() {
                   tx={tx}
                   selected={selectedIds.has(tx.id)}
                   onToggleSelect={() => toggleSelect(tx.id)}
-                  onEdit={() => setEditTransaction(tx)}
+                  onEdit={() => { setEditTransaction(tx); marcarUnaVista(tx, 'abrir'); }}
                   onDelete={() => setDeleteTransaction(tx)}
+                  onVista={() => marcarUnaVista(tx, 'ok')}
                 />
               </motion.div>
             ))}
@@ -1122,6 +1253,40 @@ export default function TransaccionesPage() {
   );
 }
 
+// --- Marca de movimiento nuevo (migración 091) ---
+
+function NuevoPill() {
+  return (
+    <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-primary/12 px-2 py-0.5 text-xs font-semibold text-primary-ink">
+      <span className="h-1.5 w-1.5 rounded-full bg-primary" aria-hidden />
+      Nuevo
+    </span>
+  );
+}
+
+function OrigenCorreo() {
+  return (
+    <span className="inline-flex items-center gap-1 whitespace-nowrap text-xs text-muted-foreground" title="Llegó de tu correo">
+      <Mail className="h-3 w-3" aria-hidden />
+      Correo
+    </span>
+  );
+}
+
+function BotonVista({ comercio, onVista }: { comercio: string; onVista: () => void }) {
+  return (
+    <Button
+      variant="outline"
+      size="xs"
+      onClick={onVista}
+      aria-label={`Marcar ${comercio} como visto`}
+      className="border-primary/40 font-semibold text-primary-ink hover:bg-primary/10"
+    >
+      OK
+    </Button>
+  );
+}
+
 // --- Desktop table row ---
 
 function TransactionTableRow({
@@ -1130,18 +1295,25 @@ function TransactionTableRow({
   onToggleSelect,
   onEdit,
   onDelete,
+  onVista,
 }: {
   tx: Transaccion;
   selected: boolean;
   onToggleSelect: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onVista: () => void;
 }) {
   const isIngreso = tx.tipo === 'ingreso';
   const emoji = getCategoriaEmoji(tx.categoria);
+  const nueva = esNueva(tx);
 
   return (
-    <TableRow className={`border-border hover:bg-foreground/[0.03] transition-colors duration-150 ${selected ? 'bg-primary/6' : ''}`}>
+    <TableRow
+      className={`border-border hover:bg-foreground/[0.03] transition-colors duration-150 ${
+        selected ? 'bg-primary/6' : nueva ? 'bg-primary/5' : ''
+      } ${nueva ? 'shadow-[inset_3px_0_0_var(--primary)] animate-tx-nueva' : ''}`}
+    >
       <TableCell>
         <input
           type="checkbox"
@@ -1152,7 +1324,11 @@ function TransactionTableRow({
       </TableCell>
       <TableCell className="text-xs text-muted-foreground">{formatFecha(tx.fecha)}</TableCell>
       <TableCell className="text-sm text-foreground">
-        {tx.comercio || tx.descripcion_original || '-'}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span>{tx.comercio || tx.descripcion_original || '-'}</span>
+          {nueva && <NuevoPill />}
+          {nueva && vinoDelCorreo(tx) && <OrigenCorreo />}
+        </div>
       </TableCell>
       <TableCell>
         <Badge
@@ -1176,7 +1352,8 @@ function TransactionTableRow({
         />
       </TableCell>
       <TableCell>
-        <div className="flex gap-1">
+        <div className="flex items-center gap-1">
+          {nueva && <BotonVista comercio={tx.comercio || 'este movimiento'} onVista={onVista} />}
           <Button
             variant="ghost"
             size="icon-xs"
@@ -1207,19 +1384,26 @@ function TransactionCard({
   onToggleSelect,
   onEdit,
   onDelete,
+  onVista,
 }: {
   tx: Transaccion;
   selected: boolean;
   onToggleSelect: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onVista: () => void;
 }) {
   const isIngreso = tx.tipo === 'ingreso';
   const emoji = getCategoriaEmoji(tx.categoria);
+  const nueva = esNueva(tx);
 
+  // El borde izquierdo ya dice gasto o ingreso, así que acá la marca de nuevo es el fondo y el
+  // contorno, no una barra.
   return (
     <div
-      className={`glass-card p-4 border-l-2 transition-colors hover:bg-foreground/2 ${selected ? 'bg-primary/6' : ''}`}
+      className={`glass-card p-4 border-l-2 transition-colors hover:bg-foreground/2 ${selected ? 'bg-primary/6' : ''} ${
+        nueva ? 'tx-nueva animate-tx-nueva' : ''
+      }`}
       style={{ borderLeftColor: isIngreso ? 'var(--positive)' : 'var(--negative)' }}
     >
       <div className="flex items-start justify-between gap-3">
@@ -1238,6 +1422,8 @@ function TransactionCard({
             >
               {emoji} {tx.categoria}
             </Badge>
+            {nueva && <NuevoPill />}
+            {nueva && vinoDelCorreo(tx) && <OrigenCorreo />}
           </div>
           <p className="text-sm text-foreground truncate">
             {tx.comercio || tx.descripcion_original || tx.subcategoria}
@@ -1260,7 +1446,8 @@ function TransactionCard({
             className="text-sm font-semibold whitespace-nowrap"
             style={{ color: isIngreso ? 'var(--positive-ink)' : 'var(--negative-ink)' }}
           />
-          <div className="flex gap-1">
+          <div className="flex items-center gap-1">
+            {nueva && <BotonVista comercio={tx.comercio || 'este movimiento'} onVista={onVista} />}
             <Button
               variant="ghost"
               size="icon-xs"

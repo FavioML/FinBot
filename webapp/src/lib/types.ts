@@ -58,6 +58,10 @@ export interface Transaccion {
   descripcion_original?: string;
   confirmado: boolean;
   created_at: string;
+  /** Cuándo la vio en la webapp. `null` = nueva (migración 091). Opcional porque las filas demo no la traen. */
+  vista_at?: string | null;
+  /** Presente cuando la registró el barrido de Gmail. */
+  gmail_msg_id?: string | null;
 }
 
 export interface Presupuesto {

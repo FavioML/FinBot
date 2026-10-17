@@ -604,6 +604,27 @@ main {
   animation: barra-progreso 0.8s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* Movimiento nuevo en Transacciones (migración 091): UN pulso al aparecer, y la marca fija queda.
+ *
+ * Solo `from`, igual que la barra de arriba: la animación sale de un tinte fuerte hacia el fondo
+ * natural de la fila, que es el tinte suave de la clase. Con prefers-reduced-motion el bloque
+ * global colapsa la duración y la fila queda directo en su estado final, marcada. No parpadea a
+ * propósito: un parpadeo que se apaga solo deja sin marca justo lo que no se alcanzó a mirar. */
+@keyframes tx-nueva-pulso {
+  from { background-color: color-mix(in srgb, var(--primary) 24%, transparent); }
+}
+.animate-tx-nueva {
+  animation: tx-nueva-pulso 1.2s ease-out;
+}
+
+/* La card de celular necesita su propia regla: `.glass-card` vive fuera de @layer y le gana a
+ * cualquier utilidad de Tailwind (`bg-primary/5`, `ring-*`), así que con clases la marca no se
+ * veía. Medido en la captura a 390 px del 16-oct. */
+.glass-card.tx-nueva {
+  background: color-mix(in srgb, var(--primary) 7%, var(--card));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 45%, transparent), 0 4px 16px var(--shadow-color);
+}
+
 /* Reporte impreso (Ctrl+P en /dashboard/reportes). Vivia como <style jsx> en esa pagina y se
  * movio aca para que los .tsx no lleven colores. Imprime en el tema claro (el bloque oscuro esta
  * dentro de `@media not print`); aca solo se ajusta lo propio del papel. */

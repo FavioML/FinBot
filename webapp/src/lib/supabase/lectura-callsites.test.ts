@@ -52,6 +52,9 @@ const SIN_MURO = new Set([
   // pero la razón era la contraria a la del backend, y el usuario recibía un 402 que decía
   // "no puedes leer" sobre una operación de escritura.
   'api/transactions/import/route.ts',
+  // Marcar movimientos como vistos (migración 091) escribe una fecha y devuelve solo cuántas
+  // filas tocó: ningún dato financiero. Gatearla no protegería nada de lo que el muro cobra.
+  'api/transactions/vistas/route.ts',
   // Conversión
   'api/pro/status/route.ts',
   'api/pro/bancos/route.ts',

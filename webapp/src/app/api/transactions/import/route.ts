@@ -93,6 +93,9 @@ export async function POST(request: Request) {
   // (evita que dos líneas idénticas dupliquen). El import es siempre en PEN.
   const seen = new Set<string>();
   const toInsert: Record<string, unknown>[] = [];
+  // Lo importa la persona desde la webapp: nace visto. Sin esto un Excel de 300 filas
+  // llenaría la pantalla de "Nuevo".
+  const vistaAt = new Date().toISOString();
   let descartadas = 0;
   for (const r of rows) {
     const monto = parseMontoDinero(r.monto);
@@ -124,6 +127,7 @@ export async function POST(request: Request) {
       banco: r.banco || null,
       descripcion_original: 'Import webapp: ' + (comercio || ''),
       dedup_hash: dedupHash,
+      vista_at: vistaAt,
     });
   }
 
