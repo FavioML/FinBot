@@ -47,7 +47,10 @@ const MOTIVOS = {
   fecha: 'no sé de qué día es. Mándamelo con su fecha.',
 };
 
-const RE_FECHA_EXPLICITA = /\bayer\b|\bantier\b|\banteayer\b|\bhoy\b|\b(lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)\b|\bla\s+semana\s+pasada\b|hace\s+\d+\s*(d[ií]a|hora|semana|mes)|\bel\s+\d{1,2}(\s+de\s+\w+)?\b|\b\d{1,2}\s*\/\s*\d{1,2}\b|\b\d{1,2}-\d{1,2}\b/i;
+// Las tres últimas formas (17-oct-2026) son las mismas fechas cortas que `montosDeMovimiento` dejó de
+// leer como monto: "13-oct", "17 de setiembre" sin "el" y "06.10" (con cero adelante, o con año). Sin
+// ellas este guard pisaba con la fecha de hoy una fecha que el modelo había leído bien.
+const RE_FECHA_EXPLICITA = /\bayer\b|\bantier\b|\banteayer\b|\bhoy\b|\b(lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)\b|\bla\s+semana\s+pasada\b|hace\s+\d+\s*(d[ií]a|hora|semana|mes)|\bel\s+\d{1,2}(\s+de\s+\w+)?\b|\b\d{1,2}\s*\/\s*\d{1,2}\b|\b\d{1,2}-\d{1,2}\b|\b\d{1,2}-(?:ene(?:ro)?|feb(?:rero)?|mar(?:zo)?|abr(?:il)?|may(?:o)?|jun(?:io)?|jul(?:io)?|ago(?:sto)?|sep(?:t|tiembre)?|set(?:iembre)?|oct(?:ubre)?|nov(?:iembre)?|dic(?:iembre)?)\b|\b\d{1,2}\s+de\s+(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|setiembre|septiembre|octubre|noviembre|diciembre)\b|(?<![\d.,/$])(?:0[1-9]\.(?:0[1-9]|1[0-2])|\d{1,2}\.(?:0?[1-9]|1[0-2])\.(?:(?:19|20)\d{2}|\d{2}))(?![\d]|[.,]\d)/i;
 
 /**
  * La fecha del registro después de los tres guards post-modelo (día de semana, fecha relativa y
@@ -468,4 +471,4 @@ const RE_OTRA_OPERACION = new RegExp([
 ].join('|'));
 const pideOtraOperacion = (msg) => RE_OTRA_OPERACION.test(normalizarIgualLargo(msg));
 
-module.exports = { registrarVariosMovimientos, ajustarFechaRegistro, validarSeparacion, motivoDeRechazo, pideOtraOperacion };
+module.exports = { registrarVariosMovimientos, ajustarFechaRegistro, validarSeparacion, motivoDeRechazo, pideOtraOperacion, RE_FECHA_EXPLICITA };

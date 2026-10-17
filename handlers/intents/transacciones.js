@@ -5,7 +5,7 @@ const log = require('../../lib/logger');
 const { colaConfirmacionGasto, estaEnMuro } = require('../../lib/trial');
 const { validarMonto } = require('../../lib/validators');
 const { subcategoriaUtil, esSubSinClasificar } = require('../../lib/subcategoria');
-const { extraerGastoSinIA, quitarTokensDeMoneda, contarMontosCandidatos, mencionaMonedaNoSoportada, montoEscritoEnMensaje, tipoContradiceElMensaje, montosDeMovimiento } = require('../../lib/nlp-guards');
+const { extraerGastoSinIA, quitarTokensDeMoneda, contarMontosCandidatos, mencionaMonedaNoSoportada, montoEscritoEnMensaje, tipoContradiceElMensaje, montosDeMovimiento, sentidosDelTexto } = require('../../lib/nlp-guards');
 const { registrarError } = require('../../lib/error-monitor');
 const { revisarEdicion, pedirOrden } = require('../../lib/orden-edicion');
 const { pideAlcanceRetroactivo } = require('../../lib/datos-dichos');
@@ -57,6 +57,69 @@ function preguntaTipoDudoso(parsed) {
   const usd = parsed.moneda === 'USD';
   const conMoneda = usd ? num + ' dólares' : num;
   return '¿Esos ' + (usd ? '$' : 'S/') + num + ' entraron o salieron? Escríbemelo con el verbo: "gasté ' + conMoneda + ' en…" o "me pagaron ' + conMoneda + '".';
+}
+
+const RE_PREGUNTA_TIPO = /^¿Esos (S\/|\$)(\d+(?:\.\d{2})?) entraron o salieron\?/;
+const VENTANA_RESPUESTA_TIPO_MS = 30 * 60 * 1000;
+const NO_LETRA = '(?<![a-zñáéíóúü])';
+const FIN_LETRA = '(?![a-zñáéíóúü])';
+const RE_SALIO = new RegExp(NO_LETRA + 'sali(?:ó|o|eron)' + FIN_LETRA, 'i');
+const RE_ENTRO = new RegExp(NO_LETRA + 'entr(?:ó|o|aron)' + FIN_LETRA, 'i');
+const RE_NEGACION = new RegExp(NO_LETRA + '(?:no|ni|nunca|tampoco)' + FIN_LETRA, 'i');
+
+/**
+ * ¿El mensaje contesta la pregunta FIJA de tipo ("¿Esos S/28 entraron o salieron?")? Devuelve
+ * `{ monto, moneda, tipo, texto }` o null. `texto` es el mensaje de la persona sobre el que Neto
+ * preguntó, el que trae el monto (17-oct-2026, arreglo intermedio de
+ * `memory/reports/neto-nlp-arquitectura-2026-10-17.md`).
+ *
+ * Hasta hoy "Gasto" contestando la pregunta se perdía 3 de 3: el clasificador sacaba el monto del
+ * historial, pero el extractor recibía la palabra sola, decidía `no_es_movimiento` y Neto contestaba
+ * "Eso no lo anoté". Acá no se le pregunta a ningún modelo: el monto lo escribió la persona, la
+ * pregunta es un texto de Neto y la respuesta nombra la dirección.
+ *
+ * Es estado entre dos mensajes, lo que la memoria del borrado decidió evitar con el "sí". Por eso
+ * todo lo que no calza vuelve al camino de siempre, y cada condición falla hacia ese lado:
+ *  · lo ÚLTIMO de la ventana es la pregunta, idéntica a la que arma `preguntaTipoDudoso` (con algo
+ *    pegado, o recortada, ya no es la pregunta fija), y de hace menos de 30 minutos;
+ *  · la respuesta no trae cifras ni un monto en palabras ("gasté cincuenta" es otra plata), ni una
+ *    pregunta, ni una negación ("no es gasto"), y tiene hasta seis palabras;
+ *  · nombra UN sentido: `sentidosDelTexto` más "salió"/"entró", los verbos de la pregunta;
+ *  · el turno anterior es de la persona, tiene cifras y el monto está escrito ahí (una pregunta
+ *    sobre un monto que el modelo leyó mal no se convierte en plata), sin otra moneda;
+ *  · si ese turno o la respuesta nombran una fecha que el código no resuelve solo ("el 13-oct",
+ *    "el lunes"), no se toma: hoy saldría con la fecha de hoy. "ayer", "antier", "hace N días" y
+ *    "el lunes pasado" sí, con los mismos guards del registro.
+ */
+function respuestaAPreguntaDeTipo(msg, historial, ahora = Date.now()) {
+  const h = Array.isArray(historial) ? historial : [];
+  const pregunta = h[h.length - 1];
+  const previo = h[h.length - 2];
+  if (!pregunta || pregunta.rol !== 'neto' || !previo || previo.rol !== 'usuario') return null;
+  const cuando = Date.parse(pregunta.created_at);
+  if (!Number.isFinite(cuando) || ahora - cuando > VENTANA_RESPUESTA_TIPO_MS) return null;
+  const m = String(pregunta.mensaje || '').match(RE_PREGUNTA_TIPO);
+  if (!m) return null;
+  const moneda = m[1] === '$' ? 'USD' : 'PEN';
+  const monto = Number(m[2]);
+  if (!(monto > 0) || pregunta.mensaje !== preguntaTipoDudoso({ monto_dudoso: monto, moneda })) return null;
+
+  const texto = String(msg == null ? '' : msg).trim();
+  if (!texto || /\d/.test(texto) || montosDeMovimiento(texto).length > 0) return null;
+  if (/[?¿]/.test(texto) || RE_NEGACION.test(texto) || texto.split(/\s+/).length > 6) return null;
+  const s = sentidosDelTexto(texto);
+  const salio = s.gasto || RE_SALIO.test(texto);
+  const entro = s.ingreso || RE_ENTRO.test(texto);
+  if (salio === entro) return null;
+
+  const original = String(previo.mensaje || '');
+  if (!/\d/.test(original) || !montoEscritoEnMensaje(monto, original) || mencionaMonedaNoSoportada(original)) return null;
+  const { RE_FECHA_EXPLICITA } = require('../registro-multiple');
+  const { resolverFechaRelativa, resolverDiaSemanaPasado, hoyPeru } = require('../../lib/dates');
+  const ambos = original + ' ' + texto;
+  if (RE_FECHA_EXPLICITA.test(ambos.toLowerCase()) && !/(?<![a-z])hoy(?![a-z])/i.test(ambos)
+    && !resolverFechaRelativa(ambos, null, hoyPeru()) && !resolverDiaSemanaPasado(ambos, null, hoyPeru())) return null;
+  return { monto, moneda, tipo: salio ? 'gasto' : 'ingreso', texto: original };
 }
 
 // El LLM a veces clasifica queries como register_transaction tras un burst de gastos
@@ -466,15 +529,41 @@ module.exports = {
           // de OpenAI (maxRetries 3, timeout 60s) sigue reintentando durante minutos una
           // respuesta que nadie espera, y encima quemando presupuesto de rate-limit — el 429
           // es la causa documentada de `salvarGastoSinIA`.
+          //
+          // La respuesta a la pregunta de tipo ("Gasto" a "¿Esos S/28 entraron o salieron?") no pasa
+          // por el extractor: la decidió `respuestaAPreguntaDeTipo` en message-processor, y el
+          // extractor, que no ve la conversación, con la palabra sola decía `no_es_movimiento`. Lo
+          // que describe el movimiento es el mensaje con el monto (`respTipo.texto`): de ahí salen la
+          // categoría, el comercio, la fecha y la descripción, y contra él se valida el monto. Desde
+          // acá sigue el camino de siempre, con `guardarTransaccion` y la misma cola.
+          // Se consume: vale para ESTE despacho, no para otro que el mismo mensaje dispare después.
+          const respTipo = ctx.respuestaTipo || null;
+          ctx.respuestaTipo = null;
+          const textoMovimiento = respTipo ? respTipo.texto : msg;
           const abortoDetCat = new AbortController();
-          const pDetCat = detectarCategoriaIA(msg, usuario.id, { signal: abortoDetCat.signal });
+          const pDetCat = detectarCategoriaIA(textoMovimiento, usuario.id, { signal: abortoDetCat.signal });
           pDetCat.catch(() => {});
           let parsed;
-          try {
-            parsed = await parsearRegistroManual(msg, fechaHoy);
-          } catch (eParser) {
-            abortoDetCat.abort();
-            throw eParser;
+          if (respTipo) {
+            const rescateTexto = extraerGastoSinIA(respTipo.texto);
+            parsed = {
+              ok: true,
+              monto: respTipo.monto,
+              moneda: respTipo.moneda,
+              tipo: respTipo.tipo,
+              comercio: (rescateTexto && rescateTexto.monto === respTipo.monto && rescateTexto.comercio) || 'Sin comercio',
+              categoria: respTipo.tipo === 'ingreso' ? 'Finanzas' : 'Otros',
+              subcategoria: 'sin_categoria',
+              fecha: fechaHoy,
+              descripcion_original: respTipo.texto.trim().substring(0, 200),
+            };
+          } else {
+            try {
+              parsed = await parsearRegistroManual(msg, fechaHoy);
+            } catch (eParser) {
+              abortoDetCat.abort();
+              throw eParser;
+            }
           }
           // Neto anota soles y dólares, nada más. `guardarTransaccion` sólo convierte USD, así
           // que cualquier otra moneda se guardaba con `monto_pen = monto`: "20 euros" entraba
@@ -503,9 +592,9 @@ module.exports = {
           //    15mil soles" terminaba como gasto S/15, "50 céntimos" como S/50);
           //  · el tipo no puede contradecir el único sentido que nombra un verbo explícito
           //    ("me yapearon 50" como gasto). Si lo contradice, no se adivina: se pregunta.
-          if (parsed.ok && parsed.monto > 0 && !montoEscritoEnMensaje(parsed.monto, msg)) {
+          if (parsed.ok && parsed.monto > 0 && !montoEscritoEnMensaje(parsed.monto, textoMovimiento)) {
             abortoDetCat.abort();
-            log.warn({ tag: 'PARSER_MONTO_NO_ESCRITO', monto: parsed.monto, msg: (msg || '').substring(0, 80) }, 'El monto del parser no está en el mensaje: se pide el número');
+            log.warn({ tag: 'PARSER_MONTO_NO_ESCRITO', monto: parsed.monto, msg: (textoMovimiento || '').substring(0, 80) }, 'El monto del parser no está en el mensaje: se pide el número');
             return COPY_SIN_MONTO;
           }
           if (parsed.ok && tipoContradiceElMensaje(parsed.tipo, msg)) {
@@ -676,7 +765,7 @@ module.exports = {
           // Los tres guards de fecha post-modelo (día de semana, fecha relativa y fecha inventada
           // sin mención). Viven en `ajustarFechaRegistro` para que el camino de varios movimientos
           // aplique exactamente los mismos.
-          parsed.fecha = require('../registro-multiple').ajustarFechaRegistro(msg, parsed.fecha, fechaHoy);
+          parsed.fecha = require('../registro-multiple').ajustarFechaRegistro(respTipo ? respTipo.texto + ' ' + msg : msg, parsed.fecha, fechaHoy);
           // Re-clasificar con categorías y subcategorías custom del usuario
           // (disparada arriba, en paralelo con el parser).
           const detCat = await pDetCat;
@@ -1764,6 +1853,9 @@ module.exports = {
   }
 };
 module.exports.detectarQuerySinMonto = detectarQuerySinMonto;
+// Lo usa `message-processor`, antes del clasificador: la respuesta a la pregunta de tipo va directo
+// a `registrar_manual`, que la registra con el monto preguntado.
+module.exports.respuestaAPreguntaDeTipo = respuestaAPreguntaDeTipo;
 // Lo usa el menú de la cuenta (`handlers/onboarding.js`, paso -1): una orden de borrar "lo último"
 // con ese menú abierto no se sabe si habla del gasto o de la cuenta.
 module.exports.pideBorrarUnGasto = pideBorrarUnGasto;

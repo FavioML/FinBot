@@ -49,6 +49,7 @@ const { redactarConNETO } = require('../services/neto-gpt');
 const { escanearGmailYRegistrar } = require('../services/gmail-scanner');
 const { guardarMensaje, obtenerHistorial, getUserPlanConfig, getHistoryDateLimit } = require('../helpers/db-helpers');
 const { dispatchIntent } = require('./intent-registry');
+const { respuestaAPreguntaDeTipo } = require('./intents/transacciones');
 const { NETO_TOOLS, mapToolToIntent } = require('./neto-tools');
 const { construirNetoPrompt } = require('../lib/neto-prompt');
 const { obtenerSesionAbierta, registrarMensajeTicket } = require('../lib/support-tickets');
@@ -231,8 +232,15 @@ async function procesarMensajeLibre(msg, usuario, from, opciones = {}) {
     const atajoVarios = !!(detectarIngresoMasGastos(msg) || detectarMultiGasto(msg));
     if (atajoVarios) log.info({ tag: 'MULTI_GASTO', msg: msg.substring(0, 80) }, 'Lista de movimientos: va a registrar_manual sin clasificador');
 
+    // === La respuesta a "¿Esos S/X entraron o salieron?": también sin clasificador ===
+    // "Gasto" contestando la pregunta fija de Neto se perdía en el extractor, que no ve la
+    // conversación (17-oct-2026). Las condiciones, en `respuestaAPreguntaDeTipo`; el registro, en
+    // `registrar_manual`, que recibe el monto por `ctx.respuestaTipo`.
+    const respuestaTipo = atajoVarios ? null : respuestaAPreguntaDeTipo(msg, historialConv);
+    if (respuestaTipo) log.info({ tag: 'RESPUESTA_TIPO', monto: respuestaTipo.monto, tipo: respuestaTipo.tipo }, 'Respuesta a la pregunta de tipo: va a registrar_manual sin clasificador');
+
     // === OpenAI Function Calling — NLP inteligente ===
-    const nlpResponse = atajoVarios ? null : await openai.chat.completions.create({
+    const nlpResponse = (atajoVarios || respuestaTipo) ? null : await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
         {
@@ -311,7 +319,7 @@ async function procesarMensajeLibre(msg, usuario, from, opciones = {}) {
 
     const choice = nlpResponse ? nlpResponse.choices[0] : null;
 
-    if (atajoVarios) {
+    if (atajoVarios || respuestaTipo) {
       intencion = 'registrar_manual';
     } else if (choice.message.tool_calls && choice.message.tool_calls.length > 0) {
       const toolCall = choice.message.tool_calls[0];
@@ -422,6 +430,7 @@ async function procesarMensajeLibre(msg, usuario, from, opciones = {}) {
       redactarConNETO, escanearGmailYRegistrar,
       guardarMensaje, obtenerHistorial, getUserPlanConfig, getHistoryDateLimit,
       sinBorrados: !!opciones.sinBorrados,
+      respuestaTipo,
     };
 
     // === Dispatch (con el muro de lectura adentro) ========================

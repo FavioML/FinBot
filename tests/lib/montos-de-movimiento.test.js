@@ -226,3 +226,38 @@ describe('cuarta revisión adversarial', () => {
     expect(monedas('gasté 20lks en pollo')).toEqual(['PEN']);
   });
 });
+
+/**
+ * Fechas cortas (17-oct-2026, `memory/reports/neto-nlp-arquitectura-2026-10-17.md`): "13-oct" y
+ * "06.10" contaban como un segundo monto y mandaban un gasto al camino de varios. La máscara de
+ * "dd.mm" es ANGOSTA a propósito: la versión medida tapaba cualquier "d.m" y se comía el 34.5 de
+ * "70 … y 34.5 en el almuerzo". Los casos del segundo bloque fijan lo que sigue siendo plata.
+ */
+describe('fechas cortas que no son un segundo monto', () => {
+  const seguros = (t) => montosDeMovimiento(t, { soloSeguras: true }).map((m) => m.valor);
+  it.each([
+    ['13 soles huevos el 13-oct', [13]],
+    ['06.10 gaste 300', [300]],
+    ['gasté 300 el 06.10.', [300]],
+    ['06.10.2026 gaste 30', [30]],
+    ['6.10.26 gaste 30', [30]],
+    ['compré 3-set 40 y 20', [40, 20]],
+    ['200 otros el 17 de setiembre', [200]],
+  ])('%s', (t, esperado) => {
+    expect(seguros(t)).toEqual(esperado);
+    expect(valores(t)).toEqual(esperado);
+  });
+
+  it.each([
+    ['70 que realice antes de ayer en comprar juguetes y 34.5 en el almuerzo de hoy', [70, 34.5]],
+    ['6.10 gaste 300', [6.1, 300]],
+    ['luz 80.10 y agua 30', [80.1, 30]],
+    ['taxi 16.09 y cine 30', [16.09, 30]],
+    ['S/06.10 pan y 5 leche', [6.1, 5]],
+    ['pan 05.10 soles y leche 6', [5.1, 6]],
+    ['gasté 06.10 en pan y 5 en leche', [6.1, 5]],
+    ['1.500.000 y 20', [1500000, 20]],
+  ])('sigue siendo plata: %s', (t, esperado) => {
+    expect(seguros(t)).toEqual(esperado);
+  });
+});

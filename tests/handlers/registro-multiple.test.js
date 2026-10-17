@@ -493,6 +493,19 @@ describe('ajustarFechaRegistro: los tres guards de fecha', () => {
   it('fecha dicha: se respeta', () => {
     expect(ajustarFechaRegistro('gasté 20 en taxi el 05/10', '2026-10-05', HOY)).toBe('2026-10-05');
   });
+  // 17-oct-2026: las mismas fechas cortas que `montosDeMovimiento` dejó de leer como monto. Antes el
+  // guard pisaba con la fecha de hoy una fecha que el modelo había leído bien.
+  it.each([
+    ['06.10 gaste 300', '2026-10-06'],
+    ['3-oct taxi 20', '2026-10-03'],
+    ['17 de setiembre gasté 50', '2026-09-17'],
+    ['gasté 30 el 03.10.2026', '2026-10-03'],
+  ])('fecha corta dicha: se respeta (%s)', (texto, fecha) => {
+    expect(ajustarFechaRegistro(texto, fecha, HOY)).toBe(fecha);
+  });
+  it.each(['S/06.10 en pan', 'pan 6.10', '3-marketing 20'])('lo que no es fecha corta no la protege (%s)', (texto) => {
+    expect(ajustarFechaRegistro(texto, '2026-10-01', HOY)).toBe(HOY);
+  });
 });
 
 describe('pideOtraOperacion: sólo la orden, no la palabra', () => {
