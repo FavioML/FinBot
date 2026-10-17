@@ -1,7 +1,7 @@
 const log = require('../lib/logger');
 const { colaConfirmacionGasto } = require('../lib/trial');
 const { subcategoriaUtil } = require('../lib/subcategoria');
-const { resolverDiaSemanaPasado, resolverFechaRelativa } = require('../lib/dates');
+const { resolverDiaSemanaPasado, resolverFechaRelativa, NUMEROS_DE_DIAS } = require('../lib/dates');
 const { montosDeMovimiento, montoEscritoEnMensaje, tipoContradiceElMensaje, sentidosDelTexto } = require('../lib/nlp-guards');
 const { validarMonto } = require('../lib/validators');
 
@@ -47,7 +47,10 @@ const MOTIVOS = {
   fecha: 'no sé de qué día es. Mándamelo con su fecha.',
 };
 
-const RE_FECHA_EXPLICITA = /\bayer\b|\bantier\b|\banteayer\b|\bhoy\b|\b(lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)\b|\bla\s+semana\s+pasada\b|hace\s+\d+\s*(d[ií]a|hora|semana|mes)|\bel\s+\d{1,2}(\s+de\s+\w+)?\b|\b\d{1,2}\s*\/\s*\d{1,2}\b|\b\d{1,2}-\d{1,2}\b/i;
+// "hace" acepta cifras y las mismas palabras de número que resuelve `resolverFechaRelativa` (17-oct-2026):
+// con solo cifras, "hace dos días" no contaba como fecha dicha y el guard de fecha inventada pisaba con hoy
+// la fecha que el guard relativo acababa de calcular. La palabra pide espacio antes de la unidad.
+const RE_FECHA_EXPLICITA = new RegExp(String.raw`\bayer\b|\bantier\b|\banteayer\b|\bhoy\b|\b(lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)\b|\bla\s+semana\s+pasada\b|hace\s+(?:\d+\s*|\b(?:${NUMEROS_DE_DIAS})\s+)(d[ií]a|hora|semana|mes)|\bel\s+\d{1,2}(\s+de\s+\w+)?\b|\b\d{1,2}\s*\/\s*\d{1,2}\b|\b\d{1,2}-\d{1,2}\b`, 'i');
 
 /**
  * La fecha del registro después de los tres guards post-modelo (día de semana, fecha relativa y
@@ -217,7 +220,10 @@ function validarSeparacion(textos, msg) {
       texto: (/antes\s+de\s+$/i.test(msg.slice(0, m.index)) ? 'antes de ' : '') + m[0].trim(),
       paraOtraCosa: /(?:^|\s)para\s+(?:el\s+|la\s+)?$/i.test(msg.slice(0, m.index)),
     }));
-  const esDeHoy = (f) => /^(?:hoy|esta\s+(?:ma[ñn]ana|tarde|noche))$/i.test(f.texto);
+  // "hace una hora" / "hace 2 horas" también es de hoy: desde que `RE_FECHA_EXPLICITA` lee las palabras
+  // de número (17-oct), "taxi 8 hace una hora, cine 30" contaba una fecha que no se podía prestar y
+  // rebotaba el cine, que antes se anotaba con hoy (revisión adversarial de ese arreglo).
+  const esDeHoy = (f) => /^(?:hoy|esta\s+(?:ma[ñn]ana|tarde|noche)|hace\s+\S+\s*hora)$/i.test(f.texto);
   const primerMonto = Math.min(...resultado.map((r) => r.montoMsg.index));
   const prestable = fechas.length === 1 && fechas[0].index < primerMonto && !fechas[0].paraOtraCosa ? fechas[0] : null;
   for (const r of resultado) {

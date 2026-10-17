@@ -121,6 +121,12 @@ describe('registra TODOS cuando todos se entienden', () => {
     ['ayer almuerzo 15 y en la noche pollo 30', ['ayer almuerzo 15', 'en la noche pollo 30'], -1, 'ayer en la noche pollo 30'],
     // "el 20 de luz" es un monto, no una fecha: no se presta
     ['pagué el 20 de luz y 15 de agua', ['pagué el 20 de luz', '15 de agua'], -1, '15 de agua'],
+    // 17-oct: "hace una hora" (con palabras o cifras) es de hoy: no deja dudosos a los demás
+    ['pagué 20 de taxi hace una hora y 15 de menú', ['pagué 20 de taxi hace una hora', '15 de menú'], -1, '15 de menú'],
+    ['menú 15 y taxi 8 hace dos horas', ['menú 15', 'taxi 8 hace dos horas'], -1, 'menú 15'],
+    ['taxi 8 hace 1 hora, cine 30', ['taxi 8 hace 1 hora', 'cine 30'], -1, 'cine 30'],
+    // 17-oct: "hace dos días" con palabras es una fecha dicha y se presta
+    ['hace dos días gasté 20 en taxi y 30 en cine', ['hace dos días gasté 20 en taxi', '30 en cine'], -1, 'hace dos día 30 en cine'],
   ])('%s', (msg, partes, dudosa, paraParser) => {
     const r = validarSeparacion(partes, msg);
     expect(r).toHaveLength(partes.length);
@@ -492,6 +498,21 @@ describe('ajustarFechaRegistro: los tres guards de fecha', () => {
   });
   it('fecha dicha: se respeta', () => {
     expect(ajustarFechaRegistro('gasté 20 en taxi el 05/10', '2026-10-05', HOY)).toBe('2026-10-05');
+  });
+  // 17-oct-2026: el guard de fecha inventada solo conocía "hace" con cifras y pisaba con hoy lo que el
+  // guard relativo había resuelto. Muere si `RE_FECHA_EXPLICITA` vuelve a `hace\s+\d+`.
+  it('"hace dos días" con palabras: se respeta la fecha bien leída y se corrige la mal leída', () => {
+    expect(ajustarFechaRegistro('gasté 35 en taxi hace dos días', '2026-10-15', '2026-10-17')).toBe('2026-10-15');
+    expect(ajustarFechaRegistro('gasté 35 en taxi hace dos días', '2026-10-05', HOY)).toBe('2026-10-05');
+    expect(ajustarFechaRegistro('gasté 35 en taxi hace dos días', HOY, HOY)).toBe('2026-10-05');
+    expect(ajustarFechaRegistro('Hace tres días pagué 80 de luz', '2026-10-04', HOY)).toBe('2026-10-04');
+  });
+  // 17-oct-2026: en "antes de ayer" ganaba `\bayer\b` y salía ayer. Muere si `resolverFechaRelativa`
+  // deja de tratar "antes de ayer" como 2 días.
+  it('"antes de ayer" es antier, no ayer', () => {
+    expect(ajustarFechaRegistro('gasté 35 en taxi antes de ayer', '2026-10-15', '2026-10-17')).toBe('2026-10-15');
+    expect(ajustarFechaRegistro('antes de ayer gasté 35 en taxi', HOY, HOY)).toBe('2026-10-05');
+    expect(ajustarFechaRegistro('gasté 35 en taxi ayer', '2026-10-05', HOY)).toBe('2026-10-06');
   });
 });
 

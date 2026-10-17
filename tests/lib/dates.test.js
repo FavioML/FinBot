@@ -34,6 +34,11 @@ describe('resolverFechaRelativa', () => {
     expect(resolverFechaRelativa('antier compré 20 en pan', HOY, HOY)).toBe(ANTEAYER);
   });
 
+  it('"antes de ayer" → 2 días atrás, aunque contenga "ayer"', () => {
+    expect(resolverFechaRelativa('antes de ayer compré 20 en pan', HOY, HOY)).toBe(ANTEAYER);
+    expect(resolverFechaRelativa('compré 20 en pan antes de ayer', ANTEAYER, HOY)).toBeNull();
+  });
+
   it('"hace 3 días" → 3 días atrás', () => {
     expect(resolverFechaRelativa('hace 3 días pagué 80 de luz', HOY, HOY)).toBe(HACE_3);
   });
