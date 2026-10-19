@@ -280,7 +280,7 @@ function CanalBadge({ canal }: { canal: 'whatsapp' | 'google' | 'magic_link' }) 
  *
  * **El popup se renderiza en un PORTAL, y eso no es un detalle de implementación.** La versión
  * anterior era un `div.absolute` dentro de la celda, o sea dentro del contenedor de la tabla,
- * que tiene `max-h-[65vh] overflow-auto` (y un padre con `overflow-hidden`). Un elemento
+ * que tiene `max-h-[65dvh] overflow-auto` (y un padre con `overflow-hidden`). Un elemento
  * absoluto se recorta contra el primer ancestro con overflow, así que el menú se veía completo
  * solo mientras la tabla fuera más alta que él: al filtrar hasta dejar una o dos filas —justo
  * cuando buscás a UNA persona para actuar sobre ella— el contenedor medía menos que el menú y
@@ -552,7 +552,7 @@ function PaymentsModal({
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-scrim p-4" onClick={onClose}>
       <div
-        className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-border bg-surface-elevated p-5 shadow-xl shadow-scrim/60"
+        className="max-h-[85dvh] w-full max-w-lg overflow-y-auto rounded-2xl border border-border bg-surface-elevated p-5 shadow-xl shadow-scrim/60"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-start justify-between">
@@ -1388,7 +1388,7 @@ export default function AdminOperacionPage() {
 
           {/* Desktop table */}
           <div className="hidden glass-card md:block overflow-hidden">
-            <div className="max-h-[65vh] overflow-auto">
+            <div className="max-h-[65dvh] overflow-auto">
             <table className="w-full text-sm">
               <thead className="sticky top-0 z-10 bg-card">
                 <tr className="border-b border-border">

@@ -645,7 +645,7 @@ export default function SuscripcionesPage() {
 
       {/* Sheet de edición de suscripción */}
       <Sheet open={!!editSub} onOpenChange={(o) => !o && setEditSub(null)}>
-        <SheetContent side="bottom" className="glass-card-elevated max-h-[85vh] overflow-y-auto">
+        <SheetContent side="bottom" className="glass-card-elevated max-h-[85dvh] overflow-y-auto">
           {editSub && (
             <>
               <SheetHeader>

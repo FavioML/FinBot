@@ -246,7 +246,7 @@ function ShellChrome({ children }: { children: React.ReactNode }) {
     <BootstrapGateProvider value={settled}>
       <AuthRedirect />
       <CacheIdentityGuard />
-      <div className="noise-bg flex h-screen overflow-hidden">
+      <div className="noise-bg flex h-dvh overflow-hidden">
         <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
         <div className="flex flex-1 flex-col overflow-hidden">
           <Topbar onMenuClick={() => setSidebarOpen(true)} />

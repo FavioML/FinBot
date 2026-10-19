@@ -1090,7 +1090,7 @@ function ConversationDialog({
 
   return (
     <Dialog open={!!eventId} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="bg-surface-elevated border-border text-foreground max-w-lg max-h-[80vh] overflow-y-auto">
+      <DialogContent className="bg-surface-elevated border-border text-foreground max-w-lg max-h-[80dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Conversación post-envío</DialogTitle>
         </DialogHeader>

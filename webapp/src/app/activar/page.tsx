@@ -86,7 +86,7 @@ export default async function ActivarPage({
     : `tus ${cuantos} gastos te están esperando`;
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background px-6 py-10">
+    <main className="flex min-h-svh items-center justify-center bg-background px-6 py-10">
       <div className="w-full max-w-md">
         <div className="mb-6 flex items-center gap-3">
           <Image

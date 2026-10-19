@@ -891,7 +891,7 @@ export default function DashboardPage() {
 
       {/* Category detail dialog */}
       <Dialog open={!!detailCategoria} onOpenChange={(open) => { if (!open) { setDetailCategoria(null); setDetailSubcategoria(null); } }}>
-        <DialogContent className="glass-card-elevated text-foreground max-w-md max-h-[80vh] overflow-y-auto">
+        <DialogContent className="glass-card-elevated text-foreground max-w-md max-h-[80dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {detailCategoria && (
@@ -1031,7 +1031,7 @@ export default function DashboardPage() {
 
       {/* Payment method detail dialog */}
       <Dialog open={!!detailMetodo} onOpenChange={(open) => { if (!open) setDetailMetodo(null); }}>
-        <DialogContent className="glass-card-elevated max-w-lg max-h-[80vh] overflow-y-auto">
+        <DialogContent className="glass-card-elevated max-w-lg max-h-[80dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-foreground text-lg">
               {detailMetodo && `${getMetodoIcon(detailMetodo)} ${capitalizeDisplay(detailMetodo)}`}
@@ -1124,7 +1124,7 @@ export default function DashboardPage() {
 
       {/* Merchant detail dialog */}
       <Dialog open={!!detailComercio} onOpenChange={(open) => { if (!open) setDetailComercio(null); }}>
-        <DialogContent className="glass-card-elevated max-w-lg max-h-[80vh] overflow-y-auto">
+        <DialogContent className="glass-card-elevated max-w-lg max-h-[80dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-foreground text-lg">
               {detailComercio}

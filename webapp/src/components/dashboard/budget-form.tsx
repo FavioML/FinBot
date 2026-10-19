@@ -390,7 +390,7 @@ export function BudgetForm({ open, onOpenChange, budget, onSuccess, userCategori
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="glass-card-elevated border-0 sm:max-w-lg max-h-[92vh] overflow-y-auto p-0 gap-0">
+      <DialogContent className="glass-card-elevated border-0 sm:max-w-lg max-h-[92dvh] overflow-y-auto p-0 gap-0">
         <div className="px-5 pt-5 pb-3">
           <DialogHeader>
             <DialogTitle className="text-foreground text-xl font-semibold">

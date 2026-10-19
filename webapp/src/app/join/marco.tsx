@@ -13,7 +13,7 @@ import { WA_INVITACION } from '@/lib/atribucion';
  */
 export function MarcoInvitacion({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
+    <div className="min-h-svh bg-background flex items-center justify-center p-4">
       <div className={`w-full max-w-sm ${ENTRADA_TARJETA} animation-duration-400`}>
         <div className="flex items-center justify-center gap-3 mb-8">
           <Image

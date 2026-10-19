@@ -552,7 +552,7 @@ if (!isLoading && transactions.length === 0) {
 
       {/* Category detail dialog */}
       <Dialog open={!!detailCat} onOpenChange={(open) => { if (!open) setDetailCat(null); }}>
-        <DialogContent className="glass-card-elevated max-w-lg max-h-[80vh] overflow-y-auto">
+        <DialogContent className="glass-card-elevated max-w-lg max-h-[80dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-foreground text-lg">
               {detailCat && `${getCategoriaEmoji(detailCat)} ${capitalizeDisplay(detailCat)}`}
@@ -621,7 +621,7 @@ if (!isLoading && transactions.length === 0) {
 
       {/* Payment method detail dialog */}
       <Dialog open={!!detailMetodo} onOpenChange={(open) => { if (!open) setDetailMetodo(null); }}>
-        <DialogContent className="glass-card-elevated max-w-lg max-h-[80vh] overflow-y-auto">
+        <DialogContent className="glass-card-elevated max-w-lg max-h-[80dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-foreground text-lg">
               {detailMetodo && capitalizeDisplay(detailMetodo)}
@@ -713,7 +713,7 @@ if (!isLoading && transactions.length === 0) {
 
       {/* Comercio detail dialog */}
       <Dialog open={!!detailComercio} onOpenChange={(open) => { if (!open) setDetailComercio(null); }}>
-        <DialogContent className="glass-card-elevated max-w-lg max-h-[80vh] overflow-y-auto">
+        <DialogContent className="glass-card-elevated max-w-lg max-h-[80dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-foreground text-lg">
               {detailComercio}
@@ -756,7 +756,7 @@ if (!isLoading && transactions.length === 0) {
 
       {/* Daily detail dialog */}
       <Dialog open={detailDay !== null} onOpenChange={(open) => { if (!open) setDetailDay(null); }}>
-        <DialogContent className="glass-card-elevated max-w-lg max-h-[80vh] overflow-y-auto">
+        <DialogContent className="glass-card-elevated max-w-lg max-h-[80dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-foreground">
               {detailDay ? etiquetaDiaLarga(detailDay) : ''}

@@ -304,7 +304,7 @@ function CostFormModal({
       <form
         onSubmit={handleSubmit}
         onClick={(e) => e.stopPropagation()}
-        className="glass-card-elevated max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl p-5"
+        className="glass-card-elevated max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-xl p-5"
       >
         <h3 className="mb-4 text-lg font-semibold text-foreground">
           {isEdit ? 'Editar costo' : 'Añadir costo'}
@@ -759,7 +759,7 @@ function CostDetailModal({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="glass-card-elevated max-h-[85vh] w-full max-w-md overflow-y-auto rounded-xl p-5"
+        className="glass-card-elevated max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-xl p-5"
       >
         <h3 className="text-lg font-semibold text-foreground">{cost.label}</h3>
         <div className="mt-1 flex flex-wrap items-center gap-2">

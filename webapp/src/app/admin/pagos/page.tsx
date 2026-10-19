@@ -434,7 +434,7 @@ function VerComprobante({ p }: { p: AdminPagoFila }) {
               <img
                 src={url}
                 alt={`Comprobante de pago de ${etiquetaPagador(p)}`}
-                className="max-h-[70vh] w-full object-contain"
+                className="max-h-[70dvh] w-full object-contain"
                 onError={() => setEstado('error')}
               />
             )}

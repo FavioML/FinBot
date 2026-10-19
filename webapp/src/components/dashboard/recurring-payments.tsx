@@ -250,7 +250,7 @@ export function RecurringPayments({ transactions }: RecurringPaymentsProps) {
 
       {/* Sheet de edición de cluster */}
       <Sheet open={!!sheetCluster} onOpenChange={(o) => !o && setSheetCluster(null)}>
-        <SheetContent side="bottom" className="glass-card-elevated max-h-[80vh] overflow-y-auto">
+        <SheetContent side="bottom" className="glass-card-elevated max-h-[80dvh] overflow-y-auto">
           {sheetCluster && (
             <>
               <SheetHeader>
@@ -346,7 +346,7 @@ export function RecurringPayments({ transactions }: RecurringPaymentsProps) {
 
       {/* Sheet "ver todos" — lista completa; cada fila abre el sheet de edición */}
       <Sheet open={showAllOpen} onOpenChange={setShowAllOpen}>
-        <SheetContent side="bottom" className="glass-card-elevated max-h-[80vh] overflow-y-auto">
+        <SheetContent side="bottom" className="glass-card-elevated max-h-[80dvh] overflow-y-auto">
           <SheetHeader>
             <SheetTitle>Pagos recurrentes</SheetTitle>
             <SheetDescription>
@@ -370,7 +370,7 @@ export function RecurringPayments({ transactions }: RecurringPaymentsProps) {
 
       {/* Sheet de marcar recurrente a mano */}
       <Sheet open={addOpen} onOpenChange={setAddOpen}>
-        <SheetContent side="bottom" className="glass-card-elevated max-h-[70vh] overflow-y-auto">
+        <SheetContent side="bottom" className="glass-card-elevated max-h-[70dvh] overflow-y-auto">
           <SheetHeader>
             <SheetTitle>Marcar un pago como recurrente</SheetTitle>
             <SheetDescription>Elige un comercio que se repite pero no detectamos solo.</SheetDescription>

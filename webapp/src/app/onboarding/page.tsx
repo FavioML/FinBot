@@ -13,7 +13,7 @@ type Phase = 'input' | 'verify';
 
 function Spinner() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
+    <div className="flex min-h-svh items-center justify-center bg-background">
       <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
     </div>
   );
@@ -137,7 +137,7 @@ function Onboarding() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
+    <div className="flex min-h-svh flex-col items-center justify-center bg-background px-4">
       <div className={`w-full max-w-md ${ENTRADA_TARJETA} animation-duration-600`}>
         {/* Logo */}
         <div className="mb-10 flex items-center gap-3">

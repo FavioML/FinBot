@@ -597,7 +597,7 @@ export default function AdminUsersPage() {
           </span>
         </div>
         <div className="glass-card overflow-hidden">
-          <div className="max-h-[60vh] overflow-auto">
+          <div className="max-h-[60dvh] overflow-auto">
             <table className="w-full text-sm">
               <thead className="sticky top-0 z-10 bg-card">
                 <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">

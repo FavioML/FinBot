@@ -14,7 +14,7 @@ export default async function AdminLayout({
   if (!user || !isAdmin) notFound();
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-svh bg-background text-foreground">
       <div className="mx-auto max-w-7xl px-4 py-6 md:px-8 md:py-10">
         <header className="mb-8 flex flex-wrap items-center justify-between gap-3">
           <div>

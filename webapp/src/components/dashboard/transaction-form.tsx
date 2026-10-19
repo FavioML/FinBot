@@ -342,7 +342,7 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="glass-card-elevated border-0 max-h-[92vh] overflow-y-auto overflow-x-hidden p-0 gap-0"
+        className="glass-card-elevated border-0 max-h-[92dvh] overflow-y-auto overflow-x-hidden p-0 gap-0"
         style={{
           width: 'min(calc(100vw - 2rem), 28rem)',
           display: 'flex',

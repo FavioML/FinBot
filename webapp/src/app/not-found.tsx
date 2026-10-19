@@ -24,7 +24,7 @@ const ENTRADA = 'animate-[fade-up_0.5s_cubic-bezier(0.16,1,0.3,1)_both]';
 
 export default function NotFound() {
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-background px-6 text-center">
+    <div className="flex min-h-svh flex-col items-center justify-center bg-background px-6 text-center">
       {/* Logo */}
       <div className={ENTRADA}>
         <div className="mb-6 flex items-center justify-center gap-3">

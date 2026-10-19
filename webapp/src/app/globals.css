@@ -285,6 +285,21 @@
   summary {
     touch-action: manipulation;
   }
+  /* iOS WebKit gives a native date/time input an intrinsic width that ignores `w-full`:
+   * in the transaction form the Fecha box ran ~20px past the dialog edge (19-oct-2026).
+   * `appearance: none` drops the native sizing; the value is left-aligned like the rest. */
+  input[type="date"],
+  input[type="time"],
+  input[type="datetime-local"],
+  input[type="month"] {
+    -webkit-appearance: none;
+    appearance: none;
+    display: block;
+    max-width: 100%;
+  }
+  input::-webkit-date-and-time-value {
+    text-align: left;
+  }
 }
 
 /* Solid card surface (no glassmorphism).

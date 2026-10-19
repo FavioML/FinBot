@@ -45,7 +45,7 @@ export default async function ConfirmarActivacionPage() {
   if (!fila || fila.supabase_auth_id) redirect('/dashboard');
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background px-6">
+    <main className="flex min-h-svh items-center justify-center bg-background px-6">
       <div className="glass-card w-full max-w-md rounded-2xl p-8">
         <div className="mb-5 flex items-center gap-3">
           <Image

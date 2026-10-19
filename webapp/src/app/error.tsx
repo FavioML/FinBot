@@ -34,7 +34,7 @@ export default function RootError({ error, reset }: ErrorProps) {
   }, [error]);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-6">
+    <div className="flex min-h-svh items-center justify-center bg-background p-6">
       <div className="glass-card w-full max-w-md space-y-4 p-8 text-center">
         <div className="mx-auto inline-flex h-14 w-14 items-center justify-center rounded-full border border-negative/25 bg-negative/10">
           <AlertTriangle className="h-7 w-7 text-negative-ink" />

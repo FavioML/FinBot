@@ -333,6 +333,7 @@ Claro y oscuro; por defecto sigue al sistema. Porqué de B: `products/neto/docs/
   tarjetas va con `@container` local (`@xl:grid-cols-2 @4xl:grid-cols-3`), nunca en el shell (rompe
   los `fixed`); una grilla con pistas `fr`, con `minmax(0,…)`. Caso y medición: `docs/DEFECTOS.md` 13-oct.
 - `DialogContent` lleva el margen de celular en el ANCHO (`w-[calc(100%-2rem)]`): un `max-w-*` del consumidor borraba el tope base.
+- **Alturas en `dvh`/`svh`, nunca `vh` ni `h-screen`:** en iOS `vh` ignora las barras del navegador y un diálogo de `92vh` dejaba el título y el botón fuera de la pantalla (19-oct). Chromium no lo reproduce; lo hace cumplir `src/app/alto-de-pantalla.test.ts`.
 - Monto, fecha o pastilla partidos en dos líneas (el script los lista como `PARTIDO`): `whitespace-nowrap`, y si no entra, su tabla scrollea; en una fila, `flex-wrap` para que baje la pieza entera. Una pastilla `nowrap` sin `flex-wrap` alrededor pisa al vecino (`SOLAPE`).
 
 ## Deploy

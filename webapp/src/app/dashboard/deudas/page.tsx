@@ -259,7 +259,7 @@ export default function DeudasPage() {
   }
 
   const gridCls = 'grid grid-cols-1 lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)] gap-4';
-  const detailWrapCls = 'lg:sticky lg:top-2 lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto lg:pr-1';
+  const detailWrapCls = 'lg:sticky lg:top-2 lg:max-h-[calc(100dvh-7rem)] lg:overflow-y-auto lg:pr-1';
 
   return (
     <FadeIn>

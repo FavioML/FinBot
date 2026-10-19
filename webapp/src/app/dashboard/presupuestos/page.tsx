@@ -438,7 +438,7 @@ export default function PresupuestosPage() {
 
       {/* Category detail dialog — shows transactions grouped by subcategory */}
       <Dialog open={!!detailCategoria} onOpenChange={(open) => { if (!open) setDetailCategoria(null); }}>
-        <DialogContent className="glass-card-elevated sm:max-w-lg max-h-[80vh] overflow-y-auto">
+        <DialogContent className="glass-card-elevated sm:max-w-lg max-h-[80dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-foreground">
               {detailCategoria && `${getCategoriaEmoji(detailCategoria)} ${capitalizeDisplay(detailCategoria)}`}

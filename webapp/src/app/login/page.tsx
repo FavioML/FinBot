@@ -142,7 +142,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen bg-background">
+    <div className="flex min-h-svh bg-background">
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_30%,color-mix(in_srgb,var(--primary)_6%,transparent)_0%,transparent_70%)] pointer-events-none" />
       {/* Left side — Login */}
       <div className="flex w-full flex-col items-center justify-center px-6 py-12 lg:w-[45%] lg:px-16">

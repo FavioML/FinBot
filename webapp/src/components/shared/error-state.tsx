@@ -64,7 +64,7 @@ export function ErrorState({
 
   if (variante === 'card') return cuerpo;
   return (
-    <div className="flex min-h-[60vh] items-center justify-center p-6">
+    <div className="flex min-h-[60svh] items-center justify-center p-6">
       <div className="w-full max-w-md">{cuerpo}</div>
     </div>
   );
