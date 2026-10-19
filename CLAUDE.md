@@ -333,6 +333,11 @@ runtime esa tarde habría salido igual.
 
 ### El gate falla cerrado, MENOS en un caso: cuando la suite nunca arranca
 
+> **Con Actions degradado, el estado del JOB miente; el de sus PASOS no** (19-oct-2026, run
+> `39281366107`). `test` figuró `queued` con 0 pasos ~20 min mientras `deploy-webapp` ya había
+> desplegado, y parecía un bypass de `needs`. No lo era: sus pasos terminaron a las 15:55:03 y el
+> deploy arrancó a las 15:55:07. Antes de declarar un bypass, comparar timestamps de los pasos.
+
 Descubierto el 06-ago-2026 durante el outage de Actions, y contradice la primera versión de
 esta sección. **"Wait for CI" espera los check suites que EXISTEN cuando Railway evalúa.** Si
 GitHub está tan degradado que todavía no creó el workflow run, Railway no encuentra nada que
