@@ -56,7 +56,7 @@ export function DebtCard({ debt, handlers }: { debt: Deuda; handlers: DebtHandle
         </div>
 
         {/* Acciones: fila propia en celular, bajo el monto desde `sm` */}
-        <div className="col-span-2 justify-self-end sm:col-span-1 sm:col-start-2 opacity-0 group-hover:opacity-100 max-sm:opacity-100 transition-opacity">
+        <div className="col-span-2 justify-self-end sm:col-span-1 sm:col-start-2 opacity-0 group-hover:opacity-100 max-sm:opacity-100 pointer-coarse:opacity-100 transition-opacity">
           <DebtActions debt={debt} handlers={handlers} />
         </div>
       </div>

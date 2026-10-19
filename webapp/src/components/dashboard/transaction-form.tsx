@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { toast } from 'sonner';
 import { Trash2 } from 'lucide-react';
 import { haptic } from '@/lib/haptics';
@@ -240,6 +240,17 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
     }
   }, [open, transaction, tipo, allCategorias]);
 
+  // El denominador de `transaction_created`. Sin él, un formulario que en algún dispositivo no deja
+  // llegar a "Registrar" (el 19-oct-2026 en iOS, por `92vh`) no dejaba rastro: el evento de éxito
+  // simplemente no salía, igual que si nadie lo hubiera abierto. Abiertos contra creados por `$os`
+  // es lo que hace visible esa caída. Se emite en la TRANSICIÓN a abierto, no en cada render, y no
+  // al editar: editar no crea nada y mezclarlo inflaría el denominador.
+  const abiertoAntes = useRef(false);
+  useEffect(() => {
+    if (open && !abiertoAntes.current && !isEdit) track(EVENTS.TRANSACTION_FORM_OPENED, { tipo, canal: 'web' });
+    abiertoAntes.current = open;
+  }, [open, isEdit, tipo]);
+
   const handleChange = useCallback((field: keyof FormData, value: string) => {
     setForm((prev) => {
       const next = { ...prev, [field]: value };
@@ -314,15 +325,17 @@ export function TransactionForm({ open, onOpenChange, tipo, transaction, onSucce
         });
         if (!res.ok) {
           toast.error('No se pudo registrar la transacción');
+          track(EVENTS.TRANSACTION_CREATE_FAILED, { tipo, canal: 'web', status: res.status });
           return;
         }
         toast.success('Transacción registrada');
-        track(EVENTS.TRANSACTION_CREATED, { tipo, metodo_pago: form.metodo_pago });
+        track(EVENTS.TRANSACTION_CREATED, { tipo, canal: 'web', metodo_pago: form.metodo_pago });
       }
       onOpenChange(false);
       onSuccess?.();
     } catch (err) {
       toast.error('Error de conexión');
+      if (!isEdit) track(EVENTS.TRANSACTION_CREATE_FAILED, { tipo, canal: 'web', status: 'red' });
     } finally {
       setSaving(false);
     }

@@ -32,7 +32,7 @@ export function SplitCard({ gasto, handlers }: { gasto: GastoCompartido; handler
         </div>
         <div className="text-right shrink-0">
           <p className="text-base font-bold text-accent-pro tabular-nums">{fmtMoneda(gasto.moneda, gasto.monto_total)}</p>
-          <div className="flex gap-1 justify-end opacity-0 group-hover:opacity-100 max-sm:opacity-100 transition-all mt-1">
+          <div className="flex gap-1 justify-end opacity-0 group-hover:opacity-100 max-sm:opacity-100 pointer-coarse:opacity-100 transition-all mt-1">
             <button onClick={() => handlers.onEdit(gasto)} className="p-1 rounded text-muted-foreground hover:text-accent-pro" title="Editar">
               <Edit2 className="h-3.5 w-3.5" />
             </button>

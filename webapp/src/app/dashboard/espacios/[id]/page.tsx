@@ -334,7 +334,7 @@ export default function SpaceDetailPage() {
                         <p className="text-sm font-semibold text-foreground">{formatCurrency(Number(exp.amount))}</p>
                         <p className="text-xs text-muted-foreground">tu parte: {formatCurrency(myShare)}</p>
                       </div>
-                      <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 max-sm:opacity-100 transition-opacity">
+                      <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 max-sm:opacity-100 pointer-coarse:opacity-100 transition-opacity">
                         <button
                           onClick={() => {
                             setEditingExpense(exp);
@@ -420,7 +420,7 @@ export default function SpaceDetailPage() {
                         removeMember.mutate(m.user_id);
                         toast.success(`${m.usuarios?.nombre ?? 'Miembro'} eliminado`);
                       }}
-                      className="p-1 rounded opacity-0 group-hover:opacity-100 max-sm:opacity-100 text-muted-foreground hover:text-negative transition-all"
+                      className="p-1 rounded opacity-0 group-hover:opacity-100 max-sm:opacity-100 pointer-coarse:opacity-100 text-muted-foreground hover:text-negative transition-all"
                       title="Quitar del espacio"
                     >
                       <X className="w-3.5 h-3.5" />

@@ -4,6 +4,11 @@
 export const EVENTS = {
   WEBAPP_LOGGED_IN: 'webapp_logged_in',
   TRANSACTION_CREATED: 'transaction_created',
+  // Los otros dos lados del formulario de Nuevo gasto/ingreso (19-oct-2026). Abiertos contra creados
+  // por `$os` deja ver una caída por dispositivo; el fallido separa "no llegó al botón" de "el
+  // servidor dijo que no". Lo fija `transaction-form-telemetria.test.ts`.
+  TRANSACTION_FORM_OPENED: 'transaction_form_opened',
+  TRANSACTION_CREATE_FAILED: 'transaction_create_failed',
   BUDGET_CREATED: 'budget_created',
   GOAL_CREATED: 'goal_created',
   // La campana. Existen porque `notificaciones.leida` solo se escribe al hacer CLIC, así que
