@@ -1,6 +1,8 @@
 const { openai } = require('../lib/ai');
 const log = require('../lib/logger');
 const { anclarAnioDeCaptura } = require('../lib/dates');
+const { destinatarioEsTitular } = require('../lib/titular');
+const { esPagoNeto } = require('../lib/config');
 
 /**
  * Media de WhatsApp → dato. Nada más.
@@ -89,12 +91,12 @@ async function transcribirAudio(buffer, mimeType) {
 // Yape y Plin operan solo en soles y son el grueso del tráfico de este camino, así que un "S/"
 // mal leído no puede convertirse en USD — eso rompería el caso mayoritario para arreglar el
 // minoritario. El USD hay que ganárselo con un símbolo visible o un comercio internacional.
-function promptVision(hoy) {
+function promptVision(hoy, titular) {
   // El anio actual sale de `hoy`, no de `new Date()`: asi el prompt y el saneo de
   // `anclarAnioDeCaptura` razonan sobre la MISMA fecha de Lima y no pueden discrepar.
   const anio = String(hoy).slice(0, 4);
   const anioPrev = String(Number(anio) - 1);
-  return 'Esta imagen es una captura de pantalla de una transacción financiera (Yape, Plin, banco peruano). Puede ser un GASTO (pago enviado) o un INGRESO (dinero recibido). Extrae los datos y devuelve SOLO JSON válido, sin texto extra:\n{"tipo":"gasto"|"ingreso","monto":numero,"moneda":"PEN"|"USD","comercio":"nombre del destinatario (si gasto) o remitente (si ingreso)","categoria":"Alimentación|Transporte|Vivienda|Salud|Entretenimiento|Compras|Educación|Finanzas|Trabajo_Negocio|Otros","subcategoria":"descripcion breve o null","metodo_pago":"Yape|Plin|BCP|BBVA|Interbank|Scotiabank|Falabella|Ripley|BanBif|Efectivo|null","tarjeta_last4":"los 4 ultimos digitos de la tarjeta/cuenta si aparecen (ej. \\"terminada en 1234\\", \\"****1234\\") o null","fecha":"YYYY-MM-DD","descripcion_original":"texto clave de la imagen","motivo":"nota/motivo del pago si aparece o null"}\n\nREGLA CRÍTICA DE MONEDA (aplicar SIEMPRE antes de asignar moneda):\n- Por DEFECTO moneda="PEN". Solo pon "USD" si hay evidencia explícita en la imagen.\n- Yape y Plin operan ÚNICAMENTE en soles: si la captura es de Yape o Plin → moneda="PEN" siempre, sin excepción.\n- Si el monto aparece con "$", "USD" o "US$" → moneda: "USD"\n- Si el monto aparece con "S/", "S/.", "PEN" o "soles" → moneda: "PEN"\n- Comercios internacionales que SIEMPRE son USD: Netflix, NETFLIX.COM, DLOCAL*NETFLIX, Spotify, Disney+, Amazon Prime, YouTube Premium, Apple, Steam, Xbox, PlayStation, Google One, iCloud, ChatGPT, OpenAI, Claude, Claude.AI, Anthropic, Canva, Dropbox, Adobe, Microsoft 365, GitHub, Notion, Figma, Slack, Zoom, Shopify\n- Si ves "$ 8.73" o "$8.73" en la imagen → monto: 8.73, moneda: "USD"\n- Tarjeta de crédito BCP/BBVA/Interbank con símbolo "$" → moneda: "USD"\n- NUNCA registres en PEN un consumo cuyo monto lleva el símbolo "$" en la imagen\n- El monto va SIEMPRE sin símbolo ni separador de miles: "S/ 1,234.50" → 1234.50\n\nREGLA CRÍTICA DE FECHA (el año mal puesto es el error más frecuente de este paso):\n- HOY es ' + hoy + ' y el año en curso es ' + anio + '.\n- Si la imagen muestra día y mes pero NO el año (\"23 Ago\", \"23 de agosto\", \"23/08\") → usa el año ' + anio + '. Solo si con ese año la fecha queda en el FUTURO respecto de hoy, usa ' + anioPrev + '.\n- El único año válido es ' + anio + ' o ' + anioPrev + '. NUNCA escribas un año anterior a ' + anioPrev + '. No uses el año que te parezca \"actual\" por costumbre: el año actual es ' + anio + '.\n- Si en la imagen no se ve ninguna fecha → fecha = \"' + hoy + '\".\n- Una captura de Yape, Plin o de un aviso bancario es de una operación RECIENTE: la fecha correcta casi siempre cae dentro de los últimos días.\n\nTARJETA:\n- tarjeta_last4 = SOLO los 4 ultimos digitos de la tarjeta o cuenta si son visibles en la imagen (ej: "Tarjeta terminada en 1234" o "****1234" → "1234"). Nunca inventes numeros. Si no se ven, usa null. Yape/Plin normalmente no muestran tarjeta → null.\n\nREGLAS PARA DETECTAR TIPO:\n- GASTO: "¡Yapeaste!", "Pago exitoso", "Enviado a", "Realizaste un yapeo/plin", monto enviado\n- INGRESO: "¡Te yapearon!", "Recibiste", "Yapeo recibido", "Plin recibido", "Enviado por" (alguien te envió dinero)\n- Para ingresos: categoria="Finanzas", subcategoria=null, comercio=nombre de quien envía\n\nMÉTODO DE PAGO (metodo_pago):\n- Si la pantalla es de Yape (verde, logo Yape, "¡Yapeaste!" o "¡Te yapearon!") → metodo_pago="Yape"\n- Si la pantalla es de Plin (morado/azul, logo Plin, "¡Pago exitoso!") → metodo_pago="Plin"\n- Si es notificación de BCP, BBVA, Interbank, Scotiabank u otro banco → metodo_pago=nombre del banco\n- Si no se puede determinar → metodo_pago=null\n\nMOTIVO Y CATEGORIZACIÓN:\n- El campo "motivo" es la nota/mensaje que el usuario escribe al enviar el pago (ej: "pollo a la brasa", "almuerzo", "cumpleaños")\n- Si hay motivo, USALO para determinar la categoría y subcategoría (ej: motivo "pollo a la brasa" → Alimentación > Restaurantes)\n- Si el nombre del destinatario/comercio sugiere una categoría, úsalo también (ej: "Polleria Rokys" → Alimentación > Restaurantes, "Farmacia" → Salud)\n- El motivo tiene PRIORIDAD sobre el nombre del comercio para categorizar\n- subcategoria debe ser una descripción breve en español, o null si no aplica. NUNCA escribas la palabra "null" como texto.\n\nFORMATOS DE APPS:\n- Yape: pantalla verde con "¡Yapeaste!" (gasto) o "¡Te yapearon!" (ingreso), monto grande, nombre del destinatario/remitente, campo "Motivo" o "Nota" debajo\n- Plin: pantalla con "¡Pago exitoso!" y monto en verde, datos de "Enviado a" (gasto) o "Recibido de" (ingreso), código de operación, campo "Mensaje"\n- Bancos (BCP, BBVA, Interbank, etc.): notificación de consumo/depósito\n\nSi la imagen NO muestra ningún pago o transacción, devuelve: {"tipo":"no_pago"}\nFecha de hoy si no se ve en la imagen: ' + hoy;
+  return 'Esta imagen es una captura de pantalla de una transacción financiera (Yape, Plin, banco peruano). Puede ser un GASTO (pago enviado) o un INGRESO (dinero recibido). Extrae los datos y devuelve SOLO JSON válido, sin texto extra:\n{"tipo":"gasto"|"ingreso","monto":numero,"moneda":"PEN"|"USD","comercio":"nombre del destinatario (si gasto) o remitente (si ingreso)","categoria":"Alimentación|Transporte|Vivienda|Salud|Entretenimiento|Compras|Educación|Finanzas|Trabajo_Negocio|Otros","subcategoria":"descripcion breve o null","metodo_pago":"Yape|Plin|BCP|BBVA|Interbank|Scotiabank|Falabella|Ripley|BanBif|Efectivo|null","tarjeta_last4":"los 4 ultimos digitos de la tarjeta/cuenta si aparecen (ej. \\"terminada en 1234\\", \\"****1234\\") o null","fecha":"YYYY-MM-DD","descripcion_original":"texto clave de la imagen","motivo":"nota/motivo del pago si aparece o null"}\n\nREGLA CRÍTICA DE MONEDA (aplicar SIEMPRE antes de asignar moneda):\n- Por DEFECTO moneda="PEN". Solo pon "USD" si hay evidencia explícita en la imagen.\n- Yape y Plin operan ÚNICAMENTE en soles: si la captura es de Yape o Plin → moneda="PEN" siempre, sin excepción.\n- Si el monto aparece con "$", "USD" o "US$" → moneda: "USD"\n- Si el monto aparece con "S/", "S/.", "PEN" o "soles" → moneda: "PEN"\n- Comercios internacionales que SIEMPRE son USD: Netflix, NETFLIX.COM, DLOCAL*NETFLIX, Spotify, Disney+, Amazon Prime, YouTube Premium, Apple, Steam, Xbox, PlayStation, Google One, iCloud, ChatGPT, OpenAI, Claude, Claude.AI, Anthropic, Canva, Dropbox, Adobe, Microsoft 365, GitHub, Notion, Figma, Slack, Zoom, Shopify\n- Si ves "$ 8.73" o "$8.73" en la imagen → monto: 8.73, moneda: "USD"\n- Tarjeta de crédito BCP/BBVA/Interbank con símbolo "$" → moneda: "USD"\n- NUNCA registres en PEN un consumo cuyo monto lleva el símbolo "$" en la imagen\n- El monto va SIEMPRE sin símbolo ni separador de miles: "S/ 1,234.50" → 1234.50\n\nREGLA CRÍTICA DE FECHA (el año mal puesto es el error más frecuente de este paso):\n- HOY es ' + hoy + ' y el año en curso es ' + anio + '.\n- Si la imagen muestra día y mes pero NO el año (\"23 Ago\", \"23 de agosto\", \"23/08\") → usa el año ' + anio + '. Solo si con ese año la fecha queda en el FUTURO respecto de hoy, usa ' + anioPrev + '.\n- El único año válido es ' + anio + ' o ' + anioPrev + '. NUNCA escribas un año anterior a ' + anioPrev + '. No uses el año que te parezca \"actual\" por costumbre: el año actual es ' + anio + '.\n- Si en la imagen no se ve ninguna fecha → fecha = \"' + hoy + '\".\n- Una captura de Yape, Plin o de un aviso bancario es de una operación RECIENTE: la fecha correcta casi siempre cae dentro de los últimos días.\n\nTARJETA:\n- tarjeta_last4 = SOLO los 4 ultimos digitos de la tarjeta o cuenta si son visibles en la imagen (ej: "Tarjeta terminada en 1234" o "****1234" → "1234"). Nunca inventes numeros. Si no se ven, usa null. Yape/Plin normalmente no muestran tarjeta → null.\n\nREGLAS PARA DETECTAR TIPO:\n- GASTO: "¡Yapeaste!", "Pago exitoso", "Enviado a", "Realizaste un yapeo/plin", monto enviado\n- INGRESO: "¡Te yapearon!", "Recibiste", "Yapeo recibido", "Plin recibido", "Enviado por" (alguien te envió dinero)\n- Para ingresos: categoria="Finanzas", subcategoria=null, comercio=nombre de quien envía\n' + (titular ? '- El usuario de Neto se llama ' + titular + '. Si una captura de Yape o Plin ("¡Yapeaste!", "Pago exitoso") tiene como destinatario a ESTA persona (Yape enmascara el apellido: "Jaime Car*"), salió del celular de quien le pagó: es un INGRESO para el usuario. Una transferencia bancaria a su propio nombre NO cuenta: puede ser entre sus cuentas.\n' : '') + '\nMÉTODO DE PAGO (metodo_pago):\n- Si la pantalla es de Yape (verde, logo Yape, "¡Yapeaste!" o "¡Te yapearon!") → metodo_pago="Yape"\n- Si la pantalla es de Plin (morado/azul, logo Plin, "¡Pago exitoso!") → metodo_pago="Plin"\n- Si es notificación de BCP, BBVA, Interbank, Scotiabank u otro banco → metodo_pago=nombre del banco\n- Si no se puede determinar → metodo_pago=null\n\nMOTIVO Y CATEGORIZACIÓN:\n- El campo "motivo" es la nota/mensaje que el usuario escribe al enviar el pago (ej: "pollo a la brasa", "almuerzo", "cumpleaños")\n- Si hay motivo, USALO para determinar la categoría y subcategoría (ej: motivo "pollo a la brasa" → Alimentación > Restaurantes)\n- Si el nombre del destinatario/comercio sugiere una categoría, úsalo también (ej: "Polleria Rokys" → Alimentación > Restaurantes, "Farmacia" → Salud)\n- El motivo tiene PRIORIDAD sobre el nombre del comercio para categorizar\n- subcategoria debe ser una descripción breve en español, o null si no aplica. NUNCA escribas la palabra "null" como texto.\n\nFORMATOS DE APPS:\n- Yape: pantalla verde con "¡Yapeaste!" (gasto) o "¡Te yapearon!" (ingreso), monto grande, nombre del destinatario/remitente, campo "Motivo" o "Nota" debajo\n- Plin: pantalla con "¡Pago exitoso!" y monto en verde, datos de "Enviado a" (gasto) o "Recibido de" (ingreso), código de operación, campo "Mensaje"\n- Bancos (BCP, BBVA, Interbank, etc.): notificación de consumo/depósito\n\nSi la imagen NO muestra ningún pago o transacción, devuelve: {"tipo":"no_pago"}\nFecha de hoy si no se ve en la imagen: ' + hoy;
 }
 
 /**
@@ -103,10 +105,13 @@ function promptVision(hoy) {
  * @param {Buffer} buffer
  * @param {string} mimeType
  * @param {string} hoy  fecha de hoy en Lima (YYYY-MM-DD), el default cuando la imagen no la muestra
+ * @param {{nombresTitular?: Array<string|null>}} [opts]  nombres conocidos del usuario; el primero con
+ *   apellido va al prompt, y todos sirven para el chequeo de `destinatarioEsTitular`
  * @returns {Promise<object>} `{tipo:'no_pago'}` o los datos de la transacción
  * @throws si el modelo no devuelve JSON parseable
  */
-async function extraerPagoDeImagen(buffer, mimeType, hoy) {
+async function extraerPagoDeImagen(buffer, mimeType, hoy, { nombresTitular = [] } = {}) {
+  const titular = nombresTitular.find((n) => n && String(n).trim().split(/\s+/).length >= 2) || null;
   const mime = mimeType || 'image/jpeg';
   const base64 = Buffer.from(buffer).toString('base64');
   const visionRes = await openai.chat.completions.create({
@@ -114,7 +119,7 @@ async function extraerPagoDeImagen(buffer, mimeType, hoy) {
     messages: [{
       role: 'user',
       content: [
-        { type: 'text', text: promptVision(hoy) },
+        { type: 'text', text: promptVision(hoy, titular) },
         { type: 'image_url', image_url: { url: 'data:' + mime + ';base64,' + base64, detail: 'high' } }
       ]
     }],
@@ -149,6 +154,21 @@ async function extraerPagoDeImagen(buffer, mimeType, hoy) {
         'Vision devolvió una fecha fuera de ventana; se reancló el año');
       parsed.fecha = anclada;
     }
+  }
+
+  // "¡Yapeaste!" hacia el propio usuario es el comprobante que le mandó quien le pagó (caso del
+  // 24-oct-2026, ver lib/titular.js). Mismo reparto que la fecha: el prompt lo pide, esto decide.
+  //
+  // Solo Yape y Plin: una transferencia BANCARIA a nombre propio suele ser entre cuentas del
+  // mismo usuario, que no es ingreso, y voltearla cambiaría un error de −X por uno de +X. Y nunca
+  // el pago de la suscripción: `esPagoNeto` exige `tipo === 'gasto'`, así que voltearlo perdería
+  // la solicitud Pro de un usuario que se llame como el destinatario de Neto.
+  if (parsed && parsed.tipo === 'gasto' && /^(yape|plin)$/i.test(String(parsed.metodo_pago || ''))
+    && !esPagoNeto(parsed) && destinatarioEsTitular(parsed.comercio, nombresTitular)) {
+    log.info({ tag: 'IMAGEN_TITULAR', comercio: parsed.comercio }, 'Captura de un pago hacia el propio usuario: se registra como ingreso');
+    parsed.tipo = 'ingreso';
+    parsed.categoria = 'Finanzas';
+    parsed.subcategoria = null;
   }
   return parsed;
 }

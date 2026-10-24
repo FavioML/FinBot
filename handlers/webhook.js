@@ -403,7 +403,27 @@ function createWebhookHandler(procesarMensajeLibre) {
           tag: 'IMAGEN', mimeFallback: message.image.mime_type || 'image/jpeg',
         });
         const hoy = hoyPeru();
-        const parsed = await extraerPagoDeImagen(imgBuffer, mimeType, hoy);
+        // Con quién comparar el destinatario de un "¡Yapeaste!" (lib/titular.js). `usuarios.nombre`
+        // es solo el nombre de pila; el apellido sale del perfil de WhatsApp o de la cuenta de
+        // Google. Accesorio: si la lectura falla, la captura se procesa como antes.
+        // El de Google va primero: el perfil de WhatsApp lo escribe la persona como quiera.
+        const nombresTitular = [usuario?.nombre || null, (((value && value.contacts) || [])[0]?.profile?.name) || null];
+        if (usuario?.supabase_auth_id) {
+          try {
+            // auth-js devuelve `{ error }` ante un fallo de red o de la API, no lanza. Y con tope de
+            // 3s: el nombre es apoyo, no puede demorar el registro de la captura.
+            const res = await Promise.race([
+              supabase.auth.admin.getUserById(usuario.supabase_auth_id),
+              new Promise((resolve) => setTimeout(() => resolve({ error: { message: 'timeout 3s' } }), 3000)),
+            ]);
+            if (res?.error) throw new Error(res.error.message);
+            const meta = res?.data?.user?.user_metadata || {};
+            nombresTitular.unshift(meta.full_name || meta.name || null);
+          } catch (e) {
+            log.warn({ tag: 'IMAGEN_TITULAR', err: e.message }, 'No se pudo leer el nombre de la cuenta web');
+          }
+        }
+        const parsed = await extraerPagoDeImagen(imgBuffer, mimeType, hoy, { nombresTitular });
 
         // ─── Qué es esta captura lo decide el CONTENIDO, no el flag ──────────────────────
         //

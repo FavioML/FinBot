@@ -207,6 +207,7 @@ los deja fuera del diario. `qa-muro-whatsapp.mjs` sí está en el canary porque 
 |---|---|---|
 | `qa-e2e-registro-gasto.mjs` | El loop núcleo: registrar un gasto por lenguaje natural, del webhook firmado a la fila en Postgres, sin mockear nada | Al tocar el pipeline de registro, el NLP o los parsers |
 | `qa-e2e-registro-gasto-foto.mjs` | El mismo loop por el branch `image` con Vision REAL (captura de Yape/Plin) | Al tocar Vision, el branch de imagen o los parsers de captura |
+| `qa-e2e-yape-titular-ingreso.mjs` | El "¡Yapeaste!" hacia el PROPIO usuario (el comprobante que le reenvía quien le pagó) sale ingreso, con Vision REAL. Control negativo: el harness de arriba | Al tocar Vision, `lib/titular.js` o el volteo de `extraerPagoDeImagen` |
 | `qa-e2e-pago-pro.mjs` | El flujo Pro por el branch `image`: la captura de pago deja al usuario en "solicitud pendiente" | Al tocar `lib/pro-payment.js` o la detección de comprobante |
 | `qa-e2e-aprobacion-pro.mjs` | La otra mitad: la APROBACIÓN Free → premium, que es donde se mueve la plata. Complementa al anterior, no lo repite | Al tocar aprobación de pagos, `activarPro` o el panel admin |
 | `qa-e2e-onboarding.mjs` | El alta por WhatsApp punta a punta, con el reordenamiento que pone el valor antes que la identidad | Al tocar `handlers/onboarding.js` o el orden del alta |
