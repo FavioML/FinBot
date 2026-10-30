@@ -4,6 +4,7 @@ const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 const log = require('./lib/logger');
 const { encrypt, decrypt } = require('./lib/crypto');
+const { tieneDkimAlineadoDeBanco, firmasDkimValidas, bancoDeDominio, resumenDkim } = require('./lib/auth-results');
 
 let _supabase = null;
 function getSupabase() {
@@ -51,7 +52,8 @@ const REMITENTES_BANCARIOS = [
 // Catálogo de bancos para que el usuario Pro elija cuáles leer al conectar Gmail.
 // Cada entrada agrupa los remitentes de REMITENTES_BANCARIOS por institución; su
 // `id` se guarda en usuarios.bancos_seleccionados y el scan lo expande a la union
-// de sus remitentes. Al agregar un remitente nuevo arriba, súmalo también aquí.
+// de sus remitentes. Al agregar un remitente nuevo arriba, súmalo también aquí, y si el
+// banco publica DMARC en ese dominio, también en `BANCOS_DKIM` (lib/auth-results.js).
 const BANCOS_CATALOGO = [
   { id: 'bcp', label: 'BCP', remitentes: ['alertas@bcp.com.pe', 'notificaciones@bcp.com.pe', 'notificaciones@notificacionesbcp.com.pe'] },
   { id: 'interbank', label: 'Interbank', remitentes: ['alertas@interbank.pe', 'notificaciones@interbank.pe'] },
@@ -970,12 +972,28 @@ function esBancario(texto, asunto) {
 // Dirección pelada de un header From ("BCP Comunica <bcpcomunica@email.bcp.com.pe>" →
 // "bcpcomunica@email.bcp.com.pe"). En minúsculas, porque la parte local es case-sensitive por
 // RFC pero ningún banco peruano la usa así y comparar exacto sólo abriría falsos negativos.
+//
+// Exige UN solo buzón: display name opcional (entre comillas, o sin `< > , ; @` sueltos) y un
+// `<...>` que cierra el header. Hasta el 30-oct-2026 tomaba el primer `<...>`, y el display name
+// lo escribe quien manda: `"<alertas@bcp.com.pe>" <x@evil.com>` devolvía la dirección del banco,
+// el correo caía en la exención de remitentes conocidos y se saltaba `esCorreoMasivo` y el filtro
+// DKIM a la vez, mientras Gmail evaluaba el DMARC contra evil.com, que pasa. Tomar el ÚLTIMO
+// tampoco alcanza: con varios buzones (`<x@evil.com>, <alertas@bcp.com.pe>`) el DMARC puede
+// evaluarse contra el primero. Si no calza, devuelve el header entero, que no está en ninguna
+// lista: falla cerrado.
+const FROM_UN_BUZON = /^(?:"(?:[^"\\]|\\.)*"|[^<>",@;])*<([^<>\s]+)>$/;
 function direccionDe(remitente) {
-  const m = /<([^>]+)>/.exec(remitente || '');
-  return (m ? m[1] : (remitente || '')).trim().toLowerCase();
+  const v = (remitente || '').trim();
+  const m = FROM_UN_BUZON.exec(v);
+  return (m ? m[1] : v).trim().toLowerCase();
 }
 
 const SET_REMITENTES_TRANSACCIONALES = new Set(REMITENTES_BANCARIOS.map(r => r.toLowerCase()));
+
+// Ids de correos ya reportados a `errores` por el filtro DKIM. En memoria a propósito: un redeploy
+// lo vacía y el correo se reporta una vez más, que es barato; lo que evita es una fila cada 15
+// minutos durante los días que el correo sigue dentro de la ventana del barrido.
+const descartesDkimReportados = new Set();
 
 /**
  * **Un aviso de cargo no se manda por lista de correo, y una promo sí.**
@@ -1116,7 +1134,9 @@ async function leerCorreosDesdeCuenta(authClient, cuentaEmail, remitentes = REMI
       const { data: detalle } = await gmail.users.messages.get({ userId: 'me', id, format: 'full' });
       const headers = detalle.payload.headers || [];
       const asunto = (headers.find(h => h.name === 'Subject') || {}).value || '';
-      const remitente = (headers.find(h => h.name === 'From') || {}).value || '';
+      // Sin importar mayúsculas: un `FROM:` dejaba el remitente vacío y, con el filtro DKIM, un
+      // aviso de un remitente conocido escrito así se perdería.
+      const remitente = (headers.find(h => (h.name || '').toLowerCase() === 'from') || {}).value || '';
       const fecha = new Date(parseInt(detalle.internalDate)).toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
 
       // FILTRO 1: Rechazar correos reenviados
@@ -1131,6 +1151,29 @@ async function leerCorreosDesdeCuenta(authClient, cuentaEmail, remitentes = REMI
       // millas por cada S/ 100 de consumo", y los headers sí.
       if (esCorreoMasivo(headers, remitente)) {
         log.info({ tag: 'GMAIL', remitente, asunto: asunto.substring(0, 60) }, 'Correo masivo/promocional ignorado');
+        continue;
+      }
+
+      // FILTRO 1c: un remitente fuera de la lista tiene que traer una firma DKIM del MISMO banco
+      // que dice el From (`lib/auth-results.js`). Sin ella, cualquiera que escriba "Realizaste un
+      // consumo de S/ 480" le inventa un gasto a la persona (hallazgo del 30-oct-2026). Los
+      // remitentes conocidos no pasan por acá, por la misma decisión que documenta `esCorreoMasivo`.
+      const direccion = direccionDe(remitente);
+      const dominioFrom = direccion.slice(direccion.lastIndexOf('@') + 1);
+      if (!SET_REMITENTES_TRANSACCIONALES.has(direccion) && !tieneDkimAlineadoDeBanco(headers, dominioFrom)) {
+        // Del remitente va solo el dominio: esta query también trae correos personales ("abono en
+        // tu cuenta" de un arrendador) y el From de un tercero no tiene por qué quedar en Railway.
+        // Ni asunto ni cuerpo, que pueden llevar montos.
+        log.warn({ tag: 'GMAIL', usuarioId, cuentaId, dominioFrom, dkim: resumenDkim(headers) }, 'Correo de remitente desconocido sin DKIM bancario ignorado');
+        // Si el From ES de un banco, o el correo trae una firma válida de un banco que no alinea
+        // (un From en un formato que `direccionDe` no lee), es un aviso real que se pierde o una
+        // falsificación que Gmail dejó en la bandeja: las dos cosas alguien tiene que verlas, y
+        // un `warn` no lo ve nadie. Va a `errores` una vez por correo, no en cada barrido.
+        const pareceDeBanco = bancoDeDominio(dominioFrom) || firmasDkimValidas(headers).some(d => bancoDeDominio(d));
+        if (pareceDeBanco && !descartesDkimReportados.has(id)) {
+          descartesDkimReportados.add(id);
+          require('./lib/error-monitor').registrarError('GMAIL_DKIM', `Correo de ${dominioFrom} sin DKIM alineado del banco, descartado`, { usuarioId, detalle: resumenDkim(headers) });
+        }
         continue;
       }
 
