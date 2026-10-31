@@ -10,6 +10,7 @@ const projectRoot = path.resolve(
 const { BANCOS_CATALOGO, remitentesParaSeleccion, describirSeleccion, construirQueriesBancarias } = require(
   path.join(projectRoot, 'gmail.js')
 );
+const { bancoDeDominio, DOMINIOS_DMARC_P_NONE } = require(path.join(projectRoot, 'lib', 'auth-results.js'));
 
 describe('BANCOS_CATALOGO / remitentesParaSeleccion (bank filter)', () => {
   it('expande una selección a la union de remitentes de esos bancos', () => {
@@ -44,6 +45,27 @@ describe('BANCOS_CATALOGO / remitentesParaSeleccion (bank filter)', () => {
       for (const rem of banco.remitentes) {
         expect(completo.has(rem)).toBe(true);
       }
+    }
+  });
+
+  it('ningún banco del catálogo queda sin remitentes (la UI no ofrece un banco que no se lee)', () => {
+    for (const banco of BANCOS_CATALOGO) expect(banco.remitentes.length, banco.id).toBeGreaterThan(0);
+  });
+
+  /**
+   * **Un remitente conocido se salta `esCorreoMasivo` y el filtro DKIM**, y lo único que lo frena
+   * es el `dmarc=fail` que Gmail escribe ante un From falsificado. Sin registro DMARC en el dominio
+   * Gmail no puede dar ese veredicto, así que una dirección ahí la imita cualquiera. Por eso el
+   * dominio tiene que estar en `BANCOS_DKIM` (DMARC quarantine/reject verificado) o en
+   * `DOMINIOS_DMARC_P_NONE`: Gmail los deja en la bandeja pero sí marca el `dmarc=fail`.
+   *
+   * Hasta el 31-oct-2026 la lista tenía `scotiabank.pe` (sin NS que respondan), `plin.pe`,
+   * `tunki.pe` (registrado a nombre de un particular, no de Interbank) y tres cajas, todos sin DMARC.
+   */
+  it('todo remitente conocido es de un dominio con DMARC', () => {
+    for (const rem of remitentesParaSeleccion(null)) {
+      const dominio = rem.slice(rem.lastIndexOf('@') + 1);
+      expect(bancoDeDominio(dominio) !== null || DOMINIOS_DMARC_P_NONE.includes(dominio), rem).toBe(true);
     }
   });
 

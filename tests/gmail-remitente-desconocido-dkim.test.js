@@ -22,9 +22,10 @@ const errorMonitor = require('../lib/error-monitor');
  * From y cualquier cuerpo, pero no firmar con la clave de `bcp.com.pe`, y si pone un From del
  * banco, Gmail le aplica el DMARC del banco.
  *
- * **Lo que esto NO cubre, y está en `docs/DEFECTOS.md`:** los remitentes conocidos siguen
- * entrando sin mirar la firma (decisión documentada en `esCorreoMasivo`), y el replay de un aviso
- * real del propio atacante, que lleva una firma válida del banco.
+ * **Lo que esto NO cubre, y está en `docs/DEFECTOS.md`:** los remitentes conocidos entran sin
+ * mirar la firma (decisión documentada en `esCorreoMasivo`; a ellos solo los frena un `dmarc=fail`,
+ * en `gmail-remitente-conocido-dmarc.test.js`), y el replay de un aviso real del propio atacante,
+ * que lleva una firma válida del banco.
  *
  * Mismo doble de transporte que `gmail-listado-fallido.test.js`: se ataca `auth.request`, así que
  * corre el camino real de `leerCorreosDesdeCuenta` sin mockear `googleapis` ni salir a la red.

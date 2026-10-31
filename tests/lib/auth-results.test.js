@@ -97,3 +97,30 @@ describe('tieneDkimAlineadoDeBanco', () => {
     expect(tieneDkimAlineadoDeBanco(firmaBcp, 'evil.com')).toBe(false);
   });
 });
+
+describe('dmarcFallido', () => {
+  const { dmarcFallido } = require('../../lib/auth-results');
+
+  it('lee el dmarc=fail del primer header, solo si es de mx.google.com', () => {
+    expect(dmarcFallido(AR('mx.google.com; dmarc=fail (p=NONE sp=NONE dis=NONE) header.from=bancoripley.com.pe'))).toBe(true);
+    expect(dmarcFallido(AR('relay.otro.com; dmarc=fail header.from=bcp.com.pe'))).toBe(false);
+    expect(dmarcFallido(AR('mx.google.com.atacante.com; dmarc=fail header.from=bcp.com.pe'))).toBe(false);
+    expect(dmarcFallido([
+      { name: 'Authentication-Results', value: 'mx.google.com; dmarc=pass header.from=bcp.com.pe' },
+      { name: 'Authentication-Results', value: 'mx.google.com; dmarc=fail header.from=bcp.com.pe' },
+    ])).toBe(false);
+    expect(dmarcFallido([])).toBe(false);
+  });
+
+  it('no confunde otros resultados ni palabras que contienen el token', () => {
+    for (const v of ['dmarc=pass', 'dmarc=none', 'dmarc=temperror', 'dmarc=permerror', 'dmarc=bestguesspass', 'dmarc=failover', 'xdmarc=fail', 'dkim=fail']) {
+      expect(dmarcFallido(AR(`mx.google.com; ${v} header.from=bcp.com.pe`)), v).toBe(false);
+    }
+  });
+
+  it('lo ve aunque un comentario abierto por el remitente se trague la cláusula', () => {
+    // El atacante puede agregar texto al header de Gmail (su sobre SMTP), pero no borrar el que
+    // escribe Gmail. Por eso se busca en el texto crudo y no en las cláusulas parseadas.
+    expect(dmarcFallido(AR('mx.google.com; spf=pass (google.com: domain of "a(b"@evil.com designates 1.2.3.4) smtp.mailfrom="a(b"@evil.com; dmarc=fail (p=QUARANTINE) header.from=bcp.com.pe'))).toBe(true);
+  });
+});

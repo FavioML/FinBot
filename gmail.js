@@ -4,7 +4,7 @@ const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 const log = require('./lib/logger');
 const { encrypt, decrypt } = require('./lib/crypto');
-const { tieneDkimAlineadoDeBanco, firmasDkimValidas, bancoDeDominio, resumenDkim } = require('./lib/auth-results');
+const { tieneDkimAlineadoDeBanco, firmasDkimValidas, bancoDeDominio, dmarcFallido, resumenAutenticacion } = require('./lib/auth-results');
 
 let _supabase = null;
 function getSupabase() {
@@ -33,40 +33,44 @@ const oauth2Client = new google.auth.OAuth2(
   (process.env.RAILWAY_URL || 'https://api.neto.pe') + '/auth/callback'
 );
 
+// Un remitente de esta lista se salta `esCorreoMasivo` y el filtro DKIM: lo único que lo frena es
+// el `dmarc=fail` de Gmail (filtro 1d), y sin DMARC en el dominio Gmail no puede darlo. Por eso
+// cada dominio publica DMARC (guard en `tests/gmail-catalog.test.js`). Los que salieron por no
+// tenerlo, y por qué, están en `docs/DEFECTOS.md` (31-oct-2026). DMARC frena la falsificación del
+// From, no prueba que el correo sea del banco: los SPF de varios de estos dominios autorizan
+// infraestructura compartida (Outlook, SendGrid, SES).
 const REMITENTES_BANCARIOS = [
   'notificaciones@yape.pe', 'alertas@bcp.com.pe', 'notificaciones@bcp.com.pe',
   'notificaciones@notificacionesbcp.com.pe',
   'alertas@interbank.pe', 'notificaciones@interbank.pe', 'alertas@bbva.pe',
-  'notificaciones@bbva.pe', 'notificaciones.tarjetas@scotiabank.pe',
-  'alertas@scotiabank.pe', 'notificaciones@plin.pe', 'noreply@tunki.pe',
+  'notificaciones@bbva.pe',
   // Bancos adicionales
   'notificaciones@bancofalabella.pe', 'alertas@bancofalabella.pe',
   'notificaciones@bancoripley.com.pe', 'alertas@bancoripley.com.pe',
   'notificaciones@banbif.com.pe', 'alertas@banbif.com.pe',
   'notificaciones@mibanco.com.pe', 'alertas@mibanco.com.pe',
-  'notificaciones@cajahuancayo.com.pe', 'notificaciones@cmacpiura.com.pe',
-  'notificaciones@cajatrujillo.com.pe', 'notificaciones@cajacusco.com.pe',
-  'notificaciones@cmacica.com.pe', 'notificaciones@cajasullana.com.pe',
+  'notificaciones@cajahuancayo.com.pe', 'notificaciones@cajatrujillo.com.pe',
+  'notificaciones@cmacica.com.pe',
 ];
 
 // Catálogo de bancos para que el usuario Pro elija cuáles leer al conectar Gmail.
 // Cada entrada agrupa los remitentes de REMITENTES_BANCARIOS por institución; su
 // `id` se guarda en usuarios.bancos_seleccionados y el scan lo expande a la union
-// de sus remitentes. Al agregar un remitente nuevo arriba, súmalo también aquí, y si el
-// banco publica DMARC en ese dominio, también en `BANCOS_DKIM` (lib/auth-results.js).
+// de sus remitentes. Al agregar un remitente nuevo arriba, súmalo también aquí, y su dominio a
+// `BANCOS_DKIM` (DMARC quarantine/reject) o a `DOMINIOS_DMARC_P_NONE` (lib/auth-results.js).
+//
+// Ningún banco va sin remitentes: le prometería en la UI una lectura que no ocurre. Un id retirado
+// que alguien ya guardó en `bancos_seleccionados` no rompe nada: `remitentesParaSeleccion` lo ignora.
 const BANCOS_CATALOGO = [
   { id: 'bcp', label: 'BCP', remitentes: ['alertas@bcp.com.pe', 'notificaciones@bcp.com.pe', 'notificaciones@notificacionesbcp.com.pe'] },
   { id: 'interbank', label: 'Interbank', remitentes: ['alertas@interbank.pe', 'notificaciones@interbank.pe'] },
   { id: 'bbva', label: 'BBVA', remitentes: ['alertas@bbva.pe', 'notificaciones@bbva.pe'] },
-  { id: 'scotiabank', label: 'Scotiabank', remitentes: ['notificaciones.tarjetas@scotiabank.pe', 'alertas@scotiabank.pe'] },
   { id: 'yape', label: 'Yape', remitentes: ['notificaciones@yape.pe'] },
-  { id: 'plin', label: 'Plin', remitentes: ['notificaciones@plin.pe'] },
-  { id: 'tunki', label: 'Tunki', remitentes: ['noreply@tunki.pe'] },
   { id: 'falabella', label: 'Banco Falabella', remitentes: ['notificaciones@bancofalabella.pe', 'alertas@bancofalabella.pe'] },
   { id: 'ripley', label: 'Banco Ripley', remitentes: ['notificaciones@bancoripley.com.pe', 'alertas@bancoripley.com.pe'] },
   { id: 'banbif', label: 'BanBif', remitentes: ['notificaciones@banbif.com.pe', 'alertas@banbif.com.pe'] },
   { id: 'mibanco', label: 'Mibanco', remitentes: ['notificaciones@mibanco.com.pe', 'alertas@mibanco.com.pe'] },
-  { id: 'cajas', label: 'Cajas municipales (Huancayo, Piura, Trujillo, Cusco, Ica, Sullana)', remitentes: ['notificaciones@cajahuancayo.com.pe', 'notificaciones@cmacpiura.com.pe', 'notificaciones@cajatrujillo.com.pe', 'notificaciones@cajacusco.com.pe', 'notificaciones@cmacica.com.pe', 'notificaciones@cajasullana.com.pe'] },
+  { id: 'cajas', label: 'Cajas municipales (Huancayo, Trujillo, Ica)', remitentes: ['notificaciones@cajahuancayo.com.pe', 'notificaciones@cajatrujillo.com.pe', 'notificaciones@cmacica.com.pe'] },
 ];
 
 // Traduce la selección del usuario (array de ids del catálogo) a la lista de
@@ -990,10 +994,15 @@ function direccionDe(remitente) {
 
 const SET_REMITENTES_TRANSACCIONALES = new Set(REMITENTES_BANCARIOS.map(r => r.toLowerCase()));
 
-// Ids de correos ya reportados a `errores` por el filtro DKIM. En memoria a propósito: un redeploy
-// lo vacía y el correo se reporta una vez más, que es barato; lo que evita es una fila cada 15
-// minutos durante los días que el correo sigue dentro de la ventana del barrido.
-const descartesDkimReportados = new Set();
+// Ids de correos ya reportados a `errores` por los filtros DKIM y DMARC. En memoria a propósito: un
+// redeploy lo vacía y el correo se reporta una vez más, que es barato; lo que evita es una fila
+// cada 15 minutos durante los días que el correo sigue dentro de la ventana del barrido.
+const descartesReportados = new Set();
+function reportarDescarteUnaVez(id, tag, mensaje, usuarioId, headers) {
+  if (descartesReportados.has(id)) return;
+  descartesReportados.add(id);
+  require('./lib/error-monitor').registrarError(tag, mensaje, { usuarioId, detalle: resumenAutenticacion(headers) });
+}
 
 /**
  * **Un aviso de cargo no se manda por lista de correo, y una promo sí.**
@@ -1019,6 +1028,10 @@ const descartesDkimReportados = new Set();
  * real en silencio— para tapar uno que ya está tapado por la propia lista de remitentes. Sobre
  * las direcciones desconocidas el cálculo se invierte: ahí no hay ninguna garantía de que el
  * correo sea transaccional, y el costo de equivocarse es inventarle plata a alguien.
+ *
+ * La misma decisión rige la autenticación: a un remitente conocido no se le exige firma, solo que
+ * Gmail no haya dicho `dmarc=fail` (filtro 1d, desde el 31-oct-2026). Eso es evidencia positiva de
+ * falsificación y un aviso real no la trae, así que no arriesga el gasto real.
  *
  * Las promos que SÍ salen de un remitente transaccional las agarra la segunda capa (`es_movimiento`).
  */
@@ -1160,20 +1173,30 @@ async function leerCorreosDesdeCuenta(authClient, cuentaEmail, remitentes = REMI
       // remitentes conocidos no pasan por acá, por la misma decisión que documenta `esCorreoMasivo`.
       const direccion = direccionDe(remitente);
       const dominioFrom = direccion.slice(direccion.lastIndexOf('@') + 1);
-      if (!SET_REMITENTES_TRANSACCIONALES.has(direccion) && !tieneDkimAlineadoDeBanco(headers, dominioFrom)) {
+      const conocido = SET_REMITENTES_TRANSACCIONALES.has(direccion);
+
+      // FILTRO 1d: a un remitente conocido no se le exige firma, pero si Gmail dice `dmarc=fail`
+      // el From es falsificado (`dmarcFallido`). Un aviso real no lo trae: con p=quarantine o
+      // p=reject ni siquiera se lista (cae en spam), y con p=none (Ripley) este es el único freno.
+      if (conocido && dmarcFallido(headers)) {
+        log.warn({ tag: 'GMAIL', usuarioId, cuentaId, dominioFrom, auth: resumenAutenticacion(headers) }, 'Correo de remitente conocido con dmarc=fail ignorado');
+        // Siempre a `errores`: o alguien está imitando a un banco ante este usuario, o un aviso
+        // real se perdió, y las dos cosas alguien tiene que verlas.
+        reportarDescarteUnaVez(id, 'GMAIL_DMARC', `Correo de ${dominioFrom} con dmarc=fail, descartado`, usuarioId, headers);
+        continue;
+      }
+
+      if (!conocido && !tieneDkimAlineadoDeBanco(headers, dominioFrom)) {
         // Del remitente va solo el dominio: esta query también trae correos personales ("abono en
         // tu cuenta" de un arrendador) y el From de un tercero no tiene por qué quedar en Railway.
         // Ni asunto ni cuerpo, que pueden llevar montos.
-        log.warn({ tag: 'GMAIL', usuarioId, cuentaId, dominioFrom, dkim: resumenDkim(headers) }, 'Correo de remitente desconocido sin DKIM bancario ignorado');
+        log.warn({ tag: 'GMAIL', usuarioId, cuentaId, dominioFrom, auth: resumenAutenticacion(headers) }, 'Correo de remitente desconocido sin DKIM bancario ignorado');
         // Si el From ES de un banco, o el correo trae una firma válida de un banco que no alinea
         // (un From en un formato que `direccionDe` no lee), es un aviso real que se pierde o una
         // falsificación que Gmail dejó en la bandeja: las dos cosas alguien tiene que verlas, y
         // un `warn` no lo ve nadie. Va a `errores` una vez por correo, no en cada barrido.
         const pareceDeBanco = bancoDeDominio(dominioFrom) || firmasDkimValidas(headers).some(d => bancoDeDominio(d));
-        if (pareceDeBanco && !descartesDkimReportados.has(id)) {
-          descartesDkimReportados.add(id);
-          require('./lib/error-monitor').registrarError('GMAIL_DKIM', `Correo de ${dominioFrom} sin DKIM alineado del banco, descartado`, { usuarioId, detalle: resumenDkim(headers) });
-        }
+        if (pareceDeBanco) reportarDescarteUnaVez(id, 'GMAIL_DKIM', `Correo de ${dominioFrom} sin DKIM alineado del banco, descartado`, usuarioId, headers);
         continue;
       }
 

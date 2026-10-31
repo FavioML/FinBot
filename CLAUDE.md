@@ -25,7 +25,10 @@ NETO es un asistente financiero personal por WhatsApp para el mercado peruano.
   `REMITENTES_BANCARIOS` no tiene evidencia pública (auditoría del 08-oct-2026 en `docs/DEFECTOS.md`).
   Un remitente FUERA de esa lista entra solo con DKIM del mismo banco que su From (`lib/auth-results.js`,
   guard `tests/gmail-remitente-desconocido-dkim.test.js`). Sumar un dominio a `BANCOS_DKIM` exige que el
-  banco publique DMARC en él: un dominio que no controla lo registra cualquiera y firma con su clave
+  banco publique DMARC en él: un dominio que no controla lo registra cualquiera y firma con su clave.
+  Uno DE la lista no necesita firma pero se descarta con `dmarc=fail` de Gmail (filtro 1d, guard
+  `tests/gmail-remitente-conocido-dmarc.test.js`), así que todo dominio de la lista publica DMARC
+  (guard en `tests/gmail-catalog.test.js`)
 - `reporte_html.js` — reportes HTML/PDF con Chart.js
 - `lib/` — piezas transversales sin lógica de negocio: acceso a datos y config (`db`, `config`,
   `constants`), utilidades puras (`validators`, `formatters`, `dates`, `crypto`, `codigos-seguros`),

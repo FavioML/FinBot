@@ -297,13 +297,20 @@ function BancosManager({ initial, proPagado }: { initial: string[] | null; proPa
     },
   });
 
-  // Inicializa la selección una vez que carga el catálogo: null = todos.
+  // Inicializa la selección una vez que carga el catálogo: null = todos. Si ningún id guardado está
+  // en el catálogo es "todos", igual que `remitentesParaSeleccion` en el backend, que es quien
+  // decide qué se lee.
   useEffect(() => {
     if (!bancos.length || selected !== null) return;
-    setSelected(initial === null ? new Set(bancos.map((b) => b.id)) : new Set(initial));
+    const ids = new Set(bancos.map((b) => b.id));
+    const validos = (initial ?? []).filter((id) => ids.has(id));
+    setSelected(validos.length ? new Set(validos) : ids);
   }, [bancos, initial, selected]);
 
-  const sel = selected ?? new Set<string>();
+  // Se intersecta con el catálogo en cada render y no solo al inicializar: el catálogo se persiste
+  // en localStorage, así que la selección pudo nacer de uno viejo con bancos que ya salieron, y un
+  // id sin checkbox contaría en `sel.size` y viajaría al guardar.
+  const sel = new Set([...(selected ?? [])].filter((id) => bancos.some((b) => b.id === id)));
   const allChecked = bancos.length > 0 && sel.size === bancos.length;
 
   function toggleAll() {
