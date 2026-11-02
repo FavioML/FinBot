@@ -33,13 +33,20 @@ require('../../services/transactions').obtenerUltimaTransaccion = vi.fn(async ()
 
 const escrituras = [];
 let FILAS;
+function mesEnCurso() {
+  const [anio, mes] = require('../../lib/dates').hoyPeru().split('-').map(Number);
+  return { mes, anio };
+}
+
 function sembrar() {
   const ahora = new Date().toISOString();
   FILAS = {
     usuarios: [{ id: 'u-1' }],
     transacciones: [{ ...ULTIMO }],
     metas_ahorro: [{ id: 'm-1', usuario_id: 'u-1', nombre: 'Viaje', monto_objetivo: 2000, monto_actual: 0, completada: false, status: 'active', created_at: '2026-09-01' }],
-    presupuestos: [{ id: 'p-1', usuario_id: 'u-1', categoria: 'Alimentación', monto_limite: 500, mes: 10, anio: 2026 }],
+    // Del mes en curso, con el mismo reloj que el handler: el borrado lee solo los del mes, y un
+    // `mes: 10` fijo puso esta suite roja el 01-nov-2026.
+    presupuestos: [{ id: 'p-1', usuario_id: 'u-1', categoria: 'Alimentación', monto_limite: 500, ...mesEnCurso() }],
     // La anotación OPUESTA de hace un minuto: "Juan me debe 50" la borraba como corrección.
     deudas: [{ id: 'd-op', usuario_id: 'u-1', estado: 'activa', monto_original: 50, monto_pendiente: 50, tipo: 'debo', contraparte: 'Juan', moneda: 'PEN', created_at: ahora }],
   };

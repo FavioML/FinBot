@@ -40,7 +40,10 @@ require('../../services/transactions').guardarReglaComercio = espia('guardarRegl
 require('../../services/transactions').retroaplicarRegla = espia('retroaplicarRegla', 0);
 
 const META = { id: 'm-1', usuario_id: 'u-1', nombre: 'Viaje', monto_objetivo: 2000, monto_actual: 0, completada: false, status: 'active', created_at: '2026-09-01' };
-const PRES = { id: 'p-1', usuario_id: 'u-1', categoria: 'Alimentación', monto_limite: 500, mes: 10, anio: 2026 };
+// Del mes en curso, con el mismo reloj que el handler: el borrado lee solo los del mes, y un
+// `mes: 10` fijo puso esta suite roja el 01-nov-2026.
+const [ANIO_HOY, MES_HOY] = require('../../lib/dates').hoyPeru().split('-').map(Number);
+const PRES = { id: 'p-1', usuario_id: 'u-1', categoria: 'Alimentación', monto_limite: 500, mes: MES_HOY, anio: ANIO_HOY };
 const BORRADO = { id: 'e-1', usuario_id: 'u-1', restored_at: null, deleted_at: '2026-10-01', snapshot: { comercio: 'cine', monto: 30, moneda: 'PEN', fecha: '2026-10-01', categoria: 'Ocio' } };
 // Laptop es la MÁS RECIENTE y va primero: es la que un handler toma cuando se descarta el nombre
 // (ataque A4 de la revisión: "elimina esa meta" con el historial hablando de Viaje borraba Laptop).
