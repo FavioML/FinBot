@@ -609,3 +609,217 @@ describe('cuarta revisión', () => {
     expect(r2).toContain('No anoté como plata el 10');
   });
 });
+
+// Los dos rojos sostenidos del QA agent (mlt-002 y str-006, desde el 15-oct-2026), con lo que
+// devolvieron el separador y el parser REALES en las sondas del 02-nov.
+describe('02-nov: un "50 de X" que el parser deja dudoso se relee con el monto movido', () => {
+  const D = (monto) => ({ ok: false, decision: 'tipo_dudoso', monto: 0, monto_dudoso: monto, moneda: 'PEN' });
+  const MLT2 = 'hoy 80 de luz, 50 de agua y 200 de internet';
+  const PARTES = ['hoy 80 de luz', 'hoy 50 de agua', 'hoy 200 de internet'];
+  const BASE = { 'hoy 80 de luz': G(80), 'hoy 50 de agua': D(50), 'hoy 200 de internet': G(200) };
+  const AGUA = (m, extra) => G(m, { comercio: 'Agua', categoria: 'Vivienda', subcategoria: 'agua', ...extra });
+
+  // El parser lee "50 de X" como tipo_dudoso 3 de 3 ("50 de agua", "de pan", "de taxi", "de luz") y
+  // "53 de agua" como gasto: el 50 de sus ejemplos de rechazo se pega.
+  it('mlt-002: las dos lecturas movidas dicen gasto → se anota con el monto ORIGINAL', async () => {
+    const ctx = ctxCon({ partes: PARTES, porTexto: { ...BASE, 'hoy 53 de agua': AGUA(53), 'hoy 57 de agua': AGUA(57) } });
+    const r = await correr(MLT2, ctx);
+    expect(guardados(ctx).map((d) => [d.monto, d.tipo])).toEqual([[80, 'gasto'], [50, 'gasto'], [200, 'gasto']]);
+    expect(guardados(ctx)[1]).toMatchObject({ monto: 50, comercio: 'Agua', categoria: 'Vivienda' });
+    expect(r.split('✅').length - 1).toBe(3);
+  });
+
+  it.each([
+    ['una sola lectura movida dice gasto', { 'hoy 53 de agua': AGUA(53), 'hoy 57 de agua': D(57) }],
+    ['las dos lecturas no coinciden en el tipo', { 'hoy 53 de agua': AGUA(53), 'hoy 57 de agua': AGUA(57, { tipo: 'ingreso' }) }],
+    ['una lectura movida no devuelve el monto movido', { 'hoy 53 de agua': AGUA(50), 'hoy 57 de agua': AGUA(57) }],
+    ['el número movido se coló en un campo de texto', { 'hoy 53 de agua': AGUA(53, { comercio: 'Agua 53' }), 'hoy 57 de agua': AGUA(57) }],
+    ['una relectura lanza', { 'hoy 53 de agua': AGUA(53), 'hoy 57 de agua': new Error('boom') }],
+  ])('control: %s → no se anota ninguno', async (_caso, movidos) => {
+    const ctx = ctxCon({ partes: PARTES, porTexto: { ...BASE, ...movidos } });
+    const r = await correr(MLT2, ctx);
+    expect(ctx.guardarTransaccion).not.toHaveBeenCalled();
+    expect(r).toContain('«50 de agua»: no sé si esa plata entró o salió');
+  });
+
+  // Primero en la lista, donde no lo frena el verbo del movimiento anterior: sólo las invariantes.
+  it('control: la lectura movida pasa por las mismas invariantes ("50 de sueldo y pagué 80 de luz")', async () => {
+    const ctx = ctxCon({ partes: ['50 de sueldo', 'pagué 80 de luz'], porTexto: {
+      'pagué 80 de luz': G(80), '50 de sueldo': D(50),
+      '53 de sueldo': G(53, { tipo: 'ingreso' }), '57 de sueldo': G(57, { tipo: 'ingreso' }),
+    } });
+    const r = await correr('50 de sueldo y pagué 80 de luz', ctx);
+    expect(ctx.guardarTransaccion).not.toHaveBeenCalled();
+    expect(r).toContain('«50 de sueldo»: no sé si esa plata entró o salió');
+  });
+
+  it('control: un tipo_dudoso que NO vino del parser (el signo contra el mensaje) no se relee', async () => {
+    const ctx = ctxCon({ partes: ['gasté 80 en luz', '50 de agua'], porTexto: {
+      'gasté 80 en luz': G(80), '50 de agua': G(50, { tipo: 'ingreso' }), '53 de agua': G(53), '57 de agua': G(57),
+    } });
+    await correr('gasté 80 en luz y 50 de agua', ctx);
+    expect(ctx.guardarTransaccion).not.toHaveBeenCalled();
+    expect(ctx.parsearRegistroManual.mock.calls.map((c) => c[0])).not.toContain('53 de agua');
+  });
+
+  it('control: releído como gasto, un pedazo sin fecha clara sigue preguntando el día', async () => {
+    const ctx = ctxCon({ partes: ['ayer 80 de luz', 'hoy 30 en cine', '50 de agua'], porTexto: {
+      'ayer 80 de luz': G(80, { fecha: '2026-10-06' }), 'hoy 30 en cine': G(30), '50 de agua': D(50),
+      '53 de agua': AGUA(53), '57 de agua': AGUA(57),
+    } });
+    const r = await correr('ayer 80 de luz, hoy 30 en cine y 50 de agua', ctx);
+    expect(ctx.guardarTransaccion).not.toHaveBeenCalled();
+    expect(r).toContain('«50 de agua»: no sé de qué día es');
+  });
+
+  // R1 de la segunda revisión: mover TODAS las apariciones del número cambiaba también la fecha.
+  it('se mueve sólo el monto, no el mismo número dentro de una fecha', async () => {
+    // La fecha dicha una vez adelante se presta a la segunda ventana: "hace 5 semana 5 de pan".
+    const F = '2026-09-02';
+    const ctx = ctxCon({ partes: ['hace 5 semanas 80 de luz', '5 de pan'], porTexto: {
+      'hace 5 semanas 80 de luz': G(80, { fecha: F }), 'hace 5 semana 5 de pan': D(5),
+      'hace 5 semana 8 de pan': G(8, { fecha: F }), 'hace 5 semana 12 de pan': G(12, { fecha: F }),
+    } });
+    await correr('hace 5 semanas 80 de luz y 5 de pan', ctx);
+    expect(guardados(ctx).map((d) => [d.monto, d.fecha])).toEqual([[80, F], [5, F]]);
+  });
+
+  it('control: las dos lecturas movidas con fechas distintas no se anotan', async () => {
+    const ctx = ctxCon({ partes: PARTES, porTexto: { ...BASE, 'hoy 53 de agua': AGUA(53), 'hoy 57 de agua': AGUA(57, { fecha: '2026-10-01' }) } });
+    await correr(MLT2, ctx);
+    expect(ctx.guardarTransaccion).not.toHaveBeenCalled();
+  });
+
+  it('control: un monto con decimales no se mueve', async () => {
+    const ctx = ctxCon({ partes: ['hoy 80 de luz', 'hoy 50.5 de agua'], porTexto: {
+      'hoy 80 de luz': G(80), 'hoy 50.5 de agua': D(50.5), 'hoy 53.5 de agua': AGUA(53.5), 'hoy 57.5 de agua': AGUA(57.5),
+    } });
+    await correr('hoy 80 de luz y 50.5 de agua', ctx);
+    expect(ctx.guardarTransaccion).not.toHaveBeenCalled();
+    expect(ctx.parsearRegistroManual.mock.calls.map((c) => c[0]).filter((t) => /53|57/.test(t))).toEqual([]);
+  });
+});
+
+describe('02-nov: un "todo hoy" / "todo ayer" al final es la fecha de todos', () => {
+  const STR6 = 'Ingresé 1000 lucas esta mañana, gasté 100 el almuerzo, 200 en ropa y 50 en taxi, todo hoy.';
+  const STR6_PARSER = {
+    'Ingresé 1000 lucas esta mañana': G(1000, { tipo: 'ingreso' }), 'gasté 100 el almuerzo': G(100),
+    '200 en ropa': G(200), '50 en taxi': G(50), '50 en taxi, todo hoy': G(50),
+  };
+  const STR6_OK = [[1000, 'ingreso'], [100, 'gasto'], [200, 'gasto'], [50, 'gasto']];
+
+  // El separador real, 1 de 3 corridas: no le dio el ", todo hoy" a ninguna ventana y la partición
+  // rebotaba por dos palabras sin dueño. Con otros mensajes lo devuelve como un texto aparte.
+  it.each([
+    ['sin dueño', ['Ingresé 1000 lucas esta mañana', 'gasté 100 el almuerzo', 'gasté 200 en ropa', 'gasté 50 en taxi']],
+    ['como texto aparte', ['Ingresé 1000 lucas esta mañana', 'gasté 100 el almuerzo', '200 en ropa', '50 en taxi', 'todo hoy']],
+    ['pegado a la última', ['Ingresé 1000 lucas esta mañana', 'gasté 100 el almuerzo', '200 en ropa', '50 en taxi, todo hoy']],
+  ])('str-006 (%s): se anotan los cuatro', async (_caso, partes) => {
+    const ctx = ctxCon({ partes, porTexto: STR6_PARSER });
+    await correr(STR6, ctx);
+    expect(guardados(ctx).map((d) => [d.monto, d.tipo])).toEqual(STR6_OK);
+  });
+
+  const AYER = '2026-10-06';
+
+  it.each([
+    ['sin dueño', ['gasté 20 en taxi', 'gasté 30 en cine']],
+    ['como texto aparte', ['gasté 20 en taxi', '30 en cine', 'todo hoy día']],
+  ])('"…, todo hoy día" (%s): se anotan los dos, hoy', async (_caso, partes) => {
+    const ctx = ctxCon({ partes, porTexto: { 'gasté 20 en taxi': G(20), '30 en cine': G(30) } });
+    await correr('gasté 20 en taxi y 30 en cine, todo hoy día', ctx);
+    expect(guardados(ctx).map((d) => [d.monto, d.fecha])).toEqual([[20, HOY], [30, HOY]]);
+  });
+
+  // "todo ayer" NO se presta (tercera revisión del 02-nov): "gasté 20 en taxi el vie y 30 en cine, todo
+  // ayer" guardaba el taxi ayer, y el parser no ve "el vie". Sigue como antes: pegada a la última, la
+  // ventana sin fecha pregunta; sin dueño, la partición rebota.
+  it('control: "todo ayer" pegado a la última no se le presta a la otra: se pregunta', async () => {
+    const ctx = ctxCon({ partes: ['gasté 20 en taxi', '30 en cine, todo ayer'], porTexto: {
+      'gasté 20 en taxi': G(20), 'ayer gasté 20 en taxi': G(20, { fecha: AYER }), '30 en cine, todo ayer': G(30, { fecha: AYER }),
+    } });
+    const r = await correr('gasté 20 en taxi y 30 en cine, todo ayer', ctx);
+    expect(ctx.guardarTransaccion).not.toHaveBeenCalled();
+    expect(r).toContain('«gasté 20 en taxi»: no sé de qué día es');
+  });
+
+  it('"antes de ayer" no es de hoy', () => {
+    const v = validarSeparacion(['gasté 20 en taxi antes de ayer', '30 en cine'], 'gasté 20 en taxi antes de ayer y 30 en cine, todo hoy');
+    expect(v.map((r) => !!r.fechaDudosa)).toEqual([true, true]);
+  });
+
+  it.each(['anoche', 'el lunes'])('una fecha que no es de hoy ("%s") choca con la cola', async (otra) => {
+    const ctx = ctxCon({ partes: [otra + ' gasté 20 en taxi', '30 en cine'], porTexto: {
+      [otra + ' gasté 20 en taxi']: G(20, { fecha: AYER }), '30 en cine': G(30),
+    } });
+    const r = await correr(otra + ' gasté 20 en taxi y 30 en cine, todo hoy', ctx);
+    expect(ctx.guardarTransaccion).not.toHaveBeenCalled();
+    expect(r).toContain('no sé de qué día es');
+  });
+
+  // M1 de la revisión adversarial del 02-nov: dos fechas que chocan no se resuelven en silencio. El
+  // primero, con la cola pegada a la última ventana, escribía cada fila en un día distinto.
+  it.each([
+    [['ayer gasté 20 en taxi', '30 en cine, todo hoy']],
+    [['ayer gasté 20 en taxi', 'ayer gasté 30 en cine']],
+    [['ayer gasté 20 en taxi', '30 en cine', 'todo hoy']],
+  ])('una fecha del mensaje que choca con la de la cola: se pregunta (%#)', async (partes) => {
+    const ctx = ctxCon({ partes, porTexto: {
+      'ayer gasté 20 en taxi': G(20, { fecha: AYER }), '30 en cine, todo hoy': G(30), 'ayer 30 en cine': G(30, { fecha: AYER }), '30 en cine': G(30),
+    } });
+    const r = await correr('ayer gasté 20 en taxi y 30 en cine, todo hoy', ctx);
+    expect(ctx.guardarTransaccion).not.toHaveBeenCalled();
+    expect(r).toContain('no sé de qué día es');
+  });
+
+  // Sin la coma, el "todo hoy" es de la última cláusula: la otra conserva su fecha y no se pregunta.
+  it('"ayer gasté 30 en taxi y me pagaron 200 por trabajar todo hoy": el taxi ayer, el pago hoy', async () => {
+    const ctx = ctxCon({ partes: ['ayer gasté 30 en taxi', 'me pagaron 200 por trabajar todo hoy'], porTexto: {
+      'ayer gasté 30 en taxi': G(30, { fecha: AYER }), 'me pagaron 200 por trabajar todo hoy': G(200, { tipo: 'ingreso' }),
+    } });
+    await correr('ayer gasté 30 en taxi y me pagaron 200 por trabajar todo hoy', ctx);
+    expect(guardados(ctx).map((d) => [d.monto, d.tipo, d.fecha])).toEqual([[30, 'gasto', AYER], [200, 'ingreso', HOY]]);
+  });
+
+  it.each([
+    // A4: sólo "hoy". Un rango, una fecha numérica, "anoche" o "ayer" siguen sin dueño, como antes.
+    'gasté 20 en taxi y 30 en cine, toda la semana pasada',
+    'gasté 20 en taxi y 30 en cine, todo hace 1 semana',
+    'gasté 20 en taxi y 30 en cine, todo el 12/10',
+    'gasté 20 en taxi y 30 en cine, todo anoche',
+    'gasté 20 en taxi y 30 en cine, todo el lunes',
+    'gasté 20 en taxi y 30 en cine, todo ayer',
+    'gasté 20 en taxi y 30 en cine, todo fue antier',
+    // Sin "todo" no dice que sea de todos; sin fecha no es una cola de fecha.
+    'gasté 20 en taxi y 30 en cine, hoy',
+    'gasté 20 en taxi y 30 en cine, todo bien',
+    // Una cola en el MEDIO no es una cola.
+    'gasté 20 en taxi, todo hoy, y 30 en cine',
+    'gasté 20 en taxi y 30 en cine, todo hoy, gracias',
+  ])('control: "%s" con palabras sin dueño sigue sin ser una partición', (msg) => {
+    expect(validarSeparacion(['gasté 20 en taxi', 'gasté 30 en cine'], msg)).toBeNull();
+  });
+
+  // Segunda revisión adversarial del 02-nov, con el modelo real.
+  it.each([
+    // A2: una fecha que `RE_FECHA_EN_MENSAJE` no ve choca igual con la cola.
+    ['gasté 20 en taxi anteanoche y 30 en cine, todo hoy', ['gasté 20 en taxi anteanoche', '30 en cine, todo hoy']],
+    ['gasté 20 en taxi el finde y 30 en cine, todo hoy', ['gasté 20 en taxi el finde', '30 en cine']],
+    ['hace dos días gasté 20 en taxi y 30 en cine, todo hoy', ['hace dos días gasté 20 en taxi', '30 en cine']],
+    ['el otro día gasté 20 en taxi y 30 en cine, todo hoy', ['el otro día gasté 20 en taxi', '30 en cine']],
+    // A3: "el 30" se pisaba con un monto y el filtro de fechas lo dejaba afuera: el taxi quedaba hoy.
+    ['gasté 20 en taxi el 30 y 15 en cine, todo hoy', ['gasté 20 en taxi el 30', '15 en cine']],
+  ])('"%s": una fecha que no es de hoy, aunque el parser no la vea, pregunta (%#)', async (msg, partes) => {
+    // El parser con fecha de hoy en todos: así lee "el 30" el real, y así se prueba que la capa de
+    // palabras frena aunque el modelo no vea "anteanoche" o "el finde".
+    const porTexto = {};
+    for (const p of partes) for (const t of [p, p.replace(/^gasté /, '')]) porTexto[t] = G(Number(t.match(/\d+/)[0]));
+    const ctx = ctxCon({ partes, porTexto });
+    await correr(msg, ctx);
+    expect(ctx.guardarTransaccion).not.toHaveBeenCalled();
+  });
+
+  it('control: un texto suelto que no es la cola sigue rebotando', () => {
+    expect(validarSeparacion(['gasté 20 en taxi', '30 en cine', 'todo bien'], 'gasté 20 en taxi y 30 en cine, todo hoy')).toBeNull();
+  });
+});

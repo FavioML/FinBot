@@ -13,8 +13,9 @@
  *
  * más "pan 3 leche 5" (S/3 en 1 de 3 corridas, docs/DEFECTOS.md 30-sep) y "gasté $20 en taxi y $5
  * en café" (el fanout fijaba la moneda en PEN), tres frases de las revisiones adversariales ("el
- * cambio de aceite", "depa 800", "medias 15") y dos CONTROLES de un solo movimiento, uno con una
- * fecha "el 06/10" que no puede contarse como segundo monto.
+ * cambio de aceite", "depa 800", "medias 15"), los dos rojos sostenidos del QA agent (mlt-002 y
+ * str-006, 02-nov) con dos controles que no pueden escribir nada, y dos CONTROLES de un solo
+ * movimiento, uno con una fecha "el 06/10" que no puede contarse como segundo monto.
  *
  * **Se afirma sobre la TABLA `transacciones`, no sobre el texto**: cuántas filas, y para cada una
  * monto, tipo y moneda. El texto sólo se mira en la salida "no anoté ninguno", que es aceptable
@@ -67,6 +68,16 @@ const CASOS = [
   { id: 'cambio-aceite', texto: 'gasté 30 en el cambio de aceite y 15 en taxi', esperado: [G(30), G(15)] },
   { id: 'depa', texto: 'alquiler depa 800 y luz 120', esperado: [G(800), G(120)] },
   { id: 'medias', texto: 'polo 35, medias 15', esperado: [G(35), G(15)] },
+  // Los rojos sostenidos del QA agent (mlt-002 y str-006, desde el 15-oct). El parser lee "50 de X"
+  // como tipo_dudoso y la lista entera rebotaba; el separador a veces no le daba el "todo hoy" final a
+  // nadie y la partición rebotaba por palabras sin dueño (02-nov).
+  { id: 'mlt-002', texto: 'hoy 80 de luz, 50 de agua y 200 de internet', esperado: [G(80), G(50), G(200)] },
+  { id: 'str-006', texto: 'Ingresé 1000 lucas esta mañana, gasté 100 el almuerzo, 200 en ropa y 50 en taxi, todo hoy.',
+    esperado: [I(1000), G(100), G(200), G(50)] },
+  // Controles de lo mismo, que NO pueden escribir nada: "de + persona" sigue siendo la duda que el prompt
+  // nombra (¿me los dio o se los di?) con el monto movido, y dos fechas que chocan se preguntan.
+  { id: 'de-persona', texto: 'hoy 80 de luz, 50 de mi tía y 200 de internet', esperado: [] },
+  { id: 'fechas-chocan', texto: 'ayer gasté 20 en taxi y 30 en cine, todo hoy', esperado: [] },
   { id: 'control-uno', texto: 'gasté 12 en taxi', esperado: [G(12)] },
   { id: 'control-fecha', texto: 'gasté S/10 en cuota para futbol el 06/10', esperado: [G(10)] },
 ];

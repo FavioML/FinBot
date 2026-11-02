@@ -115,6 +115,24 @@ const RE_FECHA_EXTRA = '\\banoche\\b|\\besta\\s+(?:ma[ñn]ana|tarde|noche)\\b';
 const RE_FECHA_PROPIA = new RegExp(RE_FECHA_EXPLICITA.source + '|' + RE_FECHA_EXTRA, 'i');
 const RE_FECHA_EN_MENSAJE = new RegExp(RE_FECHA_EXPLICITA.source + '|' + RE_FECHA_EXTRA, 'gi');
 const soloPrestable = (X) => X.filter((t) => PALABRAS_PRESTABLES.has(t));
+// "…, todo hoy" al FINAL del mensaje (str-006 del QA agent). El separador real hace tres cosas con
+// esa cola: la pega a la última ventana (y se anota todo, con la fecha de hoy), la deja sin dueño o la
+// devuelve como un texto suelto (y la partición rebotaba por palabras sin dueño, 1 de 3 en la sonda
+// del 02-nov). Acá las tres terminan igual que la primera. Sin la coma es de la última cláusula; sin
+// "todo" no dice que sea de todos.
+//
+// Sólo HOY, a propósito. Prestar "todo ayer" a las demás ventanas escribía comportamiento nuevo con
+// un hueco que ninguna lista cierra: "gasté 20 en taxi el vie y 30 en cine, todo ayer" guardaba el
+// taxi ayer (revisión del 02-nov, 3 de 3 con el modelo real), y el parser no sirve de testigo porque
+// devuelve hoy para "el viernes", "el sab" o "en navidad" (los días de semana los resuelve
+// `resolverDiaSemanaPasado` después). Con "todo hoy" una ventana sin fecha queda en hoy de todos
+// modos (el guard de fecha inventada), así que no hay nada que prestar.
+const RE_COLA_DE_HOY = /[,;]\s*(?:y\s+)?(tod[oa]s?\s+(?:(?:fue|fueron|es|son|eso|esto|de|del|el|la|en)\s+)*hoy(?:\s+d[ií]a)?)\s*[.!]*\s*$/id;
+const esDeHoyElTexto = (t) => /^(?:hoy(?:\s+dia)?|esta\s+(?:manana|tarde|noche))$/.test(normalizarIgualLargo(t).trim());
+// Cualquier palabra que hable de CUÁNDO, fuera de las fechas que `RE_FECHA_EN_MENSAJE` ve: con la
+// cola, un "anteanoche", "el finde", "hace dos días" o "el otro día" no puede quedar en hoy en
+// silencio (segunda revisión del 02-nov). Ancha a propósito: preguntar de más es el costo aceptado.
+const RE_SENAL_DE_TIEMPO = /\b(?:anoche|anteanoche|noche|manana|tarde|madrugada|mediodia|finde|fin\s+de\s+semana|semana|mes|ano|dias?|hace|pasad[oa]s?|quincena|lunes|martes|miercoles|jueves|viernes|sabado|domingo|enero|febrero|marzo|abril|mayo|junio|julio|agosto|setiembre|septiembre|octubre|noviembre|diciembre)\b|\bel\s+\d|\d\s*[/-]\s*\d/;
 
 /**
  * ¿Los textos del separador son una PARTICIÓN del mensaje? Devuelve, para cada texto, el monto del
@@ -140,6 +158,14 @@ const soloPrestable = (X) => X.filter((t) => PALABRAS_PRESTABLES.has(t));
 function validarSeparacion(textos, msg) {
   if (!Array.isArray(textos) || !textos.length) return null;
   const M = tokens(msg);
+  // La cola de fecha puede quedar sin dueño o llegar como un texto suelto sin monto, que se descarta.
+  const cola = RE_COLA_DE_HOY.exec(msg);
+  const inicioCola = cola ? cola.indices[1][0] : null;
+  if (cola && textos.length > 1) {
+    const ultimo = tokens(textos[textos.length - 1]).map((x) => x.t);
+    const deLaCola = M.filter((x) => x.start >= inicioCola);
+    if (ultimo.length && deLaCola.some((_, i) => igualesEn(ultimo, deLaCola, i))) textos = textos.slice(0, -1);
+  }
   const tokDe = (m) => M.findIndex((x) => x.start <= m.index && m.index < x.end);
   const amplios = montosDeMovimiento(msg, { soloSeguras: true }).map((m) => ({ ...m, tok: tokDe(m) }));
   const finos = new Set(montosDeMovimiento(msg).map(tokDe));
@@ -196,12 +222,12 @@ function validarSeparacion(textos, msg) {
     const prestado = [...elegido.prestadoAntes, ...elegido.prestadoDespues];
     const paraParser = tieneFecha ? ventana : [...elegido.prestadoAntes, ventana, ...elegido.prestadoDespues].join(' ');
     const recibioFecha = !tieneFecha && prestado.some((t) => !FUNCIONALES_DE_FECHA.has(t));
-    resultado.push({ texto: ventana, paraParser, montoMsg: elegido.monto, otros: elegido.otros, sinFecha: !tieneFecha && !recibioFecha });
+    resultado.push({ texto: ventana, paraParser, montoMsg: elegido.monto, posMonto: elegido.monto.index - M[elegido.j].start, otros: elegido.otros, sinFecha: !tieneFecha && !recibioFecha });
   }
   // Ninguna palabra fuera de las ventanas salvo separadores. Con esto, ningún monto que el contador
   // fino ve se queda sin dueño: un número fuera de toda ventana no pasa (no es un separador), y uno
   // adentro es el monto de su ventana o la ventana tiene dos y no se eligió.
-  if (M.some((x, i) => !cubierto[i] && !SEPARADORES.has(x.t))) return null;
+  if (M.some((x, i) => !cubierto[i] && !SEPARADORES.has(x.t) && !(cola && x.start >= inicioCola))) return null;
   // La fecha dicha UNA vez (quinta revisión, 07-oct): el separador no siempre la repite ("ayer menú
   // 12, gaseosa 3" → "gaseosa 3", 3 de 3 con el modelo real) y la gaseosa salía con fecha de hoy. Si
   // el mensaje dice UNA sola fecha y la dice ANTES del primer monto, vale para todos y se presta acá,
@@ -217,6 +243,19 @@ function validarSeparacion(textos, msg) {
       texto: (/antes\s+de\s+$/i.test(msg.slice(0, m.index)) ? 'antes de ' : '') + m[0].trim(),
       paraOtraCosa: /(?:^|\s)para\s+(?:el\s+|la\s+)?$/i.test(msg.slice(0, m.index)),
     }));
+  // Con "todo hoy", todo es de hoy, y no hay nada que prestar. Si el mensaje nombra OTRO día fuera de
+  // la cola ("ayer gasté 20 en taxi y 30 en cine, todo hoy"), no se elige: se pregunta (M1 de la
+  // revisión del 02-nov, donde con la cola pegada a la última ventana cada fila quedaba en un día).
+  if (cola) {
+    // Sin el filtro de `fechas`: "taxi 20 el 30" se pisa con un monto y salía filtrado, y la fila
+    // quedaba con la fecha de hoy (segunda revisión). Lo que es de hoy se quita antes de buscar otra
+    // señal de tiempo ("esta mañana" con "todo hoy").
+    const antes = msg.slice(0, inicioCola);
+    const choca = [...antes.matchAll(RE_FECHA_EN_MENSAJE)].some((f) => !esDeHoyElTexto(f[0]))
+      || RE_SENAL_DE_TIEMPO.test(normalizarIgualLargo(antes.replace(RE_FECHA_EN_MENSAJE, ' ')));
+    if (choca) for (const r of resultado) r.fechaDudosa = true;
+    return resultado;
+  }
   const esDeHoy = (f) => /^(?:hoy|esta\s+(?:ma[ñn]ana|tarde|noche))$/i.test(f.texto);
   const primerMonto = Math.min(...resultado.map((r) => r.montoMsg.index));
   const prestable = fechas.length === 1 && fechas[0].index < primerMonto && !fechas[0].paraOtraCosa ? fechas[0] : null;
@@ -256,6 +295,49 @@ function motivoDeRechazo(parsed, texto, montoMsg, msg) {
   // Sin moneda pegada, dólares sólo si el mensaje los nombra en algún lado.
   if (!montoMsg.moneda && moneda === 'USD' && !/\$|usd|d[oó]lar|verdes/i.test(msg)) return 'moneda';
   return null;
+}
+
+/**
+ * Un pedazo que el parser dejó dudoso por el NÚMERO, no por las palabras (02-nov-2026, mlt-002 del QA
+ * agent): "hoy 80 de luz, 50 de agua y 200 de internet" rebotaba entero por «50 de agua». El parser
+ * lee cualquier "50 de X" como tipo_dudoso ("de agua", "de pan", "de taxi", "de luz", 3 de 3) y "53 de
+ * agua" como gasto: el 50 de sus ejemplos de rechazo y de ingreso ("Yape 50 de mi tía", "me yapearon
+ * 50") se le pega. Tres redacciones del prompt no lo movieron, y el prompt decide plata.
+ *
+ * Se prueba exactamente esa causa: el mismo texto con el monto movido (+3 y +7). Si las DOS lecturas
+ * registran, con el mismo tipo y el monto movido, la duda era del número, y se anota la lectura con el
+ * monto ORIGINAL, por las mismas invariantes que cualquier pedazo. Lo dudoso por las palabras sigue
+ * dudoso movido: "50 de mi tía", "de juan", "del tío", "de vuelto", "de la deuda", "de reembolso",
+ * "me prestaron 100" salieron dudosos en las 24-36 lecturas movidas de la sonda del 02-nov. Dos
+ * lecturas y no una porque "50 de reembolso" a 53 salió gasto 1 de 4 (a 57, 0 de 4). El primer intento,
+ * que releía con "gasté" adelante, era circular: el verbo prestado hacía que todo saliera gasto.
+ */
+const DESPLAZAMIENTOS = [3, 7];
+async function releerConMontoMovido(it, { msg, parsearRegistroManual, fechaHoy }) {
+  const { token, valor } = it.montoMsg;
+  if (!/^\d+$/.test(String(token))) return false;
+  // Sólo el monto, en su lugar: un reemplazo de todas las apariciones movía también el número de una
+  // fecha ("hace 5 semanas 5 de pan" → "hace 8 semanas", segunda revisión). Lo prestado detrás de la
+  // ventana son palabras sin números, así que la última aparición de la ventana es la de verdad.
+  const pos = it.paraParser.lastIndexOf(it.texto) + it.posMonto;
+  const lecturas = await Promise.all(DESPLAZAMIENTOS.map(async (d) => {
+    const movido = valor + d;
+    const p = await parsearRegistroManual(it.paraParser.slice(0, pos) + movido + it.paraParser.slice(pos + token.length), fechaHoy).catch((e) => {
+      log.warn({ tag: 'MULTI_MOVIMIENTO', err: e.message, texto: it.texto }, 'La relectura con el monto movido falló');
+      return null;
+    });
+    if (!p || p.decision !== 'registrar' || p.monto !== movido) return null;
+    // El número movido no puede quedar escrito en la fila.
+    if (Object.values(p).some((v) => typeof v === 'string' && v.includes(String(movido)))) return null;
+    return p;
+  }));
+  if (lecturas.some((p) => !p) || lecturas.some((p) => p.tipo !== lecturas[0].tipo || p.fecha !== lecturas[0].fecha)) return false;
+  const parsed = { ...lecturas[0], monto: valor };
+  if (motivoDeRechazo(parsed, it.paraParser, it.montoMsg, msg)) return false;
+  log.info({ tag: 'MULTI_MOVIMIENTO', texto: it.texto, tipo: parsed.tipo }, 'Pedazo dudoso por el número: releído con el monto movido');
+  it.parsed = parsed;
+  it.motivo = it.fechaDudosa ? 'fecha' : null;
+  return true;
 }
 
 /**
@@ -333,7 +415,7 @@ async function registrarVariosMovimientos({ msg, montos, usuario, ctx }) {
   // Cada movimiento con el parser validado y su categoría, todos a la vez.
   // Lo que decide es `paraParser` (la ventana del mensaje con la fecha prestada y sin el verbo
   // prestado); `texto` es la ventana, que es lo que se le nombra a la persona.
-  const items = await Promise.all(particion.map(async ({ texto, paraParser, montoMsg, fechaDudosa }) => {
+  const items = await Promise.all(particion.map(async ({ texto, paraParser, montoMsg, posMonto, fechaDudosa }) => {
     const [parsed, detCat] = await Promise.all([
       parsearRegistroManual(paraParser, fechaHoy).catch((e) => {
         log.warn({ tag: 'MULTI_MOVIMIENTO', err: e.message, texto }, 'El parser falló en un movimiento');
@@ -341,8 +423,11 @@ async function registrarVariosMovimientos({ msg, montos, usuario, ctx }) {
       }),
       detectarCategoriaIA(paraParser, usuario.id).catch(() => ({ categoria: null })),
     ]);
-    return { texto, paraParser, parsed, detCat: detCat || {}, montoMsg, motivo: motivoDeRechazo(parsed, paraParser, montoMsg, msg) || (fechaDudosa ? 'fecha' : null) };
+    return { texto, paraParser, parsed, detCat: detCat || {}, montoMsg, posMonto, fechaDudosa, motivo: motivoDeRechazo(parsed, paraParser, montoMsg, msg) || (fechaDudosa ? 'fecha' : null) };
   }));
+  await Promise.all(items
+    .filter((it) => it.motivo === 'tipo_dudoso' && it.parsed && it.parsed.decision === 'tipo_dudoso')
+    .map((it) => releerConMontoMovido(it, { msg, parsearRegistroManual, fechaHoy })));
   // Una ventana SIN verbo de plata propio sigue el tipo del movimiento anterior del mensaje: el parser
   // la lee sola y, sin verbo, la forma corta es gasto. "Me yapearon 50 de la cena y 30 del taxi" o "me
   // reembolsaron clínica 80, farmacia 20" escribían el segundo como GASTO (cuarta y quinta revisión,
