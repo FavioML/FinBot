@@ -77,7 +77,11 @@ jobs:
           /usr/lib/postgresql/17/bin/pg_dump --version
           age --version
 
+      # timeout propio: el 2026-11-01 este paso se colgo 19 min y el job murio
+      # cancelado por su timeout de 20, y GitHub no guardo el log. Lo normal son
+      # 2-4 min; backup.sh ademas limita cada comando de red (con_limite).
       - name: Correr backup
+        timeout-minutes: 12
         env:
           # Session pooler (puerto 5432). La conexion directa de Supabase es
           # solo IPv6 y los runners de GitHub son solo IPv4: falla siempre.

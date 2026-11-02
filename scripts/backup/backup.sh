@@ -42,11 +42,29 @@ mkdir -p "${SALIDA}/storage"
 limpiar() { [ "${KEEP_LOCAL:-0}" = "1" ] || rm -rf "${TRABAJO}"; }
 trap limpiar EXIT
 
+# --- Limites de tiempo ------------------------------------------------------
+# El 2026-11-01 este script se colgo 19 minutos, el job murio por su timeout de
+# 20 y GitHub no guardo el log: no hubo forma de saber que comando fue. Ningun
+# comando de red corre sin limite: si uno se cuelga (pooler de Supabase,
+# Storage, R2), falla en minutos, dice cual fue y el aviso de falla sale.
+# Un dump completo tarda menos de 2 minutos; 5 por comando sobra.
+export PGCONNECT_TIMEOUT="${PGCONNECT_TIMEOUT:-30}"
+LIMITE_SEG="${LIMITE_SEG:-300}"
+con_limite() {
+  local rc=0
+  timeout --kill-after=10 "$LIMITE_SEG" "$@" || rc=$?
+  # Solo el nombre del binario: los argumentos llevan la URL con el password.
+  if [ "$rc" = 124 ] || [ "$rc" = 137 ]; then
+    echo "TIMEOUT: $(basename "$1") paso ${LIMITE_SEG}s sin terminar" >&2
+  fi
+  return "$rc"
+}
+
 echo "==> Backup ${NOMBRE}"
 
 # --- 1. Roles (solo referencia; Supabase recrea los suyos en un proyecto nuevo) --
 echo "--> roles"
-"$PSQL" "$SUPABASE_DB_URL" -Atq -o "${SALIDA}/roles.txt" -c \
+con_limite "$PSQL" "$SUPABASE_DB_URL" -Atq -o "${SALIDA}/roles.txt" -c \
   "select rolname || ' | login=' || rolcanlogin || ' | super=' || rolsuper
      from pg_roles where rolname not like 'pg\_%' order by 1;"
 
@@ -55,7 +73,7 @@ echo "--> roles"
 # pg_dump emita las FKs y los indices DESPUES de los COPY. Separarlos obliga a
 # --disable-triggers, que en Supabase necesita superusuario que no tenemos.
 echo "--> schema public (DDL + datos)"
-"$PG_DUMP" "$SUPABASE_DB_URL" \
+con_limite "$PG_DUMP" "$SUPABASE_DB_URL" \
   --schema=public \
   --no-publications \
   --no-subscriptions \
@@ -68,7 +86,7 @@ echo "--> schema public (DDL + datos)"
 # restaurar en un Postgres pelado (sin Supabase), y es contra esto que la
 # prueba de restauracion levanta un destino fiel.
 echo "--> DDL auth + storage + supabase_migrations (referencia)"
-"$PG_DUMP" "$SUPABASE_DB_URL" \
+con_limite "$PG_DUMP" "$SUPABASE_DB_URL" \
   --schema-only --schema=auth --schema=storage --schema=supabase_migrations \
   --no-publications --no-subscriptions --quote-all-identifiers \
   -f "${SALIDA}/schema_supabase.sql"
@@ -83,7 +101,7 @@ volcar_datos() {
   : > "$destino"
   for tabla in "$@"; do
     echo "    - ${tabla}"
-    "$PG_DUMP" "$SUPABASE_DB_URL" --data-only --table="${tabla}" \
+    con_limite "$PG_DUMP" "$SUPABASE_DB_URL" --data-only --table="${tabla}" \
       --quote-all-identifiers >> "$destino"
   done
 }
@@ -112,7 +130,7 @@ volcar_datos "${SALIDA}/data_auth_efimero.sql" \
 echo "--> archivos de Storage"
 # tr -d '\r': psql en Windows emite CRLF y el \r termina dentro del nombre del
 # archivo y de la URL. En Linux es un no-op.
-"$PSQL" "$SUPABASE_DB_URL" -Atq -F$'\t' -c \
+con_limite "$PSQL" "$SUPABASE_DB_URL" -Atq -F$'\t' -c \
   "select bucket_id, name from storage.objects order by bucket_id, name;" \
   | tr -d '\r' > "${TRABAJO}/objetos.tsv"
 
@@ -121,7 +139,7 @@ while IFS=$'\t' read -r bucket nombre; do
   [ -n "${bucket:-}" ] || continue
   destino="${SALIDA}/storage/${bucket}/${nombre}"
   mkdir -p "$(dirname "$destino")"
-  codigo=$(curl -sS -w '%{http_code}' -o "$destino" \
+  codigo=$(curl -sS --connect-timeout 20 --max-time 120 -w '%{http_code}' -o "$destino" \
     -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
     "${SUPABASE_URL}/storage/v1/object/${bucket}/${nombre}")
   if [ "$codigo" != "200" ]; then
@@ -140,7 +158,7 @@ echo "    ${ARCHIVOS} archivos"
 echo "--> esquemas"
 CONOCIDOS="public,auth,storage,supabase_migrations,extensions,graphql,graphql_public,realtime,_realtime,vault,pgbouncer,cron,net,pgsodium,pgsodium_masks,supabase_functions,_analytics,_supavisor,pgtle,pg_toast,pg_catalog,information_schema"
 
-DESCONOCIDOS="$("$PSQL" "$SUPABASE_DB_URL" -Atq -c "
+DESCONOCIDOS="$(con_limite "$PSQL" "$SUPABASE_DB_URL" -Atq -c "
 select coalesce(string_agg(nspname, ', ' order by nspname), '')
 from pg_namespace
 where nspname not like 'pg\_%'
@@ -156,7 +174,7 @@ echo "    ok: sin esquemas fuera del backup"
 
 # --- 5. Manifiesto: la vara contra la que se verifica cualquier restore ------
 echo "--> manifiesto"
-"$PSQL" "$SUPABASE_DB_URL" -Atq -c "
+con_limite "$PSQL" "$SUPABASE_DB_URL" -Atq -c "
 with t as (
   select table_schema as sch, table_name as tbl,
          query_to_xml(format('select count(*) c from %I.%I', table_schema, table_name),
@@ -175,7 +193,7 @@ from t;" | tr -d '\r' > "${TRABAJO}/conteos.json"
 # Estructura de public, para que el restore compare contra el origen y no
 # contra numeros escritos a mano. Asi el dia que haya 40 tablas y 30 policies
 # la verificacion sigue siendo exacta sin tocar nada.
-"$PSQL" "$SUPABASE_DB_URL" -Atq -c "
+con_limite "$PSQL" "$SUPABASE_DB_URL" -Atq -c "
 select json_build_object(
   'tablas',      (select count(*) from pg_tables where schemaname='public'),
   'tablas_rls',  (select count(*) from pg_tables where schemaname='public' and rowsecurity),
@@ -316,17 +334,17 @@ if head -c 200 "${TRABAJO}/${NOMBRE}.tar.gz.age" | grep -qa "CREATE TABLE\|COPY 
 fi
 
 echo "--> subiendo a R2 (${PESO} bytes)"
-node "${AQUI}/r2.mjs" put "daily/${NOMBRE}.tar.gz.age" "${TRABAJO}/${NOMBRE}.tar.gz.age"
+con_limite node "${AQUI}/r2.mjs" put "daily/${NOMBRE}.tar.gz.age" "${TRABAJO}/${NOMBRE}.tar.gz.age"
 
 # Copia mensual el dia 1, con retencion propia mas larga (lifecycle de R2).
 if [ "$DIA" = "01" ]; then
   echo "--> copia mensual"
-  node "${AQUI}/r2.mjs" put "monthly/${NOMBRE}.tar.gz.age" "${TRABAJO}/${NOMBRE}.tar.gz.age"
+  con_limite node "${AQUI}/r2.mjs" put "monthly/${NOMBRE}.tar.gz.age" "${TRABAJO}/${NOMBRE}.tar.gz.age"
 fi
 
 # --- 7. Retencion -----------------------------------------------------------
 echo "--> retencion"
-node "${AQUI}/r2.mjs" prune | tee "${TRABAJO}/prune.txt"
+con_limite node "${AQUI}/r2.mjs" prune | tee "${TRABAJO}/prune.txt"
 
 # Completar el resumen con lo que solo se sabe al final.
 if [ -n "${RESUMEN_OUT:-}" ] && [ -f "${RESUMEN_OUT}" ]; then
