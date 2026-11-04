@@ -3,7 +3,7 @@ const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY;
 
 /**
  * Avisa al backend que el usuario acaba de registrar una transacción, para que arranque
- * su trial de 14 días si le corresponde.
+ * su prueba si le corresponde.
  *
  * Por qué un hop de red en vez de hacer el UPDATE acá:
  *  1. El arranque del trial vive en UN solo lugar (`lib/trial.js`), con su CAS atómico y

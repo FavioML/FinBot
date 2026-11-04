@@ -145,7 +145,7 @@ export default function ProPage() {
 
 /**
  * Lo que ve quien está PROBANDO Pro. Es la pantalla más importante del embudo: acá
- * aterrizan el banner del dashboard, los avisos de WhatsApp del día 11 y 14, y la
+ * aterrizan el banner del dashboard, los avisos de WhatsApp de la víspera y del último día, y la
  * notificación in-app. Antes caía en `PremiumState` y leía "Eres Neto Pro ⭐" sin fecha
  * ni precio, o sea que el trial mandaba a la gente a decidir a una pantalla que le decía
  * que no había nada que decidir.

@@ -11,7 +11,7 @@ import path from 'path';
  * le manda a un desconocido los avisos de plata de alguien más. Medido el 15-sep: 22 filas
  * vivas sin cuenta web con correo, 1 probada por su propio Gmail.
  *
- * En `trial_d11`/`trial_d14` es peor que un aviso ajeno: para quien no tiene cuenta web, el
+ * En `trial_d7` (antes `trial_d11`/`trial_d14`) es peor que un aviso ajeno: para quien no tiene cuenta web, el
  * `link` del aviso es el de activación firmado (`linkPanelPro` → `/activar?t=`), y el botón
  * del correo lo lleva. Quien controle esa bandeja adopta la cuenta. Es el ítem 35(a) del
  * backlog de confiabilidad, y la misma razón por la que el upsell d28 ya gateaba su correo.
@@ -126,13 +126,15 @@ vi.useFakeTimers({ toFake: ['Date'] });
 afterAll(() => { vi.useRealTimers(); });
 
 const enLima = (iso) => new Date(iso + '-05:00');
-/** Martes 15-sep-2026, 10am Lima: el d11 es para quien vence el 18. */
+/** Martes 15-sep-2026, 10am Lima: el último día (d7) es de quien vence el 15. */
 const HOY_10AM = '2026-09-15T10:00:00';
 
 const EN_PRUEBA = {
   trial_estado: 'activo', plan: 'premium', whatsapp: '51900000001', nombre: 'Ana Torres',
   recordatorios_activos: true, cuenta_borrada_at: null, is_test_user: false,
   estado_pago: null, premium_desde: null, premium_vence: null,
+  // El correo del muro mide el uso desde el día siguiente a `trial_inicio`.
+  trial_inicio: '2026-09-03T15:00:00+00:00',
 };
 /** Con cuenta web: la dirección es la de su sesión de Google o del magic link. */
 const conWeb = (id, extra) => ({ id, ...EN_PRUEBA, supabase_auth_id: 'auth-' + id, email: id + '@ejemplo.pe', ...extra });
@@ -150,14 +152,14 @@ beforeEach(() => {
   vi.setSystemTime(enLima(HOY_10AM));
 });
 
-describe('checkTrialExpiry · el aviso d11 no manda correo a una dirección sin probar', () => {
+describe('checkTrialExpiry · el aviso del último día no manda correo a una dirección sin probar', () => {
   it('sin cuenta web, el aviso sale por WhatsApp y campana pero el correo no tiene destinatario', async () => {
-    tablas.usuarios = [sinWeb('u-dictado', { trial_vence: '2026-09-18' })];
+    tablas.usuarios = [sinWeb('u-dictado', { trial_vence: '2026-09-15' })];
 
     await checks.checkTrialExpiry();
 
-    const a = llamadaDe('u-dictado', 'trial_d11');
-    expect(a, 'el d11 no salió: el caso no prueba nada').toBeTruthy();
+    const a = llamadaDe('u-dictado', 'trial_d7');
+    expect(a, 'el aviso del último día no salió: el caso no prueba nada').toBeTruthy();
     // El aviso sigue saliendo: lo que se corta es el CORREO, no el aviso.
     expect(a.canales).toBe('ambos');
     // Y el correo no: llevaría el link de activación a una bandeja que nadie probó.
@@ -165,11 +167,11 @@ describe('checkTrialExpiry · el aviso d11 no manda correo a una dirección sin 
   });
 
   it('con cuenta web, el correo sale a su dirección (control)', async () => {
-    tablas.usuarios = [conWeb('u-web', { trial_vence: '2026-09-18' })];
+    tablas.usuarios = [conWeb('u-web', { trial_vence: '2026-09-15' })];
 
     await checks.checkTrialExpiry();
 
-    expect(correoA(llamadaDe('u-web', 'trial_d11'))).toBe('u-web@ejemplo.pe');
+    expect(correoA(llamadaDe('u-web', 'trial_d7'))).toBe('u-web@ejemplo.pe');
   });
 });
 

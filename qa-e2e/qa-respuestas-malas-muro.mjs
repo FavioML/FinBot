@@ -40,7 +40,9 @@ const RAILWAY = { P: 'e2aac0f3-c2ee-4347-892c-b36d8c76929e', S: '1085b433-8f29-4
 const WEBHOOK = process.env.NETO_WEBHOOK || 'https://api.neto.pe/webhook';
 const ESPERA_MS = 60000;
 const COLA_MS = 4000;
-const TRIAL_DIAS = 14;
+// Escrito a mano y no importado de lib/trial.js: el harness habla con el backend DESPLEGADO, y
+// lo que se mide es lo que dice producción. 7 desde el 04-nov-2026 (antes 14).
+const TRIAL_DIAS = 7;
 
 function envLocal(clave) {
   if (process.env[clave]) return process.env[clave];

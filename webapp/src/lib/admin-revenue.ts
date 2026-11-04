@@ -22,7 +22,7 @@ export interface RevenueUserRow {
   /** Marca de cuenta de prueba (harness qa-e2e, seeds de demo). Nunca es ingreso. */
   is_test_user?: boolean | null;
   /**
-   * Estado del trial de 14 días. Durante el trial `plan` vale `'premium'` (así el
+   * Estado de la prueba Pro. Durante el trial `plan` vale `'premium'` (así el
    * usuario en prueba recibe Pro sin tocar los ~40 gates que miran esa columna), o sea
    * que **`plan === 'premium'` ya NO significa "paga"**. Este es el único lugar donde
    * ese truco cobra peaje, y por eso se paga acá y no en 40 sitios.

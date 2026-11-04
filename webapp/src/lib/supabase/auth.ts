@@ -111,7 +111,7 @@ export async function requireNetoUser(columns = 'id'): Promise<NetoUserAuth> {
 
 /**
  * Como `requireNetoUser`, mas el muro de lectura: responde **402 Payment Required**
- * si el usuario ya termino su prueba de 14 dias y no pago.
+ * si el usuario ya termino su prueba y no pago.
  *
  * La regla del producto es que **escribir nunca se corta; lo que se cobra es leer**
  * (ver `lib/trial.js` en el backend). Toda ruta que devuelva data acumulada del

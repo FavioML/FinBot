@@ -19,7 +19,7 @@ export interface Usuario {
   aprobado_gcc?: boolean;
   supabase_auth_id?: string;
   /**
-   * Trial de 14 días (migración 052). Durante el trial `plan` vale `'premium'` —
+   * Prueba Pro (migración 052; 7 días desde el 04-nov-2026, antes 14). Durante el trial `plan` vale `'premium'` —
    * así el usuario en prueba recibe Pro sin ningún caso especial en los ~40 gates
    * que miran esa columna. Estas tres columnas son el estado COMERCIAL, que es lo
    * que distingue un Pro que paga de uno que está probando.

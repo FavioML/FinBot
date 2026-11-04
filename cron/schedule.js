@@ -87,7 +87,7 @@ const TAREAS = [
   { nombre: 'checkCierreDiaPrueba', cadaMs: 15 * MIN, alBoot: true, tag: 'CIERRE_DIA_PRUEBA', mensaje: 'Cierre del día, días 0-2 de la prueba, a quien escribió hoy (9pm Lima)' },
   { nombre: 'checkAlertasProactivas', cadaMs: 15 * MIN, tag: 'ALERTAS', mensaje: 'Alertas proactivas (miércoles 10am Lima)' },
   { nombre: 'checkPremiumExpiry', cadaMs: HORA, tag: 'EXPIRY', mensaje: 'Check expiración premium' },
-  { nombre: 'checkTrialExpiry', cadaMs: HORA, tag: 'TRIAL_EXPIRY', mensaje: 'Check fin de trial (avisos día 11 y 14, downgrade al muro)' },
+  { nombre: 'checkTrialExpiry', cadaMs: HORA, tag: 'TRIAL_EXPIRY', mensaje: 'Check fin de trial (avisos víspera y último día, downgrade al muro)' },
   // `ventanaMaxMs`: elegibles los registrados entre hace 18h y hace 3h (`checks.js`), o sea 15h.
   // Era 3h (techo de 6h) hasta el 20-ago-2026. El techo subió a 18h porque el gate de 9-21h y
   // una ventana de 3h se contradecían: quien se daba de alta a las 18:00 maduraba con el gate

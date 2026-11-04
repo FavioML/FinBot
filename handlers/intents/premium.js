@@ -3,7 +3,7 @@ const { generarRefCode, formatFecha } = require('../../lib/formatters');
 const { obtenerCuentasGmail } = require('../../gmail');
 const { solicitarComprobante } = require('../../lib/pro-payment');
 const { obtenerEstadisticasReferidos, mensajeMisReferidos } = require('../../services/referrals');
-const { enTrial, diasRestantesTrial } = require('../../lib/trial');
+const { enTrial, diasRestantesTrial, TRIAL_DIAS } = require('../../lib/trial');
 const { PRO_PRECIOS } = require('../../lib/config');
 const { verificarEscritura, entro } = require('../../helpers/escritura-verificada');
 
@@ -178,7 +178,7 @@ module.exports = {
           resp += '📋 Plan: *' + planEst + '*\n';
           // Solo a quien todavía puede estrenarla: `null` es "nunca tuvo prueba".
           if (!esPremium && usuario.trial_estado === null) {
-            resp += '🎁 Tu prueba de *14 días* se activa con tu primer gasto.\n';
+            resp += '🎁 Tu prueba de *' + TRIAL_DIAS + ' días* se activa con tu primer gasto.\n';
           }
           if (probandoEst && usuario.trial_vence) {
             resp += '📅 Termina: ' + formatFecha(String(usuario.trial_vence).slice(0, 10)) + '\n';

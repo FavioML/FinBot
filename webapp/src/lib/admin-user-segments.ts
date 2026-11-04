@@ -116,7 +116,7 @@ export const ESTADO_HINT: Record<EstadoComercial, string> = {
   pro_pagado: 'Paga. Es MRR.',
   pro_cortesia: 'Tiene Pro regalado y nunca pagó. NO cuenta en el MRR.',
   pago_pendiente: 'Mandó comprobante y espera aprobación. Va en Operación.',
-  trial: 'Corriendo sus 14 días de Pro. Todavía no pagó nada.',
+  trial: 'Corriendo su prueba de Pro. Todavía no pagó nada.',
   muro_vencido: 'Se le acabó la prueba sin pagar. Escribe, pero no puede leer.',
   muro_ex_pagador: 'Pagó alguna vez y churneó. No le corresponde otra prueba.',
   sin_estrenar: 'Nunca registró un gasto, así que su prueba jamás arrancó.',

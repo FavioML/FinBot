@@ -53,7 +53,7 @@ const NETO_TOOLS = [
             enum: TEMAS_AYUDA,
             description:
               "Solo con action=help. De que trata la pregunta sobre Neto: "
-              + "precio_despues_prueba=cuanto cuesta o cuanto paga despues de la prueba de 14 dias; "
+              + "precio_despues_prueba=cuanto cuesta o cuanto paga despues de la prueba gratis; "
               + "que_pasa_si_no_pago=si pierde lo registrado, si se borra algo o que pasa cuando termina la prueba sin pagar; "
               + "app_movil=si hay app para descargar, Play Store, App Store, donde ver sus gastos; "
               + "conexiones=si se conecta con bancos, Yape, Plin, Uber, tarjetas de debito o credito, o si separa por metodo de pago; "
@@ -657,7 +657,7 @@ const NETO_TOOLS = [
     function: {
       name: "financial_query",
       description:
-        "Consulta financiera general. Usa cuando el usuario hace una pregunta sobre finanzas personales, inversiones, ahorro, impuestos, etc. que no encaja en las otras herramientas. Ejemplo: 'Como puedo ahorrar mas?', 'Que es una AFP?', 'Conviene comprar dolares?'. NUNCA para preguntas sobre Neto (precio, prueba de 14 dias, app, funciones, que pasa si no paga): esas son social_response action=help.",
+        "Consulta financiera general. Usa cuando el usuario hace una pregunta sobre finanzas personales, inversiones, ahorro, impuestos, etc. que no encaja en las otras herramientas. Ejemplo: 'Como puedo ahorrar mas?', 'Que es una AFP?', 'Conviene comprar dolares?'. NUNCA para preguntas sobre Neto (precio, prueba gratis, app, funciones, que pasa si no paga): esas son social_response action=help.",
       parameters: {
         type: "object",
         properties: {

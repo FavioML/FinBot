@@ -523,7 +523,7 @@ async function procesarMensajeLibre(msg, usuario, from, opciones = {}) {
           //    que nadie fuerza desde acá. El día que ese nudge cambie, esto se traga el
           //    "no" del muro en silencio, que es el modo de falla que este repo ya conoce.
           //  · el argumento fuerte para suprimir era que a la rama dominante del muro
-          //    (`trial_estado` null) el texto le promete "14 días gratis, se activan cuando
+          //    (`trial_estado` null) el texto le promete "N días gratis, se activan cuando
           //    registres tu próximo gasto" justo a quien acaba de registrar uno. Con la
           //    sincronización de arriba ese caso ya no llega hasta acá: su gasto arrancó el
           //    trial y `d2.muro` es false. Los que sí llegan son 'vencido' y 'convertido',

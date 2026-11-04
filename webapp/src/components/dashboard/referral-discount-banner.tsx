@@ -20,7 +20,7 @@ import { PRO_PRICE_MONTHLY_PEN } from '@/lib/constants';
 export function ReferralDiscountBanner() {
   const { data: user } = useUser();
 
-  // `plan === 'premium'` es TRUE durante los 14 días del trial, así que preguntando eso
+  // `plan === 'premium'` es TRUE durante todo el trial, así que preguntando eso
   // el banner se apagaba justo en la ventana en que el descuento sirve para algo, y
   // aparecía el día 15 — cuando el usuario ya decidió. El servidor
   // (`/api/pro/status`) siempre usó `esProPagado`; esto lo alinea (hallazgo M15).

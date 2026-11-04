@@ -678,7 +678,7 @@ Varias piezas dependen de que corra un solo proceso. Escalar a 2+ réplicas o ha
 8. Carga masiva Excel/CSV
 9. Dashboard web interactivo (Recharts)
 10. Reportes HTML con graficos + PDF descargable
-11. Trial de 14 dias + muro (S/10/mes, pagos Yape) — ver abajo
+11. Trial de 7 dias + muro (S/10/mes, pagos Yape) — ver abajo
 12. Referidos dos lados (1 referido Pro pagado = 1 mes gratis; el referido estrena a 50% off)
 13. Resumen diario/semanal/mensual con IA
 14. Aprendizaje por comercio (fuzzy match)
@@ -697,12 +697,21 @@ Varias piezas dependen de que corra un solo proceso. Escalar a 2+ réplicas o ha
 - Dedup hash (MD5), ADMIN_KEY sin fallback hardcodeado
 - Error handling centralizado + notificaciones admin WhatsApp
 
-## Modelo comercial: trial de 14 dias, y el muro despues
+## Modelo comercial: trial de 7 dias, y el muro despues
 
-No hay plan gratuito permanente. Todo usuario estrena Pro completo por 14 dias
+No hay plan gratuito permanente. Todo usuario estrena Pro completo por 7 dias
 desde su **primer gasto** (no desde el alta: con el alta reordenada alguien tarda
 dias en registrar algo, y un trial sobre una cuenta vacia no produce un pago
-informado). Al dia 15 cae al **muro**.
+informado). Al dia 8 cae al **muro**.
+
+**Fueron 14 dias hasta el 04-nov-2026** (estudio de usuarios de ese dia: el grupo que mas usa la
+prueba deja de escribir cerca del dia 8 y el muro llegaba el 15; decision en
+`memory/reports/neto-plan-conversion-2026-11-04.md`). La duracion se escribe UNA vez, en
+`trial_vence`, al arrancar, y todo lo demas lee esa fecha: por eso las pruebas que ya corrian
+terminaron con sus 14 sin codigo de transicion. No calcules un vencimiento desde
+`trial_inicio + TRIAL_DIAS` (lo prohibe `tests/cron/trial-7-dias.test.js`). El copy toma la
+duracion de `TRIAL_DIAS` (backend) y de su espejo en `webapp/src/lib/plan.ts`; la landing y
+`/terminos` la escriben a mano.
 
 **La regla, y no se negocia: escribir nunca se corta; lo que se cobra es leer.**
 Registrar gastos por WhatsApp es gratis para siempre — es la promesa del sprint de
@@ -727,7 +736,7 @@ Y `free` dejo de ser un plan: **es el muro**.
 | Gate webapp | `requireLectura()` en `webapp/src/lib/supabase/auth.ts` → 402 (+ `lectura-callsites.test.ts`) |
 | Gate crons (lo que se EMPUJA) | gate de plan en cada cron que empuja (+ `tests/cron/lecturas-proactivas.test.js`) |
 | Por que canales sale un aviso proactivo | `notificarUsuario()` en `lib/notify-user.js` (+ `tests/notificaciones-duales.test.js`) |
-| Avisos d11/d14 + downgrade | `cron/checks.js:checkTrialExpiry` |
+| Avisos (vispera `trial_d6` y ultimo dia `trial_d7`) + downgrade | `cron/checks.js:checkTrialExpiry` (+ `tests/cron/trial-7-dias.test.js`) |
 | E2E | `qa-e2e/qa-trial-gate.mjs` (el muro bloquea), `qa-e2e/qa-trial-integridad.mjs` (el trial entrega), `qa-e2e/qa-gate.mjs free\|pro` |
 
 **Tres preguntas distintas, no una** (auditoria 2026-08-01, seis huecos). `plan === 'premium'`
@@ -745,7 +754,7 @@ necesitan las DOS columnas y tienen su predicado, en `lib/trial.js` y su espejo
 
 El trial entrega todo Pro menos una cosa: conectar Gmail. No es comercial, es de
 inventario — cada conexion consume uno de los **100 cupos** de Google que tenemos
-hasta la certificacion CASA, y un trial de 14 dias quemaba un cupo permanente.
+hasta la certificacion CASA, y una prueba gratis quemaba un cupo permanente.
 
 Dos reglas, y las dos se pagaron:
 
@@ -947,8 +956,12 @@ precio y el 50% de referidos), `/premium` por WhatsApp igual, y el descuento inv
   estar declarado exento en `tests/cron/lecturas-proactivas.test.js`.
 
 Los avisos de fin de trial salen **solo en texto libre**, o sea que llegan a quien está dentro
-de la ventana de 24h de Meta. Decision de Favio (2026-08-01): quien no escribio en 11 dias no
-esta usando el producto, y no se paga por perseguirlo. El canal fiable para todos es el banner
+de la ventana de 24h de Meta. Decision de Favio (2026-08-01): quien no escribio en dias no
+esta usando el producto, y no se paga por perseguirlo. **La vispera (dia 6) es el unico aviso que
+pide decidir** (dice manana, que se cierra, S/10 y el link) y sale solo a quien lleva 3+ dias con
+movimientos y escribio hace menos de 23h, entre 9 y 21h, por WhatsApp y campana, sin correo. El
+ultimo dia (dia 7) sale a todos por los tres canales. El viejo "termina en 3 dias" se retiro con la
+prueba de 7. El canal fiable para todos es el banner
 del dashboard. `WA_TRIAL_TEMPLATE_ENABLED` se queda en `false`; el cableado esta probado y
 reactivarlo es una env var. **No es un bloqueo de Meta** — ver `docs/whatsapp-templates.md`.
 
@@ -1324,9 +1337,9 @@ necesita un asunto que el enum no tiene donde llevar.
 await notificarUsuario({
   canales: CANALES.AMBOS,
   usuarioId: u.id, whatsapp: u.whatsapp || null,
-  tipo: 'trial_d11', mensaje: msg, titulo: 'Tu prueba Pro termina en 3 dias',
+  tipo: 'trial_d7', mensaje: msg, titulo: 'Tu prueba Pro termina hoy',
   link: '/dashboard/pro',
-  email: { to: u.email || null, asunto: 'Tu prueba Pro termina el 03-sep-26 y se cierra tu dashboard' },
+  email: { to: correoVerificado(u), asunto: 'Último día de tu prueba Pro: mañana se cierra tu dashboard' },
 });
 ```
 
@@ -1355,7 +1368,7 @@ para una sola persona**. Si la respuesta no es "una", el correo va agrupado, en 
 - **El `to` es `correoVerificado(usuario)`, nunca `usuario.email`** (15-sep-2026). La columna no es
   de direcciones probadas: el alta viejo por WhatsApp (paso 101, retirado el 31-jul) guardaba el
   correo que la persona dictaba, sin verificarlo, y un typo le manda a un desconocido los avisos
-  de plata de otra persona (en el d11/d14, el link de activación de su cuenta). El helper
+  de plata de otra persona (en el aviso del último día de la prueba, el link de activación de su cuenta). El helper
   (`lib/email.js`) sólo devuelve la dirección si la fila tiene cuenta web, así que tu select
   necesita **`supabase_auth_id` además de `email`**. Los 21 dictados se borraron en la migración
   086; `qa-e2e/probe-email-no-verificado.mjs` dice si vuelve a aparecer alguno. Guards:

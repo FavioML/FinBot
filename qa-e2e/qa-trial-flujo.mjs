@@ -3,7 +3,7 @@
 // qa-trial-gate verifica el estado en DB y las funciones de decisión llamándolas
 // directo. Eso deja tres huecos donde el bug no se ve desde ninguno de los dos lados:
 //
-//   A. Los avisos de día 11 y 14. El otro harness rebobina el trial a "venció ayer",
+//   A. Los avisos de la víspera y del último día. El otro harness rebobina el trial a "venció ayer",
 //      así que corre la rama del downgrade y SALTEA las dos ramas de aviso: el copy,
 //      el dedup por día y el payload del template nunca se ejecutaban.
 //
@@ -39,7 +39,7 @@ const WA = '51900' + String(RUN).slice(-6);
 // `checkTrialExpiry` es un cron BULK sobre TODOS los usuarios con el trial por vencer. La
 // barrera qa-guard cubre las escrituras a Supabase, pero `notificarUsuario` manda el WhatsApp
 // ANTES del insert in-app (lib/notify-user.js:128) y ese envío es HTTP a Meta, invisible para
-// la barrera. Sin el spy, este harness le manda "tu prueba Pro termina en 3 días" a usuarios
+// la barrera. Sin el spy, este harness le manda "tu prueba Pro termina mañana" a usuarios
 // REALES. Va acá arriba porque notify-user destructura `enviarWhatsapp` al cargar.
 const enviosAjenos = [];
 const waPath = require.resolve('../lib/whatsapp.js');
@@ -57,7 +57,7 @@ require.cache[waPath].exports = {
 const { checkTrialExpiry } = require('../cron/checks');
 const { procesarMensajeLibre } = require('../handlers/message-processor');
 const { hoyPeru, sumarDias } = require('../lib/dates');
-const { AVISO_DIAS_ANTES } = require('../lib/trial');
+const { AVISO_DIAS_ANTES, TRIAL_DIAS } = require('../lib/trial');
 
 const results = [];
 const check = (name, cond, detail) => {
@@ -80,68 +80,101 @@ const entregas = async (tipo) => {
   return data || [];
 };
 
-// ─── A. Avisos día 11 y día 14 ──────────────────────────────────────────────
+// ─── A. Avisos de la víspera (día 6) y del último día (día 7) ───────────────────────────
+//
+// Desde el 04-nov-2026 la prueba dura 7 días. La víspera (`trial_d6`) sale solo a quien la está
+// usando: 3+ días con movimientos desde `trial_inicio` y un mensaje entrante en las últimas 23h.
+// El último día (`trial_d7`) sale a todos. El viejo "termina en 3 días" se retiró.
 async function bloqueAvisos() {
-  seccion('── A. Avisos de fin de trial (día 11 y 14)');
+  seccion('── A. Avisos de fin de trial (víspera y último día)');
 
-  // Pre-vuelo antes del primero de los cinco `checkTrialExpiry()` de este archivo: medir a
-  // cuánta gente real alcanza el cron bulk. Con 0 en ventana solo puede tocar al throwaway;
-  // con >0, el spy del encabezado es lo único que evita que les llegue un WhatsApp, así que
-  // el número queda impreso en la corrida en vez de adivinarse después.
+  // Pre-vuelo antes del primero de los `checkTrialExpiry()` de este archivo: medir a cuánta
+  // gente real alcanza el cron bulk. Con 0 en ventana solo puede tocar al throwaway; con >0, el
+  // spy del encabezado es lo único que evita que les llegue un WhatsApp, así que el número queda
+  // impreso en la corrida en vez de adivinarse después.
   const { data: enVentana } = await supabase.from('usuarios').select('id, is_test_user')
     .eq('trial_estado', 'activo').lte('trial_vence', sumarDias(hoyPeru(), AVISO_DIAS_ANTES));
   const realesEnVentana = (enVentana || []).filter((u) => u.is_test_user !== true && u.id !== userId);
   check('pre-vuelo: se midió el radio del cron bulk ANTES de correrlo', true,
     realesEnVentana.length + ' usuarios reales en la ventana del cron');
 
-  // Día 11 = faltan AVISO_DIAS_ANTES. Sin cuenta web: el copy tiene que empujar a
-  // ACTIVAR, no a pagar — está por terminar 14 días de Pro sin haber visto nunca lo
-  // que se le acaba, y pedirle plata por algo que no vio no puede funcionar.
-  await set({ plan: 'premium', trial_estado: 'activo', trial_vence: sumarDias(hoyPeru(), AVISO_DIAS_ANTES), supabase_auth_id: null });
+  // La víspera tiene gate 9-21h Lima. Fuera de ese horario el bloque no puede probar la rama
+  // positiva, y se dice en vez de salir verde por vacuidad.
+  const horaLima = Number(new Date().toLocaleString('en-US', { timeZone: 'America/Lima', hour: 'numeric', hour12: false }));
+  const enHorario = horaLima >= 9 && horaLima < 21;
+  check('la corrida cae en el horario de la víspera (9-21h Lima)', enHorario, 'hora Lima=' + horaLima);
+
+  // Víspera SIN uso: la prueba empezó hace 6 días, sin un movimiento ni un mensaje entrante.
+  const inicio = new Date(Date.now() - 6 * 86400000).toISOString();
+  await set({
+    plan: 'premium', trial_estado: 'activo', trial_inicio: inicio,
+    trial_vence: sumarDias(hoyPeru(), AVISO_DIAS_ANTES), supabase_auth_id: null,
+  });
   await checkTrialExpiry();
-  const d11 = await notifs('Tu prueba Pro termina en 3 días');
-  check('el día 11 crea el aviso', d11.length === 1, 'notificaciones=' + d11.length);
-  check('sin cuenta web, el aviso empuja a ACTIVAR (no a pagar)',
-    d11[0] && /activar\?t=|no has entrado/i.test(d11[0].mensaje),
-    (d11[0]?.mensaje || '').slice(0, 80).replace(/\n/g, ' '));
-  check('...y NO le pide plata todavía', d11[0] && !/S\/10\/mes/.test(d11[0].mensaje));
+  check('sin uso, la víspera NO manda nada', (await notifs('Tu prueba Pro termina mañana')).length === 0);
+
+  // Ahora con uso: tres días distintos con un gasto y un mensaje entrante hace una hora.
+  const dias = [5, 3, 1].map((n) => new Date(Date.now() - n * 86400000).toISOString());
+  const { error: errTx } = await supabase.from('transacciones').insert(dias.map((created_at, i) => ({
+    usuario_id: userId, monto: 10 + i, monto_pen: 10 + i, moneda: 'PEN',
+    comercio: 'QA víspera', categoria: 'Otros', tipo: 'gasto',
+    fecha: created_at.slice(0, 10), created_at,
+  })));
+  const { error: errConv } = await supabase.from('conversaciones').insert({
+    usuario_id: userId, rol: 'usuario', mensaje: 'almuerzo 15',
+    created_at: new Date(Date.now() - 3600000).toISOString(),
+  });
+  check('siembra del uso (3 días + mensaje entrante)', !errTx && !errConv, (errTx || errConv || {}).message);
+
+  await checkTrialExpiry();
+  const d6 = await notifs('Tu prueba Pro termina mañana');
+  if (enHorario) {
+    check('con uso y ventana abierta, la víspera crea el aviso', d6.length === 1, 'notificaciones=' + d6.length);
+    // Sin cuenta web también nombra el precio y trae link: es el único aviso que pide decidir.
+    const eD6 = await entregas('trial_d6');
+    check('la víspera sale por WhatsApp', eD6.some((e) => e.canal === 'whatsapp'), JSON.stringify(eD6));
+    check('la víspera NO declara correo', !eD6.some((e) => e.canal === 'email'), JSON.stringify(eD6));
+  }
 
   // Correr de nuevo el mismo día no puede duplicar: el cron corre cada hora y sin el
   // dedup mandaría el mismo aviso 24 veces (es el bug que ya pasó con checkPremiumExpiry).
   await checkTrialExpiry();
-  const d11bis = await notifs('Tu prueba Pro termina en 3 días');
-  check('correr el cron otra vez el mismo día NO duplica el aviso', d11bis.length === 1,
-    'notificaciones=' + d11bis.length);
+  const d6bis = await notifs('Tu prueba Pro termina mañana');
+  check('correr el cron otra vez el mismo día NO duplica el aviso', d6bis.length === d6.length,
+    'notificaciones=' + d6bis.length);
 
-  // Con cuenta web ya activada, el copy sí es comercial.
-  await supabase.from('notificaciones').delete().eq('usuario_id', userId);
-  await set({ supabase_auth_id: '00000000-0000-4000-8000-' + String(RUN).slice(-12) });
-  await checkTrialExpiry();
-  const d11web = await notifs('Tu prueba Pro termina en 3 días');
-  check('con cuenta web activada, el aviso sí nombra el precio',
-    d11web[0] && /S\/10\/mes/.test(d11web[0].mensaje),
-    (d11web[0]?.mensaje || '').slice(0, 80).replace(/\n/g, ' '));
-
-  // Día 14 = vence hoy.
+  // Último día = vence hoy. Sin cuenta web el copy empuja a ACTIVAR, no a pagar: está por
+  // terminar su prueba sin haber visto nunca lo que se le acaba.
   await set({ trial_vence: hoyPeru() });
   await checkTrialExpiry();
-  const d14 = await notifs('Tu prueba Pro termina hoy');
-  check('el día 14 crea su propio aviso', d14.length === 1, 'notificaciones=' + d14.length);
-  check('el aviso del día 14 dice "hoy"', d14[0] && /termina hoy/i.test(d14[0].mensaje),
-    (d14[0]?.mensaje || '').slice(0, 70).replace(/\n/g, ' '));
+  const d7 = await notifs('Tu prueba Pro termina hoy');
+  check('el último día crea su propio aviso', d7.length === 1, 'notificaciones=' + d7.length);
+  check('el aviso del último día dice "hoy"', d7[0] && /termina hoy/i.test(d7[0].mensaje),
+    (d7[0]?.mensaje || '').slice(0, 70).replace(/\n/g, ' '));
+  check('sin cuenta web, el último día empuja a ACTIVAR (no a pagar)',
+    d7[0] && /activar\?t=|no has entrado/i.test(d7[0].mensaje) && !/S\/10\/mes/.test(d7[0].mensaje),
+    (d7[0]?.mensaje || '').slice(0, 80).replace(/\n/g, ' '));
   const sigueActivo = await supabase.from('usuarios').select('plan, trial_estado').eq('id', userId).maybeSingle();
   check('avisar NO baja el plan (el último día todavía es Pro)',
     sigueActivo.data.plan === 'premium' && sigueActivo.data.trial_estado === 'activo',
     'plan=' + sigueActivo.data.plan + ' estado=' + sigueActivo.data.trial_estado);
 
-  // Con el flag on el envío tiene que salir por TEMPLATE (canal whatsapp_template en
-  // notification_deliveries). Es lo único observable sin tocar Meta.
+  // Con cuenta web ya activada, el copy sí es comercial.
+  await supabase.from('notificaciones').delete().eq('usuario_id', userId);
+  await set({ supabase_auth_id: '00000000-0000-4000-8000-' + String(RUN).slice(-12) });
+  await checkTrialExpiry();
+  const d7web = await notifs('Tu prueba Pro termina hoy');
+  check('con cuenta web activada, el aviso sí nombra el precio',
+    d7web[0] && /S\/10\/mes/.test(d7web[0].mensaje),
+    (d7web[0]?.mensaje || '').slice(0, 80).replace(/\n/g, ' '));
+
+  // Con el flag on el envío del último día tiene que salir por TEMPLATE (canal
+  // whatsapp_template en notification_deliveries). Es lo único observable sin tocar Meta.
   await supabase.from('notificaciones').delete().eq('usuario_id', userId);
   await supabase.from('notification_deliveries').delete().eq('usuario_id', userId);
   process.env.WA_TRIAL_TEMPLATE_ENABLED = 'true';
-  await set({ trial_vence: sumarDias(hoyPeru(), AVISO_DIAS_ANTES) });
   await checkTrialExpiry();
-  const eTpl = await entregas('trial_d11');
+  const eTpl = await entregas('trial_d7');
   check('con WA_TRIAL_TEMPLATE_ENABLED=true el envío usa canal template',
     eTpl.some((e) => e.canal === 'whatsapp_template'), JSON.stringify(eTpl));
   // El aviso declara TRES canales desde el 31-ago-2026, y el correo es el único que llega
@@ -269,7 +302,7 @@ async function bloqueWebFirst() {
     check('el gasto desde la WEBAPP arranca el trial (webapp → Railway → CAS)',
       final && final.trial_estado === 'activo', 'estado=' + (final && final.trial_estado));
     check('y le entrega Pro', final && final.plan === 'premium', 'plan=' + (final && final.plan));
-    check('con los 14 días completos', final && String(final.trial_vence).slice(0, 10) === sumarDias(hoyPeru(), 14),
+    check('con los ' + TRIAL_DIAS + ' días completos', final && String(final.trial_vence).slice(0, 10) === sumarDias(hoyPeru(), TRIAL_DIAS),
       'vence=' + (final && final.trial_vence));
   } finally {
     if (txId) await supabase.from('transacciones').delete().eq('id', txId);

@@ -1,6 +1,7 @@
 const { supabase } = require('../lib/db');
 const log = require('../lib/logger');
 const { hoyPeru, ahoraPeru, sumarMeses, sumarDias } = require('../lib/dates');
+const { todasLasFilas } = require('../lib/todas-las-filas');
 const { getUserPlanConfig } = require('../helpers/db-helpers');
 const { generarResumenSemanal, generarResumenMensual, generarResumenDiario } = require('../services/summaries');
 const { verificarAlertasProactivas } = require('../services/recommendations');
@@ -17,7 +18,7 @@ const { planCostReminders, advanceDueDate, limaDayOf } = require('../lib/cost-re
 const { medirCosto, montoPen } = require('../lib/cost-meters');
 const { validarMonto } = require('../lib/validators');
 const { mensajeActivacionDia2, construirLinkActivacion } = require('../lib/activacion');
-const { mensajeMuro, estaEnMuro, esProPagado, linkPanelPro, AVISO_DIAS_ANTES, diaDePrueba, DIAS_CIERRE_PRUEBA } = require('../lib/trial');
+const { mensajeMuro, mensajeAvisoVispera, estaEnMuro, esProPagado, linkPanelPro, AVISO_DIAS_ANTES, diaDePrueba, DIAS_CIERRE_PRUEBA } = require('../lib/trial');
 const { TIPO_CIERRE, TITULO_CIERRE, armarCierreDiaPrueba } = require('../lib/cierre-dia-prueba');
 const { revocarAccesoGmail, reintentarRevocacionesPendientes } = require('../gmail');
 const analytics = require('../lib/analytics');
@@ -1020,10 +1021,27 @@ async function checkActivacionDia2() {
 
 // ─── Fin del trial: dos avisos y el downgrade ────────────────────────────────
 //
-// Día 11 (faltan 3), día 14 (último día), y al día 15 cae al muro. Corre cada hora con
-// gate >=9am Lima: el gate evita mandar de madrugada y permite catch-up si se cae una
-// corrida, y la idempotencia real la da el dedup por día contra `notificaciones` — el
-// mismo esquema que checkPremiumExpiry, que sin él mandaba el aviso 24 veces al día.
+// Con la prueba de 7 días (04-nov-2026): la víspera (día 6) sale `trial_d6` a quien la está
+// usando, el último día (día 7) sale `trial_d7` a todos, y al día 8 cae al muro. Los dos se
+// anclan a `trial_vence`, no al día de la prueba, así que una prueba de 14 que ya corría recibe
+// los suyos en sus días 13 y 14. Corre cada hora con gate >=8am Lima: el gate evita mandar de
+// madrugada y permite catch-up si se cae una corrida, y la idempotencia real la da el dedup por
+// día contra `notificaciones` — el mismo esquema que checkPremiumExpiry, que sin él mandaba el
+// aviso 24 veces al día.
+//
+// ─── La víspera es el único aviso que pide decidir, y por eso es selectivo ──────────────
+//
+// Sale solo con DOS condiciones, y entre 9 y 21h: (1) 3+ días distintos con movimientos desde
+// `trial_inicio`, o sea alguien que está usando Neto; (2) un mensaje ENTRANTE en las últimas 23h
+// (`conversaciones`, rol 'usuario'), o sea la ventana de 24h de Meta abierta, con una hora de
+// margen como `checkActivacionDia2`. Va por WhatsApp y campana, sin correo (lo va a leer en el
+// chat) y sin plantilla. Como corre cada hora, a quien la ventana se le abre a mediodía le sale
+// en la corrida siguiente; si no escribe en todo el día, no sale. Una captura sin texto no deja
+// turno en `conversaciones`, así que ese caso falla del lado de no mandar.
+//
+// El viejo "termina en 3 días" (día 11 de 14) se retiró: en una prueba de 7 habría caído el día
+// 4, y con la víspera y el último día eran tres avisos de cierre en tres días seguidos a la misma
+// persona. Por WhatsApp había llegado 1 de 34 (abajo).
 //
 // NO colisiona con checkPremiumExpiry: durante el trial `premium_vence` queda NULL, y las
 // tres queries de ese cron filtran por premium_vence (= en3dias, = hoy, IS NOT NULL). Los
@@ -1052,6 +1070,55 @@ async function checkActivacionDia2() {
 // in-app salen igual: el correo se suma, no reemplaza. `notification_deliveries` sigue
 // siendo la única fuente de verdad de qué llegó — por canal, y por callback, nunca por el
 // resultado del POST.
+/**
+ * Cuántos días DISTINTOS (fecha de Lima, por `created_at`) anotó algo desde que arrancó su prueba.
+ * Por `created_at` y no por `fecha`: lo que se mide es en cuántos días USÓ Neto, y un "ayer gasté
+ * 20" anotado hoy es uso de hoy. Paginado: la lista alimenta un agregado.
+ *
+ * Cuenta desde la MEDIANOCHE Lima del día de `trial_inicio`, no desde el instante: el gasto que
+ * abre la prueba se inserta ANTES de que `iniciarTrialSiCorresponde` selle `trial_inicio`, así que
+ * con `>= trial_inicio` el día 0 no contaba (revisión adversarial, 04-nov-2026).
+ *
+ * @returns {Promise<number|null>} null si no se pudo leer (el llamador no manda)
+ */
+async function diasConMovimientosEnPrueba(usuario) {
+  const inicio = usuario.trial_inicio ? new Date(usuario.trial_inicio) : null;
+  if (!inicio || isNaN(inicio.getTime())) {
+    log.warn({ tag: 'TRIAL_EXPIRY', userId: usuario.id }, 'Prueba sin trial_inicio legible: no se puede contar su uso y la víspera no sale');
+    return null;
+  }
+  const desdeDia0 = new Date(inicio.toLocaleDateString('en-CA', { timeZone: 'America/Lima' }) + 'T00:00:00-05:00').toISOString();
+  const { data, error } = await todasLasFilas((ini, fin, primera) => supabase.from('transacciones')
+    .select('id, created_at', primera ? { count: 'exact' } : undefined)
+    .eq('usuario_id', usuario.id)
+    .gte('created_at', desdeDia0)
+    .order('id')
+    .range(ini, fin), (t) => t.id);
+  if (error) {
+    log.error({ tag: 'TRIAL_EXPIRY', userId: usuario.id, err: error.message }, 'No se pudo contar los días de uso: la víspera no sale');
+    return null;
+  }
+  const dias = new Set((data || []).map((t) => new Date(t.created_at).toLocaleDateString('en-CA', { timeZone: 'America/Lima' })));
+  return dias.size;
+}
+
+/**
+ * ¿La ventana de 24h de Meta está abierta? El último turno ENTRANTE en `conversaciones` es la
+ * única marca de "cuándo escribió". 23h y no 24, con una hora de margen, como `checkActivacionDia2`.
+ * Falla CERRADO: con la lectura caída devuelve false y lo dice.
+ */
+async function ventanaWhatsappAbierta(usuarioId) {
+  const { data: ultimoTurno, error } = await supabase.from('conversaciones')
+    .select('created_at').eq('usuario_id', usuarioId).eq('rol', 'usuario')
+    .order('created_at', { ascending: false }).limit(1).maybeSingle();
+  if (error) {
+    log.error({ tag: 'TRIAL_EXPIRY', userId: usuarioId, err: error.message }, 'No se pudo leer el último mensaje: la víspera no sale');
+    return false;
+  }
+  if (!ultimoTurno || !ultimoTurno.created_at) return false;
+  return new Date(ultimoTurno.created_at).getTime() > Date.now() - 23 * 60 * 60 * 1000;
+}
+
 async function checkTrialExpiry() {
   try {
     const hoy = hoyPeru();
@@ -1061,17 +1128,18 @@ async function checkTrialExpiry() {
 
     if (horaLima.getHours() >= 8) {
       const avisos = [
-        { fecha: sumarDias(hoy, AVISO_DIAS_ANTES), titulo: 'Tu prueba Pro termina en 3 días', tipo: 'trial_d11', cuando: 'en 3 días', via: 'd11' },
-        { fecha: hoy, titulo: 'Tu prueba Pro termina hoy', tipo: 'trial_d14', cuando: 'hoy', via: 'd14' },
+        { fecha: sumarDias(hoy, AVISO_DIAS_ANTES), titulo: 'Tu prueba Pro termina mañana', tipo: 'trial_d6', via: 'd6', soloSiLaUsa: true },
+        { fecha: hoy, titulo: 'Tu prueba Pro termina hoy', tipo: 'trial_d7', via: 'd7' },
       ];
       for (const aviso of avisos) {
+        if (aviso.soloSiLaUsa && (horaLima.getHours() < 9 || horaLima.getHours() >= 21)) continue;
         // `email` y `recordatorios_activos` entran acá porque el canal de correo los necesita
         // en el LLAMADOR: `notificarUsuario` no lee la base (decisión tomada y revertida una
         // vez, ver el bloque de `cuenta_borrada_at` en lib/notify-user.js). Sin la columna en
         // el select, `usuario.email` es undefined y el correo sale como `skipped_no_email`
         // para todo el mundo — un canal apagado con cara de canal encendido.
         const { data: porVencer, error: errPorVencer } = await supabase.from('usuarios')
-          .select('id, whatsapp, nombre, trial_vence, supabase_auth_id, email, recordatorios_activos')
+          .select('id, whatsapp, nombre, trial_inicio, trial_vence, supabase_auth_id, email, recordatorios_activos')
           .eq('trial_estado', 'activo').eq('trial_vence', aviso.fecha)
           .is('cuenta_borrada_at', null);
         if (errPorVencer) {
@@ -1100,9 +1168,17 @@ async function checkTrialExpiry() {
             }
             if (yaAviso && yaAviso.length > 0) continue;
 
+            // La víspera: las dos condiciones, cada lectura fallando CERRADO (sin dato, no sale).
+            let diasConMovimientos = null;
+            if (aviso.soloSiLaUsa) {
+              diasConMovimientos = await diasConMovimientosEnPrueba(usuario);
+              if (diasConMovimientos === null || diasConMovimientos < 3) continue;
+              if (!(await ventanaWhatsappAbierta(usuario.id))) continue;
+            }
+
             const primerNombre = usuario.nombre ? usuario.nombre.split(' ')[0] : null;
             // Al que nunca activó su cuenta web se le empuja a activarla, no a pagar: está
-            // por terminar 14 días de Pro sin haber visto una sola vez lo que se le está
+            // por terminar su prueba de Pro sin haber visto una sola vez lo que se le está
             // por acabar. Pedirle plata por algo que no vio no puede funcionar.
             // El destino se calcula UNA vez y viaja también como `link`, en vez de quedar sólo
             // dentro del texto. Antes el aviso mandaba siempre `link: '/dashboard/pro'`, lo
@@ -1133,15 +1209,16 @@ async function checkTrialExpiry() {
                 'Míralos ahora, mientras sigue abierto:\n👉 ' + linkAviso;
             // formatFecha y no el ISO crudo: el muro ya dice "29-jul-26" y ver "2026-08-04"
             // en el aviso previo delata dos manos escribiendo el mismo flujo.
-            const venceLegible = formatFecha(String(usuario.trial_vence).slice(0, 10));
-            const msg = '⏳ ' + (primerNombre ? primerNombre + ', t' : 'T') + 'u prueba de *Neto Pro* termina ' +
-              aviso.cuando + (aviso.via === 'd11' ? ' (' + venceLegible + ')' : '') + '.\n\n' + cuerpo;
+            const msg = aviso.soloSiLaUsa
+              ? mensajeAvisoVispera(usuario, diasConMovimientos)
+              : '⏳ ' + (primerNombre ? primerNombre + ', t' : 'T') + 'u prueba de *Neto Pro* termina hoy.\n\n' + cuerpo;
 
-            const tpl = usaTemplate ? {
+            // La víspera no lleva plantilla: sale solo con la ventana abierta, por construcción.
+            const tpl = usaTemplate && !aviso.soloSiLaUsa ? {
               name: 'trial_por_vencer', language: { code: 'es' },
               components: [{ type: 'body', parameters: [
                 { type: 'text', text: primerNombre || 'Hola' },
-                { type: 'text', text: aviso.via === 'd11' ? 'en 3 días (' + venceLegible + ')' : 'hoy' },
+                { type: 'text', text: 'hoy' },
               ] }],
             } : null;
 
@@ -1158,9 +1235,7 @@ async function checkTrialExpiry() {
             // el correo sale sólo con cuenta web (`correoVerificado`, abajo). Acá decía que esa
             // intersección era "CERO al 31-ago", y era cierto de la cohorte en prueba, no de la
             // columna: había 22 filas sin cuenta web con correo dictado, a un alta de distancia.
-            const asuntoTrial = aviso.via === 'd11'
-              ? 'Tu prueba Pro termina el ' + venceLegible + ' y se cierra tu dashboard'
-              : 'Último día de tu prueba Pro: mañana se cierra tu dashboard';
+            const asuntoTrial = 'Último día de tu prueba Pro: mañana se cierra tu dashboard';
 
             const { wa } = await notificarUsuario({
               canales: CANALES.AMBOS,
@@ -1168,6 +1243,8 @@ async function checkTrialExpiry() {
               tipo: aviso.tipo, mensaje: msg, template: tpl,
               titulo: aviso.titulo, tipoInApp: 'recordatorio', link: linkAviso,
               claimInApp: true, // el dedup de arriba lee la fila in-app; sin claim, re-envío horario (B6)
+              // La campana no repite el "Llevas N días anotando conmigo" del chat: es un pie fijo.
+              ...(aviso.soloSiLaUsa ? { cuerpo: 'Mañana es el último día. Después sigo anotando tus gastos gratis, pero el dashboard, el historial y los reportes quedan cerrados. Para seguir con todo abierto, activa Pro.' } : {}),
               // El único aviso del producto que pide plata, y por WhatsApp llegó 1 de 65 en 30
               // días (ver el bloque de arriba). El correo va EN PARALELO, no como fallback de
               // `wa.ok`: el rechazo de Meta llega por callback y todavía no existe cuando esta
@@ -1175,7 +1252,9 @@ async function checkTrialExpiry() {
               // `correoVerificado`: sin cuenta web no hay correo (15-sep-2026). Para ese usuario el
               // `link` es el de ACTIVACIÓN, y la dirección la dictó por WhatsApp sin que nadie la
               // verificara: quien controle esa bandeja abriría el link y adoptaría la cuenta.
-              email: { to: correoVerificado(usuario), asunto: asuntoTrial },
+              //
+              // La víspera NO declara correo: le sale a quien está escribiendo en el chat ahora.
+              ...(!aviso.soloSiLaUsa ? { email: { to: correoVerificado(usuario), asunto: asuntoTrial } } : {}),
             });
             // Solo se cuenta como "aviso" lo que Meta aceptó: un blocked_24h no avisó a nadie
             // y contarlo taparía justo el problema que se está midiendo.
@@ -1183,7 +1262,8 @@ async function checkTrialExpiry() {
             // Este evento sigue siendo de WHATSAPP y no cuenta el correo, a propósito: mover
             // el gate ahora rompería la comparación con los 30 días de historia que
             // justificaron el cambio. El correo se mide donde corresponde, que es
-            // `notification_deliveries` con canal='email' y tipo='trial_d11'/'trial_d14'.
+            // `notification_deliveries` con canal='email' y tipo='trial_d7' (hasta el 04-nov-2026,
+            // 'trial_d11'/'trial_d14', con la prueba de 14 días).
             if (wa && wa.ok && !wa.skipped) {
               analytics.capture(usuario.id, 'wa_onboarding_step_ok', { paso: 310, via: aviso.via, canal: tpl ? 'template' : 'texto' });
             }
@@ -1203,7 +1283,7 @@ async function checkTrialExpiry() {
     // `email` y `recordatorios_activos`, por el mismo motivo que en el select de arriba: el
     // canal de correo se declara en el llamador y el chokepoint no lee la base.
     const { data: vencidos, error: errVencidos } = await supabase.from('usuarios')
-      .select('id, whatsapp, nombre, plan, trial_estado, trial_vence, premium_desde, premium_vence, supabase_auth_id, estado_pago, email, recordatorios_activos')
+      .select('id, whatsapp, nombre, plan, trial_estado, trial_inicio, trial_vence, premium_desde, premium_vence, supabase_auth_id, estado_pago, email, recordatorios_activos')
       .eq('trial_estado', 'activo').lt('trial_vence', hoy)
       .is('cuenta_borrada_at', null);
     // El silencio acá es el que más se parece a la salud: "hoy no venció ninguna prueba" es
@@ -1309,10 +1389,21 @@ async function checkTrialExpiry() {
           // del canal, por la asimetría del daño: afirmarle una pérdida a quien no la tuvo no se
           // puede desdecir, y callarse cuesta un correo. WhatsApp y la campana salen igual en
           // los dos casos, así que nadie se queda sin enterarse del muro por esto.
-          const desde14d = new Date(sumarDias(hoy, -14) + 'T00:00:00-05:00').toISOString();
-          const { count: txRecientes, error: errRecientes } = await supabase.from('transacciones')
-            .select('id', { count: 'exact', head: true })
-            .eq('usuario_id', usuario.id).gte('created_at', desde14d);
+          //
+          // La pregunta es "¿anotó algo DESPUÉS del día en que abrió la prueba?", y se mide desde
+          // `trial_inicio`, no con dos semanas fijas. Hasta el 04-nov eran `hoy - 14`, que con la
+          // prueba de 14 caía justo en el día 1; con la de 7 habría incluido el gasto que abrió la
+          // prueba y el gate no callaría a nadie. Desde el día siguiente al inicio vale igual para
+          // las dos duraciones. Sin `trial_inicio` legible no hay lectura: sin correo, como abajo.
+          const inicioPrueba = usuario.trial_inicio ? new Date(usuario.trial_inicio) : null;
+          const desdeDia1 = inicioPrueba && !isNaN(inicioPrueba.getTime())
+            ? new Date(sumarDias(inicioPrueba.toLocaleDateString('en-CA', { timeZone: 'America/Lima' }), 1) + 'T00:00:00-05:00').toISOString()
+            : null;
+          const { count: txRecientes, error: errRecientes } = desdeDia1
+            ? await supabase.from('transacciones')
+              .select('id', { count: 'exact', head: true })
+              .eq('usuario_id', usuario.id).gte('created_at', desdeDia1)
+            : { count: null, error: { message: 'la fila no trae trial_inicio legible' } };
           if (errRecientes) log.warn({ tag: 'TRIAL_EXPIRY', userId: usuario.id, err: errRecientes.message }, 'Sin conteo de gastos recientes: el aviso de fin de prueba no sale por correo (in-app y WhatsApp salen igual)');
           const usoReciente = !errRecientes && (txRecientes || 0) > 0;
           // El gate deja RASTRO. Sin esto es el único camino del canal que suprime un envío sin
@@ -1321,7 +1412,7 @@ async function checkTrialExpiry() {
           // que hay que poder contar. Se cuenta acá y no en el ledger porque el estado que
           // correspondería (`skipped_sin_uso_reciente`) lo escribe `enviarEmail`, y a
           // `enviarEmail` no se llega: la decisión es del llamador, que es donde vive.
-          if (!usoReciente) log.info({ tag: 'TRIAL_EXPIRY', userId: usuario.id, txRecientes: txRecientes || 0 }, 'Fin de prueba sin correo: no registró gastos en 14 días (in-app y WhatsApp salen igual)');
+          if (!usoReciente) log.info({ tag: 'TRIAL_EXPIRY', userId: usuario.id, txRecientes: txRecientes || 0 }, 'Fin de prueba sin correo: no registró gastos después del primer día de la prueba (in-app y WhatsApp salen igual)');
 
           const msg = mensajeMuro(usuario, conteoTx) + avisoGmailDesconectado(revocadas);
           await notificarUsuario({

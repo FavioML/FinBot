@@ -1,8 +1,8 @@
 /**
  * Plan validation utilities for Neto's trial+wall gating.
  *
- * Modelo vigente (2026-08): NO hay plan gratuito permanente. Todo usuario estrena Pro
- * completo 14 días desde su PRIMER GASTO; al día 15 cae al muro ('free' = muro, no plan).
+ * Modelo vigente (2026-11): NO hay plan gratuito permanente. Todo usuario estrena Pro
+ * completo TRIAL_DIAS (7) días desde su PRIMER GASTO; al día 8 cae al muro ('free' = muro, no plan).
  * Escribir nunca se corta; lo que se cobra es LEER. Fuente de verdad del modelo:
  * backend `lib/trial.js` (espejo de los predicados de abajo) + `handlers/intents-acceso.js`
  * (qué es lectura) + `webapp/PRICING-PLAN.md` (resumen comercial).
@@ -121,7 +121,7 @@ export function hasReachedLimit(
 }
 
 /**
- * ¿El usuario está en el MURO? Es decir: terminó su prueba de 14 días sin pagar.
+ * ¿El usuario está en el MURO? Es decir: terminó su prueba sin pagar.
  *
  * Espejo exacto de `estaEnMuro` en el backend (`lib/trial.js`), y complemento del
  * entitlement Pro a propósito: una sola condición, imposible de desincronizar.
@@ -165,6 +165,14 @@ export function esProPagado(
 }
 
 /**
+ * Duración de la prueba Pro: el mismo número que `TRIAL_DIAS` del backend (`lib/trial.js`), que
+ * es el que de verdad la fija al escribir `trial_vence`. Acá es solo copy: lo que se le muestra a
+ * quien todavía no la estrenó. Fueron 14 hasta el 04-nov-2026; las pruebas que arrancaron con 14
+ * terminan con sus 14 porque todo lo demás lee `trial_vence`, nunca esta constante.
+ */
+export const TRIAL_DIAS = 7;
+
+/**
  * Días que le quedan de prueba, en fecha Lima (0 = vence hoy, null si no está en trial).
  * Se calcula en zona Lima y no la del navegador, igual que `/api/pro/status`.
  */
@@ -194,7 +202,7 @@ export function diasRestantesTrial(
  * probar, y esta decisión ya salió mal una vez.
  *
  * El bug que cierra: la página ramificaba con `isPremium` a secas, que durante el trial es
- * `true`. O sea que TODO CTA del trial — el banner los 14 días, los avisos del día 11 y 14,
+ * `true`. O sea que TODO CTA del trial — el banner de la prueba, los avisos de la víspera y del último día,
  * la notificación in-app — aterrizaba en una pantalla que decía "Eres Neto Pro ⭐", sin
  * fecha (`premium_vence` es NULL en trial) y sin precio, con el pago escondido detrás de un
  * botón que decía "Renovar", palabra que no significa nada para quien nunca pagó.

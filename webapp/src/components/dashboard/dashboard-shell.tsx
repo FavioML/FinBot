@@ -122,7 +122,7 @@ const RUTAS_SIN_MURO = new Set(['/dashboard/pro', '/dashboard/configuracion']);
 type EstadoMuro = 'demo' | 'exenta' | 'pendiente' | 'sin-usuario' | 'muro' | 'contenido';
 
 /**
- * Muro o contenido. Terminó la prueba de 14 días sin pagar → se reemplaza el CONTENIDO,
+ * Muro o contenido. Terminó la prueba sin pagar → se reemplaza el CONTENIDO,
  * nunca el chrome: el sidebar y la navegación siguen ahí para que se lea como "esto está
  * detrás del pago" y no como "esto desapareció".
  *

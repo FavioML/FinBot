@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Lock, MessageCircle } from 'lucide-react';
 import { PRO_PRICE_MONTHLY_PEN, PRO_PRICE_YEARLY_PEN } from '@/lib/constants';
+import { TRIAL_DIAS } from '@/lib/plan';
 
 interface DatosMuro {
   /** `null` = no se pudo contar: el copy no puede decir ni "primer" ni cuántos. */
@@ -15,8 +16,6 @@ interface DatosMuro {
   tieneWhatsapp: boolean;
 }
 
-/** 14 días — el mismo número que TRIAL_DIAS en el backend (lib/trial.js). */
-const TRIAL_DIAS = 14;
 
 const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
 

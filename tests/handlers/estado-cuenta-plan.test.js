@@ -32,6 +32,7 @@ require.cache[gmailPath] = {
 };
 
 const premium = require('../../handlers/intents/premium');
+const { TRIAL_DIAS } = require('../../lib/trial');
 
 const ctx = { obtenerCuentasGmail: async () => [], supabase: null };
 const estadoCuenta = (usuario) =>
@@ -55,17 +56,18 @@ describe('estado_cuenta nombra el plan que el usuario realmente tiene', () => {
   });
 
   // No es cosmético: a este todavía no le cortaron nada, y decirle "solo registro" le
-  // anuncia un muro que no tocó — y le esconde que su primer gasto abre 14 días de Pro.
+  // anuncia un muro que no tocó — y le esconde que su primer gasto abre su prueba de Pro.
   it('el que nunca registró nada NO recibe el mensaje del muro, y sí el de su prueba', async () => {
     const r = await estadoCuenta(NUNCA_EMPEZO);
     expect(r).toContain('Plan: *Gratis*');
     expect(r).not.toContain('solo registro');
-    expect(r, 'no le dice que su primer gasto abre los 14 días').toMatch(/14 días.*primer gasto/s);
+    expect(r, 'no le dice que su primer gasto abre la prueba').toMatch(new RegExp(TRIAL_DIAS + ' días.*primer gasto', 's'));
+    expect(TRIAL_DIAS).toBe(7);
   });
 
   // La prueba ya no le espera a nadie más: ofrecérsela al del muro (que no puede volver a
   // tenerla) o al pagador es prometer algo que el sistema va a negar.
-  it('nadie más recibe la promesa de los 14 días', async () => {
+  it('nadie más recibe la promesa de la prueba', async () => {
     for (const u of [EN_MURO, EX_PAGADOR, EN_TRIAL, PAGADO]) {
       expect(await estadoCuenta(u), `le ofrece la prueba a ${u.nombre}`).not.toMatch(/se activa con tu primer gasto/);
     }

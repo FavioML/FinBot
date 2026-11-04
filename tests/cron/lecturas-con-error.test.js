@@ -359,20 +359,20 @@ describe('un dedup que no se puede leer no reenvía el aviso', () => {
     expect(tagsLogueados()).toContain('EXPIRY_HOY');
   });
 
-  it('fin de prueba (d11/d14): el aviso que el trial existe para mandar tampoco se duplica', async () => {
+  it('fin de prueba (d6/d7): el aviso que el trial existe para mandar tampoco se duplica', async () => {
     vi.setSystemTime(enLima('2026-08-20T10:00:00'));
-    // trial_vence hoy → cae en el aviso d14; y `trial_vence < hoy` es false, así que no baja al muro.
+    // trial_vence hoy → cae en el aviso d7 (el último día); y `trial_vence < hoy` es false, así que no baja al muro.
     tablas.usuarios = [{ ...PRO, trial_estado: 'activo', trial_vence: '2026-08-20', premium_vence: null }];
 
     await checks.checkTrialExpiry();
-    expect(notificar, 'el fixture no llega al aviso d14: el caso de abajo no probaría nada').toHaveBeenCalledTimes(1);
+    expect(notificar, 'el fixture no llega al aviso d7: el caso de abajo no probaría nada').toHaveBeenCalledTimes(1);
 
     notificar.mockClear();
     errores.notificaciones = { message: 'connection reset' };
     await checks.checkTrialExpiry();
     expect(notificar, 'un error de lectura reenvió el aviso de fin de prueba').not.toHaveBeenCalled();
     // `via` distingue este log del que emite la query de vencidos, que comparte el tag.
-    expect(logMock.error.mock.calls.some((c) => c[0].tag === 'TRIAL_EXPIRY' && c[0].via === 'd14')).toBe(true);
+    expect(logMock.error.mock.calls.some((c) => c[0].tag === 'TRIAL_EXPIRY' && c[0].via === 'd7')).toBe(true);
   });
 
   /**
@@ -583,8 +583,8 @@ describe('una población que no se puede leer deja rastro', () => {
     errores.usuarios = { message: 'boom-trial' };
     await checks.checkTrialExpiry();
     const vias = logMock.error.mock.calls.filter((c) => c[0].tag === 'TRIAL_EXPIRY').map((c) => c[0].via);
-    expect(vias, 'los dos avisos (d11 y d14) tienen que dejar su propia línea').toEqual(
-      expect.arrayContaining(['d11', 'd14']),
+    expect(vias, 'los dos avisos (d6 y d7) tienen que dejar su propia línea').toEqual(
+      expect.arrayContaining(['d6', 'd7']),
     );
   });
 

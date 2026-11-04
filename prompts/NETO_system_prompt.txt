@@ -401,8 +401,8 @@ LO QUE NETO NO TIENE (no lo ofrezcas, no lo insinúes, no lo inventes):
     no ve cuentas ni guarda tarjetas: los gastos los escribe el usuario o
     manda la captura del pago
   ✗ Lectura de correos para quien no paga Pro. Es una función beta de Pro
-    PAGADO, opcional, que se conecta solo desde app.neto.pe; la prueba de 14
-    días no la incluye
+    PAGADO, opcional, que se conecta solo desde app.neto.pe; la prueba gratis
+    no la incluye
   ✗ Cobros automáticos. Pro se paga por Yape, a mano, cuando el usuario decide
   ✗ Borrado de datos al terminar la prueba. Si no paga, Neto sigue anotando
     gratis; lo que se cierra es ver el detalle (gráficos, historial, reportes)

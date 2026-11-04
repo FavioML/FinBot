@@ -4,13 +4,13 @@ import Link from 'next/link';
 import { Sparkles } from 'lucide-react';
 import { useUser } from '@/lib/hooks/use-user';
 import { IS_DEMO } from '@/lib/demo/is-demo';
-import { diasRestantesTrial } from '@/lib/plan';
+import { diasRestantesTrial, TRIAL_DIAS } from '@/lib/plan';
 
 /**
- * Estado de la prueba de 14 días, visible en TODO el dashboard (montado en el shell).
+ * Estado de la prueba, visible en TODO el dashboard (montado en el shell).
  *
  * Es la segunda de las tres veces que se comunica el trial: la primera es la confirmación
- * del primer gasto por WhatsApp, y la tercera son los avisos de los días 11 y 14.
+ * del primer gasto por WhatsApp, y la tercera son los avisos de la víspera y del último día.
  *
  * NO se comunica en `/activar`, y eso es deliberado: esa página tiene un solo trabajo —
  * que la persona toque el botón — y meterle un segundo frame ("¿gratis? ¿o sea que después
@@ -18,11 +18,11 @@ import { diasRestantesTrial } from '@/lib/plan';
  * cuando se rediseñó. Acá, en cambio, la persona está mirando su propia data con Pro
  * encendido: el claim es verificable en vez de abstracto.
  *
- * Tampoco se calla hasta el día 11: un trial que nadie sabe que existe es un muro sorpresa,
+ * Tampoco se calla hasta la víspera: un trial que nadie sabe que existe es un muro sorpresa,
  * que es justo el generador de churn que este cambio vino a matar.
  *
  * Copy largo los primeros días (hay que explicar qué se está estrenando), compacto después,
- * ámbar cuando quedan ≤3. No es descartable a propósito, igual que
+ * ámbar cuando quedan ≤2. No es descartable a propósito, igual que
  * `ReferralDiscountBanner`: es time-sensitive y se apaga solo al vencer o al pagar.
  * Lee del `useUser` ya cargado — sin fetch extra.
  */
@@ -36,10 +36,11 @@ export function TrialStatusBanner() {
   const dias = diasRestantesTrial(user.plan, user.trial_estado, user.trial_vence);
   if (dias === null) return null;
 
-  const urgente = dias <= 3;
-  // Los primeros dos días todavía hay que decir QUÉ se está estrenando; después basta
-  // con el contador, que a esa altura ya se entiende.
-  const explicar = dias >= 12;
+  // Con la prueba de 7 días (04-nov-2026): ámbar los últimos tres días (quedan 2, 1, hoy).
+  const urgente = dias <= 2;
+  // Los primeros días todavía hay que decir QUÉ se está estrenando; después basta
+  // con el contador, que a esa altura ya se entiende. Relativo a la duración: con 14 era `>= 12`.
+  const explicar = dias >= TRIAL_DIAS - 2;
 
   const cuando =
     dias === 0 ? 'Termina hoy' : dias === 1 ? 'Queda 1 día' : `Quedan ${dias} días`;

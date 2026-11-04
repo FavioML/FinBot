@@ -63,6 +63,19 @@ function ventanaDe(nombre) {
   const minutos = cuerpo.match(/get(?:UTC)?Minutes\(\)\s*>\s*(\d+)/);
   if (minutos) return { clase: 'minutos', ventanaMin: Number(minutos[1]) + 1 };
 
+  // La hora guardada en una variable (`const h = horaLima.getHours(); if (h < 9) ...`) deja las
+  // comparaciones fuera de la regex de abajo, que vería solo las que quedan y calcularía una
+  // ventana más ANCHA que la real. Lo midió la revisión adversarial del 04-nov-2026: con el gate de
+  // la víspera movido a una variable y achicado a 9-15h, y el cron a cada 7h, todo daba verde. Se
+  // falla cerrado en vez de seguir la variable.
+  const aVariable = cuerpo.match(/=\s*[\w.]+\.get(?:UTC)?Hours\(\)/);
+  if (aVariable) {
+    throw new Error(
+      `ventanaDe("${nombre}"): la hora se guarda en una variable (${aVariable[0]}) y el detector no la sigue. ` +
+        'Compará `getHours()` directo en el gate, o ampliá el detector.',
+    );
+  }
+
   const horas = [...cuerpo.matchAll(/get(?:UTC)?Hours\(\)\s*(>=|<=|<|>|!==|===)\s*(\d+)/g)]
     .map((m) => ({ op: m[1], n: Number(m[2]) }));
   if (horas.length === 0) return null;
@@ -81,6 +94,18 @@ function ventanaDe(nombre) {
   if (desde.length === 1 && hasta.length === 1) {
     // `if (h < 9 || h >= 21) return;` — activa de 9 a 20:59.
     return { clase: 'horas', ventanaMin: (hasta[0] - desde[0]) * 60, desdeHora: desde[0], hastaHora: hasta[0] };
+  }
+  if (desde.length === 1 && hasta.length === 2) {
+    // Gate ANIDADO: `if (h >= 8) { ... if (h < 9 || h >= 21) continue; ... }` — el bloque de
+    // entrada (el `>=` que no pasa del `<`) y adentro una guarda de salida más estrecha
+    // (`checkTrialExpiry` desde el 04-nov-2026: la víspera sale de 9 a 21h, el último día desde
+    // las 8). Se devuelve la ventana MÁS ESTRECHA, la intersección: es la que el período tiene
+    // que caber. Cualquier otra combinación de dos `>=` sigue siendo forma no reconocida.
+    const [entrada, salida] = [...hasta].sort((a, b) => a - b);
+    if (entrada <= desde[0] && salida > desde[0]) {
+      const ini = Math.max(entrada, desde[0]);
+      return { clase: 'horas', ventanaMin: (salida - ini) * 60, desdeHora: ini, hastaHora: salida };
+    }
   }
   throw new Error(
     `ventanaDe("${nombre}"): forma de gate horario no reconocida (${JSON.stringify(horas)}). ` +
