@@ -148,4 +148,17 @@ describe('medirCosto', () => {
     );
     expect(res).toMatchObject({ usd: 0, impuesto: 0.18, desde: '2026-10-01', etiqueta: 'Meta WhatsApp' });
   });
+
+  it('OpenAI también lleva IGV: la Costs API da el consumo sin impuesto', async () => {
+    // Las recargas de US$10 se cobran US$11.80 en la Visa. Con 0, el P&L de octubre quedaba S/11 corto.
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(resp({ data: [{ results: [{ amount: { value: 20.94 }, project_id: 'p1' }] }], has_more: false }))
+      .mockResolvedValueOnce(resp({ data: [{ id: 'p1', name: 'Neto' }] }));
+    const res = await medirCosto(
+      { meter: 'openai', next_due_date: '2026-11-01' },
+      { env: { OPENAI_ADMIN_KEY: 'k' }, fetchImpl },
+    );
+    expect(res.impuesto).toBe(0.18);
+    expect(montoPen(res.usd, res.impuesto, 3.456)).toBe(85.39);
+  });
 });
