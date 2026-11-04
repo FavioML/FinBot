@@ -20,8 +20,26 @@ function cost(overrides = {}) {
     active: overrides.active ?? true,
     auto_debit: overrides.auto_debit ?? false,
     last_reminder_sent_at: overrides.last_reminder_sent_at ?? null,
+    meter: overrides.meter ?? null,
   };
 }
+
+describe('planCostReminders — costos con medidor', () => {
+  it('no procesa ni recuerda un costo medido: lo registra su lectura mensual', () => {
+    const rows = [
+      cost({ id: 'meta', meter: 'meta_whatsapp', auto_debit: true }),
+      cost({ id: 'oa', meter: 'openai', auto_debit: false }),
+    ];
+    const { toNotify, toAutoProcess } = planCostReminders(rows, TODAY);
+    expect(toAutoProcess).toHaveLength(0);
+    expect(toNotify).toHaveLength(0);
+  });
+
+  it('el mismo costo sin medidor sí se auto-procesa (control)', () => {
+    const { toAutoProcess } = planCostReminders([cost({ id: 'meta', auto_debit: true })], TODAY);
+    expect(toAutoProcess).toHaveLength(1);
+  });
+});
 
 describe('planCostReminders — manual', () => {
   it('notifica un costo manual que vence hoy', () => {

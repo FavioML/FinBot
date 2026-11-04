@@ -28,6 +28,9 @@ export interface AdminCost {
   // false = manual (dispara recordatorio Telegram); true = débito automático (se cobra solo,
   // solo informativo el día del cobro, el cron auto-avanza y auto-registra el pago).
   auto_debit: boolean;
+  // Medidor del consumo (migración 093): el cron registra cada mes lo que la API del proveedor
+  // dice que se consumió, y `amount_pen` es la última lectura. null = monto fijo.
+  meter: 'meta_whatsapp' | 'openai' | null;
   paid_history: AdminCostPaidEntry[];
   last_reminder_sent_at: string | null;
   created_at: string;

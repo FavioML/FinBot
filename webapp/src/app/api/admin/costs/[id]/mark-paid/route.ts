@@ -67,6 +67,15 @@ export async function POST(
   }
 
   const cost = existing as AdminCost;
+  // Un costo medido lo registra el cron con la lectura del proveedor. Marcarlo a mano anotaría el
+  // monto del mes anterior y avanzaría la fecha, así que el cron ya no mediría ese mes. Para
+  // corregir un monto está "Historial de pagos".
+  if (cost.meter) {
+    return NextResponse.json(
+      { error: 'Este costo se mide solo cada mes; corrige el monto desde Historial de pagos' },
+      { status: 409 },
+    );
+  }
   const today = todayIsoLima();
 
   // Custom amount paid (defaults to recurring amount_pen)

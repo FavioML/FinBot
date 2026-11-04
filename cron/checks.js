@@ -13,7 +13,9 @@ const { formatFecha } = require('../lib/formatters');
 const { notificarAdmin } = require('../lib/admin-notify');
 const { checkSurveyTriggers } = require('../services/survey-triggers');
 const { solicitarComprobante } = require('../lib/pro-payment');
-const { planCostReminders } = require('../lib/cost-reminders');
+const { planCostReminders, advanceDueDate, limaDayOf } = require('../lib/cost-reminders');
+const { medirCosto, montoPen } = require('../lib/cost-meters');
+const { validarMonto } = require('../lib/validators');
 const { mensajeActivacionDia2, construirLinkActivacion } = require('../lib/activacion');
 const { mensajeMuro, estaEnMuro, esProPagado, linkPanelPro, AVISO_DIAS_ANTES, diaDePrueba, DIAS_CIERRE_PRUEBA } = require('../lib/trial');
 const { TIPO_CIERRE, TITULO_CIERRE, armarCierreDiaPrueba } = require('../lib/cierre-dia-prueba');
@@ -2376,7 +2378,7 @@ async function checkRecordatoriosCostos() {
   try {
     const hoy = hoyPeru();
     const { data: costos, error: errCostos } = await supabase.from('admin_costs')
-      .select('id, label, amount_pen, currency, amount_original, frequency, next_due_date, active, auto_debit, last_reminder_sent_at, paid_history')
+      .select('id, label, amount_pen, currency, amount_original, frequency, next_due_date, active, auto_debit, last_reminder_sent_at, paid_history, meter')
       .eq('active', true)
       .lte('next_due_date', hoy);
     // El destinatario es Favio, no un usuario, y por eso mismo el silencio es peor: "hoy no
@@ -2421,7 +2423,19 @@ async function checkRecordatoriosCostos() {
       return line;
     });
 
-    if (manualLines.length === 0 && autoLines.length === 0) return;
+    // 3) Costos medidos (Meta, OpenAI): se registra el consumo del mes anterior leído de la API.
+    //    Un fallo se avisa una vez por día y se reintenta mañana, sin registrar ni avanzar nada.
+    const medidoLines = [];
+    const medidoFallos = [];
+    for (const c of costos) {
+      if (!c.meter || !c.active || !c.next_due_date || c.next_due_date > hoy) continue;
+      const r = await registrarCostoMedido(c);
+      if (r.linea) { medidoLines.push(r.linea); continue; }
+      log.error({ tag: 'COSTOS_REMIND', id: c.id, meter: c.meter, err: r.error }, 'No se pudo medir un costo: no se registró');
+      if (limaDayOf(c.last_reminder_sent_at) !== hoy) medidoFallos.push({ id: c.id, linea: '• ' + c.label + ' — ' + r.error });
+    }
+
+    if (manualLines.length === 0 && autoLines.length === 0 && medidoLines.length === 0 && medidoFallos.length === 0) return;
 
     let msg = '💸 Costos operativos\n\n';
     if (manualLines.length > 0) {
@@ -2433,11 +2447,20 @@ async function checkRecordatoriosCostos() {
       if (manualLines.length > 0) msg += '\n';
       msg += 'Débito automático hoy (verifica que pasó en tu tarjeta):\n' + autoLines.join('\n') + '\n';
     }
+    if (medidoLines.length > 0) {
+      if (manualLines.length > 0 || autoLines.length > 0) msg += '\n';
+      msg += 'Consumo medido del mes pasado (ya registrado):\n' + medidoLines.join('\n') + '\n';
+    }
+    if (medidoFallos.length > 0) {
+      if (msg !== '💸 Costos operativos\n\n') msg += '\n';
+      msg += 'No pude medir (reintento mañana, no registré nada):\n' + medidoFallos.map((f) => f.linea).join('\n') + '\n';
+    }
 
     await notificarAdmin(msg.trim());
 
-    if (toNotify.length > 0) {
-      const ids = toNotify.map((m) => m.id);
+    const recordados = [...toNotify.map((m) => m.id), ...medidoFallos.map((f) => f.id)];
+    if (recordados.length > 0) {
+      const ids = recordados;
       const { error: errRecordado } = await supabase.from('admin_costs')
         .update({ last_reminder_sent_at: new Date().toISOString() })
         .in('id', ids);
@@ -2446,11 +2469,55 @@ async function checkRecordatoriosCostos() {
       }
     }
 
-    log.info({ tag: 'COSTOS_REMIND', manual: toNotify.length, auto: toAutoProcess.length, total: manualTotal.toFixed(2) },
+    log.info({ tag: 'COSTOS_REMIND', manual: toNotify.length, auto: toAutoProcess.length, medidos: medidoLines.length, total: manualTotal.toFixed(2) },
       'Recordatorios/débitos de costos procesados');
   } catch (e) {
     log.error({ tag: 'COSTOS_REMIND', err: msgErr(e) }, 'Error recordatorio costos');
   }
+}
+
+/**
+ * Registra el consumo medido de una fila con medidor y avanza su fecha un mes. Devuelve
+ * `{ linea }` para el aviso, o `{ error }` sin haber escrito nada.
+ *
+ * El tipo de cambio inventado (`fuente: 'fallback'`) cuenta como fallo: es una constante ~14%
+ * arriba del mercado, y un monto así en el P&L no se distingue de uno real.
+ *
+ * Si `paid_history` ya tiene una entrada con esa fecha (un backfill a mano, o una pasada cuyo
+ * update anterior escribió el historial), no se agrega otra: solo se avanza la fecha.
+ */
+async function registrarCostoMedido(c) {
+  let lectura;
+  try {
+    lectura = await medirCosto(c);
+  } catch (e) {
+    return { error: msgErr(e) };
+  }
+  const { obtenerTipoCambio } = require('../services/transactions');
+  const tc = await obtenerTipoCambio();
+  if (!tc || tc.fuente === 'fallback') return { error: 'sin tipo de cambio real (dolar.pe no respondió)' };
+
+  // Un mes sin consumo (Meta dentro del tramo gratis) registra 0 a propósito: es una lectura.
+  const amount = validarMonto(montoPen(lectura.usd, lectura.impuesto, tc.venta), { permitirCero: true });
+  const usdConImpuesto = validarMonto(lectura.usd * (1 + lectura.impuesto), { permitirCero: true });
+  if (amount === null || usdConImpuesto === null) return { error: 'la API devolvió un monto inválido (' + lectura.usd + ')' };
+  const history = Array.isArray(c.paid_history) ? c.paid_history : [];
+  const update = {
+    next_due_date: advanceDueDate(c.next_due_date, 'monthly'),
+    amount_pen: amount,
+    amount_original: usdConImpuesto,
+    last_reminder_sent_at: null,
+  };
+  if (!history.some((e) => e && e.paid_at === c.next_due_date)) {
+    update.paid_history = [...history, { paid_at: c.next_due_date, amount_pen: amount, marked_by: 'meter:' + c.meter }];
+  }
+  const { error } = await supabase.from('admin_costs').update(update).eq('id', c.id);
+  if (error) return { error: 'medí ' + lectura.etiqueta + ' pero no se pudo guardar: ' + error.message };
+
+  return {
+    linea: '• ' + c.label + ' (' + lectura.desde.slice(0, 7) + ') — S/ ' + amount.toFixed(2)
+      + ' ($' + usdConImpuesto.toFixed(2) + ') · ' + lectura.detalle,
+  };
 }
 
 /**

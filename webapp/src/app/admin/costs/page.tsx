@@ -95,13 +95,17 @@ function CategoryBadge({ category }: { category: AdminCostCategory }) {
   );
 }
 
-function AutoDebitBadge() {
+function AutoDebitBadge({ medido = false }: { medido?: boolean }) {
   return (
     <span
-      title="Débito automático: se cobra solo, solo aviso informativo"
+      title={
+        medido
+          ? 'Se cobra por consumo: el día 1 el cron lee el mes anterior en la API del proveedor y registra ese monto'
+          : 'Débito automático: se cobra solo, solo aviso informativo'
+      }
       className="inline-flex items-center rounded-full border border-primary/35 bg-primary/12 px-2 py-0.5 text-xs uppercase tracking-wider text-primary-ink"
     >
-      Auto
+      {medido ? 'Medido' : 'Auto'}
     </span>
   );
 }
@@ -1436,7 +1440,7 @@ export default function AdminCostsPage() {
                   <td className="w-full max-w-0 px-4 py-3">
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-foreground">{cost.label}</span>
-                      {cost.auto_debit && <AutoDebitBadge />}
+                      {cost.auto_debit && <AutoDebitBadge medido={Boolean(cost.meter)} />}
                     </div>
                     {cost.notes && (
                       <div className="mt-0.5 truncate text-xs text-muted-foreground">
@@ -1490,7 +1494,7 @@ export default function AdminCostsPage() {
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium text-foreground">{cost.label}</span>
                     <CategoryBadge category={cost.category} />
-                    {cost.auto_debit && <AutoDebitBadge />}
+                    {cost.auto_debit && <AutoDebitBadge medido={Boolean(cost.meter)} />}
                   </div>
                   <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                     <span>{ADMIN_COST_FREQUENCY_LABELS[cost.frequency]}</span>
