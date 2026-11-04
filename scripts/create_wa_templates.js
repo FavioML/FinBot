@@ -45,9 +45,10 @@ const TEMPLATES = [
     ],
   },
   {
-    // Fin del trial de 14 días. Un SOLO template para los dos toques (día 11 y día 14):
-    // el timing es la variable {{2}}, igual que el {{4}} de deuda_por_vencer. Una
-    // aprobación cubre ambos avisos.
+    // Fin de la prueba de 7 días. Desde el 04-nov-2026 el cron la usa solo para el último
+    // día (`trial_d7`, con {{2}} = 'hoy'): la víspera no lleva plantilla porque sale solo con
+    // la ventana de 24h abierta (`cron/checks.js:checkTrialExpiry`). El timing sigue siendo
+    // la variable {{2}}, igual que el {{4}} de deuda_por_vencer.
     //
     // NO se reusa `plan_pro_por_vencer`: dice "Renuévalo", que da por hecho un pago
     // anterior que el usuario en prueba nunca hizo.
@@ -62,7 +63,7 @@ const TEMPLATES = [
       {
         type: 'BODY',
         text: 'Hola {{1}} 👋 Tu prueba de Neto Pro termina {{2}}. Entra a Neto para ver tu resumen y decidir si continúas.',
-        example: { body_text: [['Favio', 'en 3 días (12/08)']] },
+        example: { body_text: [['Favio', 'hoy']] },
       },
     ],
   },
