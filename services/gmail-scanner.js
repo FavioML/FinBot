@@ -69,6 +69,39 @@ async function notificarAuthExpirada(usuario) {
   });
 }
 
+/**
+ * Los nombres del dueño del buzón, para que una constancia de transferencia A SU NOMBRE no entre
+ * como gasto (`beneficiarioEsElTitular` en services/parsers.js, DEFECTOS 04-nov-2026).
+ *
+ * **Solo el de la cuenta de Google, no `usuarios.nombre`.** El del alta es lo que la persona escribió
+ * en WhatsApp: casi siempre el nombre de pila, a veces dos ("Juan Carlos"), y dos nombres de pila
+ * pasan por nombre y apellido: "Juan Carlos" descartaba la transferencia a "Juan Carlos Quispe M."
+ * (tercera revisión adversarial, 04-nov). Conectar Gmail es web-only, así que quien llega acá tiene
+ * cuenta de Google. Los cinco llamadores traen la fila entera (`select('*')`).
+ *
+ * `incompleto` = tiene cuenta web y no se pudo leer su nombre (Auth caído o más de 3s, como el mismo
+ * cálculo en `handlers/webhook.js`). No es lo mismo que "no tiene nombre": en ese caso una constancia
+ * se guardaría como gasto y el pre-check de `descripcion_original` no la volvería a mirar nunca.
+ */
+async function nombresDelTitular(usuario) {
+  const authId = usuario.supabase_auth_id;
+  if (!authId) return { nombres: [], incompleto: false };
+  try {
+    // auth-js devuelve `{ error }` ante un fallo, no lanza.
+    const res = await Promise.race([
+      supabase.auth.admin.getUserById(authId),
+      new Promise((resolve) => setTimeout(() => resolve({ error: { message: 'timeout 3s' } }), 3000)),
+    ]);
+    if (res && res.error) throw new Error(res.error.message);
+    const meta = (res && res.data && res.data.user && res.data.user.user_metadata) || {};
+    const nombre = meta.full_name || meta.name || null;
+    return { nombres: typeof nombre === 'string' && nombre.trim() ? [nombre] : [], incompleto: false };
+  } catch (e) {
+    log.warn({ tag: 'CORREO', usuarioId: usuario.id, err: e && e.message }, 'No se pudo leer el nombre de la cuenta web');
+    return { nombres: [], incompleto: true };
+  }
+}
+
 // opts:
 //   scanOpts      → ventana/caps del scan (se pasa tal cual a leerCorreosBancarios)
 //   enviarAlertas → si false, NO manda la tarjeta WhatsApp por transacción (para el
@@ -153,6 +186,11 @@ async function escanearGmailYRegistrar(usuario, opts = {}) {
   let categoriasCustom = null;
   try { categoriasCustom = await obtenerCategoriasUsuario(usuario.id); }
   catch(e) { log.warn({ tag: 'CATS', err: e.message }, 'No se pudieron cargar categorías custom'); }
+  // Perezoso y una sola vez por corrida: casi todos los correos de la ventana ya están registrados y
+  // salen por el pre-check de abajo, así que leer Auth acá arriba era una llamada cada 15 minutos
+  // por usuario para nada. La promesa compartida cubre los correos que el pool procesa en paralelo.
+  let titularesP = null;
+  const titulares = () => titularesP || (titularesP = nombresDelTitular(usuario));
   // Procesa hasta CONCURRENCIA_SWEEP correos en paralelo (P1: antes era serial, 30d
   // podía tomar ~100s). Cada correo es independiente (distinto msg.id); el pool no
   // introduce race porque el insert va protegido por el índice único de gmail_msg_id.
@@ -199,7 +237,14 @@ async function escanearGmailYRegistrar(usuario, opts = {}) {
       const { data: excluido, error: errExcluido } = await supabase.from('gmail_excluidos').select('id').eq('usuario_id', usuario.id).eq('descripcion_original', claveDedup).maybeSingle();
       if (errExcluido) throw new Error('No se pudo verificar si el correo estaba excluido: ' + errExcluido.message);
       if (excluido) { ignoradas++; return; }
-      const resultado = await parsearCorreoBancario(textoParseo, msg.asunto, categoriasCustom);
+      const titular = await titulares();
+      // Sin el nombre no se puede saber si la constancia es a su nombre, y guardarla como gasto es
+      // para siempre. Se saltea con su fila en `errores` y el barrido de 15 minutos la reintenta. El
+      // resto de los correos no depende del nombre y sigue.
+      if (titular.incompleto && /constancia\s+de\s+transferencia/i.test(msg.asunto || '')) {
+        throw new Error('Constancia de transferencia sin nombre del titular: se reintenta en el próximo barrido');
+      }
+      const resultado = await parsearCorreoBancario(textoParseo, msg.asunto, categoriasCustom, { titulares: titular.nombres });
       if (!resultado.monto) return;
       // esGmail: true → guardarTransaccion salta su dedup de ventana (10s) y el conteo de
       // activación. gmail_msg_id → clave del índice único que cierra la race de doble barrido

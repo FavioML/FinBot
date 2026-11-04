@@ -435,8 +435,7 @@ REGLAS POR BANCO:
       "Maria Lopez" + mensaje "alquiler abril" → comercio: "Maria Lopez — alquiler"
       "Juan Perez" sin mensaje claro → comercio: "Juan Perez"
     El propósito debe ser 1-3 palabras lowercase, sin números, sin meses, sin "menos", "y", "más", etc.
-    Esto permite que Neto aprenda reglas distintas por propósito aunque sea el mismo beneficiario.
-- BCP débito/crédito: buscar campo "Empresa" o descripción del consumo
+    Esto permite que Neto aprenda reglas distintas por propósito aunque sea el mismo beneficiario.- BCP débito/crédito: buscar campo "Empresa" o descripción del consumo
 - BBVA: buscar campo "Comercio" o descripción de consumo
 - Interbank: buscar campo "Empresa" para pagos de servicio
 - Scotiabank: buscar campo "Empresa o institución" para el comercio real
@@ -553,7 +552,61 @@ REGLA DE PRIORIDAD:
 - Solo cae a categoría canónica si NINGUNA custom encaja con el contexto${reglaSub}`;
 }
 
-async function parsearCorreoBancario(texto, contexto, categoriasCustom) {
+/**
+ * ¿El beneficiario de esta transferencia es el dueño del buzón?
+ *
+ * BCP le manda la "Constancia de Transferencia" también al BENEFICIARIO cuando quien paga anota su
+ * correo, y el aviso es el mismo que recibe quien envía. El prompt arma el comercio de una
+ * transferencia como "<Beneficiario> — <propósito>", así que en el buzón del que COBRA el gasto
+ * salía a su propio nombre: 16 de las 20 transferencias de una persona que cobra por transferencia,
+ * S/ 5,395 de gastos que eran plata que le llegó (DEFECTOS, 04-nov-2026).
+ *
+ * **Más estricta que `lib/titular.js`, a propósito.** Allá un acierto voltea un gasto a ingreso y se
+ * ve en la respuesta del bot; acá DESCARTA el correo en silencio. Con la regla de allá bastaba un
+ * segundo nombre o un "del" en común: "Maria Elena Lopez" se tragaba la transferencia a "Maria Elena
+ * Quispe" (revisión adversarial del 04-nov). Acá cada palabra del nombre del titular tiene que estar
+ * en el beneficiario, entera o como la inicial con que BCP abrevia ("Huaman C." por Castro), con al
+ * menos dos palabras enteras y sin contar partículas. Lo que queda: dos personas con el mismo nombre
+ * Y apellido ("Jose Perez" le paga a otro "Perez Rojas Jose L."), y un nombre de Google con solo
+ * nombres de pila ("Juan Carlos"). Se compara solo el beneficiario, sin el propósito que el prompt
+ * le pega detrás.
+ */
+const PARTICULAS_NOMBRE = new Set(['de', 'del', 'la', 'las', 'los', 'y', 'san', 'da', 'do', 'dos', 'van', 'von']);
+function palabrasDeNombre(s) {
+  return String(s || '').toLowerCase().normalize('NFD').replace(/\p{M}/gu, '')
+    .replace(/[^a-z ]+/g, ' ').split(/\s+/).filter((p) => p && !PARTICULAS_NOMBRE.has(p));
+}
+function beneficiarioEsElTitular(comercio, nombresTitular) {
+  const beneficiario = palabrasDeNombre(String(comercio || '').split(/\s+[—–-]\s+/)[0]);
+  if (beneficiario.length < 2) return false;
+  return (nombresTitular || []).some((nombre) => {
+    const titular = palabrasDeNombre(nombre).filter((p) => p.length >= 2);
+    if (titular.length < 2) return false;
+    let enteras = 0;
+    for (const t of titular) {
+      if (beneficiario.includes(t)) { enteras++; continue; }
+      if (!beneficiario.some((b) => b.length === 1 && t.startsWith(b))) return false;
+    }
+    return enteras >= 2;
+  });
+}
+
+const RE_ENTRE_MIS_CUENTAS = /transferencia\s+entre\s+mis\s+cuentas/i;
+const RE_CONSTANCIA_TRANSFERENCIA = /constancia\s+de\s+transferencia/i;
+
+/**
+ * `opts.titulares`: los nombres del dueño del buzón (hoy, el de su cuenta de Google). Sólo los pasa el barrido de Gmail, el único llamador que sabe de quién es el
+ * buzón; sin ellos el parser se comporta como antes salvo por la constancia "Entre mis Cuentas", que
+ * se decide por el asunto.
+ */
+async function parsearCorreoBancario(texto, contexto, categoriasCustom, opts = {}) {
+  const titulares = (Array.isArray(opts.titulares) ? opts.titulares : [])
+    .filter((n) => typeof n === 'string' && n.trim()).map((n) => n.trim());
+  // Por el asunto y antes de gastar la llamada: el banco ya dice que la plata no salió de la persona.
+  if (RE_ENTRE_MIS_CUENTAS.test(contexto || '')) {
+    log.info({ tag: 'CORREO', asunto: (contexto || '').substring(0, 80) }, 'Descartado: transferencia entre cuentas propias');
+    return { es_movimiento: false };
+  }
   const systemPrompt = BANK_PARSER_PROMPT + buildCategoriasCustomPrompt(categoriasCustom);
   const res = await openai.chat.completions.create({
     model: 'gpt-4o-mini',
@@ -578,6 +631,25 @@ async function parsearCorreoBancario(texto, contexto, categoriasCustom) {
   // uno que no opina.
   if (parsed.es_movimiento === false) {
     log.info({ tag: 'CORREO', asunto: (contexto || '').substring(0, 80) }, 'Descartado: el texto no informa un movimiento de dinero');
+    return { es_movimiento: false };
+  }
+  // Una transferencia a nombre del titular no se registra, sea gasto O ingreso. No se voltea a
+  // ingreso: sin el ordenante no se sabe si le pagaron o si movió plata a su propia cuenta en otro
+  // banco, y un ingreso inventado infla igual que un gasto.
+  //
+  // **Decide el código y el prompt no se tocó, a propósito.** Se probó una regla en el prompt
+  // ("si el beneficiario es el titular, ingreso o nada") con el titular en el mensaje: el modelo
+  // pasó a descartar TAMBIÉN la constancia de una transferencia a un tercero, o sea gastos reales
+  // (medido con OpenAI real en `qa-e2e/qa-e2e-gmail-constancia-titular.mjs`, 04-nov-2026).
+  //
+  // Es transferencia si lo dice el ASUNTO o el modelo. El asunto primero, porque un correo
+  // descartado se vuelve a parsear en cada barrido mientras siga en la ventana, y la defensa no
+  // puede depender de que en alguna de esas pasadas el modelo escriba "Transferencia".
+  const esTransferencia = RE_CONSTANCIA_TRANSFERENCIA.test(contexto || '') || /transfer/i.test(String(parsed.metodo_pago || ''));
+  if (titulares.length && esTransferencia && beneficiarioEsElTitular(parsed.comercio, titulares)) {
+    // `warn` y con el monto: este descarte no deja fila ni aviso, y si alguna vez se traga un gasto
+    // real, este log es lo único con que se puede encontrar.
+    log.warn({ tag: 'CORREO', asunto: (contexto || '').substring(0, 80), monto: parsed.monto, tipo: parsed.tipo }, 'Descartado: transferencia cuyo beneficiario es el titular del buzón');
     return { es_movimiento: false };
   }
   // Nombre del comercio, en tres pasos y en este orden.
@@ -1096,6 +1168,7 @@ module.exports = {
   partirPasarela,
   extraerComercioPasarela,
   parsearCorreoBancario,
+  beneficiarioEsElTitular,
   parsearRegistroManual,
   separarMovimientos,
   COMERCIO_SIN_DESCRIPCION,
