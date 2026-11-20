@@ -139,9 +139,20 @@ while IFS=$'\t' read -r bucket nombre; do
   [ -n "${bucket:-}" ] || continue
   destino="${SALIDA}/storage/${bucket}/${nombre}"
   mkdir -p "$(dirname "$destino")"
-  codigo=$(curl -sS --connect-timeout 20 --max-time 120 -w '%{http_code}' -o "$destino" \
+  # Reintento por archivo. Del 18 al 20-nov-2026 el backup fallo tres dias
+  # seguidos por UN pedido a Storage que Cloudflare corto con 522 (no llego al
+  # origen: el log de Storage no tiene entrada), cada dia en un archivo distinto
+  # y con los otros 26 bajando en <1s. Sin reintento, un pedido fallido tiraba
+  # el volcado entero de la base. curl no reintenta un 522 por su cuenta: hace
+  # falta -f (para que un 5xx sea error) y --retry-all-errors. Si Storage sigue
+  # caido despues de los reintentos el backup falla igual, a proposito: los
+  # comprobantes son la evidencia de cobro. El `|| true` evita que set -e corte
+  # antes de imprimir el codigo; el veredicto lo da el chequeo de abajo.
+  codigo=$(curl -sS -f --connect-timeout 20 --max-time 60 \
+    --retry 4 --retry-all-errors --retry-delay 10 --retry-max-time 300 \
+    -w '%{http_code}' -o "$destino" \
     -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
-    "${SUPABASE_URL}/storage/v1/object/${bucket}/${nombre}")
+    "${SUPABASE_URL}/storage/v1/object/${bucket}/${nombre}") || true
   if [ "$codigo" != "200" ]; then
     echo "ERROR bajando ${bucket}/${nombre}: HTTP ${codigo}" >&2
     exit 1
