@@ -1597,6 +1597,10 @@ describe('duplicar_gasto — la fecha de la copia', () => {
     const { fechas } = await duplicar('duplícalo para el 15/03', { fecha: '2023-03-15' });
     expect(fechas).toEqual(['2026-03-15']);
   });
+  it('la fecha que dice el texto gana a la del modelo, aunque la del modelo sea creíble (24-nov)', async () => {
+    const { fechas } = await duplicar('duplícalo para ayer', { fecha: '2026-03-20' });
+    expect(fechas).toEqual(['2026-04-04']);
+  });
   it('sin fecha, la de hoy', async () => {
     const { fechas } = await duplicar('duplícalo', {});
     expect(fechas).toEqual(['2026-04-05']);

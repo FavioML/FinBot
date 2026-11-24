@@ -20,6 +20,9 @@
  * conversación (el clasificador no tiene historial), y "cámbialo al 15/10". Con hoy 24-nov el
  * clasificador real trae 2023-10-15 y `editar_fecha` lo escribía; lo ancla `anclarAnioDeEdicion`.
  *
+ * Desde `duplicar-*` también la COPIA: "duplícalo para el 15/10" sobre un gasto sembrado. La fecha de la
+ * copia sale del texto (`fechaDeLaCopia`, lib/orden-edicion.js); antes salía con la de hoy.
+ *
  * Corre DESPUÉS del deploy (confirmado con `/version`): contra el commit anterior es el CONTROL y tiene
  * que fallar en los dos casos de producción.
  *
@@ -222,6 +225,21 @@ function fechaEditada(fecha) {
   };
 }
 
+// La copia de "duplícalo para ..." (DEFECTOS 24-nov: salía con la fecha de HOY porque el clasificador no
+// manda la fecha de la copia). Quedan DOS filas: el sembrado intacto, con la de hoy, y la copia.
+function copiaCon(fecha) {
+  return async (u) => {
+    const txs = await txDe(u);
+    const original = txs.filter((t) => t.fecha === hoyLima() && Number(t.monto) === 20);
+    const copia = fecha === hoyLima() ? original.length === 2 : txs.some((t) => t.fecha === fecha && Number(t.monto) === 20 && t.comercio === 'Taxi');
+    return [
+      [txs.length === 2 && txs.every((t) => t.tipo === 'gasto'), 'dos gastos: el original y la copia', resumen(txs)],
+      [original.length >= 1, 'el original sigue con la fecha de hoy', resumen(txs)],
+      [copia, `la copia con fecha ${fecha}`, resumen(txs)],
+    ];
+  };
+}
+
 const CASOS = {
   // Las dos frases de producción.
   'ingreso-sustantivo': { msg: '150.00 ingreso de cita en estilista 03/10', afirmar: nuncaGasto(150) },
@@ -241,6 +259,12 @@ const CASOS = {
   'editar-fecha-anio': { sembrar: true, msg: 'cámbialo al ' + mesAnterior(15).ddmm, afirmar: fechaEditada(mesAnterior(15).iso) },
   'editar-fecha-mes-texto': { sembrar: true, msg: 'cámbialo al ' + mesAnterior(15).texto, afirmar: fechaEditada(mesAnterior(15).iso) },
   'editar-fecha-ddmm': { sembrar: true, msg: 'cámbialo al ' + mesAnterior(3).ddmm, afirmar: fechaEditada(mesAnterior(3).iso) },
+  // Duplicar para otra fecha (DEFECTOS 24-nov). "repítelo para el 15 de <mes>" en frío llegaba como
+  // `editar_fecha`: lo reencamina `esOrdenDeDuplicar`.
+  'duplicar-ddmm': { sembrar: true, msg: 'duplícalo para el ' + mesAnterior(15).ddmm, afirmar: copiaCon(mesAnterior(15).iso) },
+  'duplicar-mes-texto': { sembrar: true, msg: 'repítelo para el ' + mesAnterior(15).texto, afirmar: copiaCon(mesAnterior(15).iso) },
+  'duplicar-ayer': { sembrar: true, msg: 'duplícalo para ayer', afirmar: copiaCon(sumarDias(hoyLima(), -1)) },
+  'duplicar-sin-fecha': { sembrar: true, msg: 'duplícalo', afirmar: copiaCon(hoyLima()) },
 };
 
 async function correrCaso(nombre, corrida) {

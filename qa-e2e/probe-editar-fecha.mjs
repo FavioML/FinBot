@@ -35,6 +35,8 @@ const PROYECTO_PRUEBAS = 'proj_W2I31z7YfYiiBFA6CMu9fgRn';
 const { openai } = require(path.join(appRoot, 'lib/ai.js'));
 const { NETO_TOOLS, mapToolToIntent } = require(path.join(appRoot, 'handlers/neto-tools.js'));
 const { sumarDias } = require(path.join(appRoot, 'lib/dates.js'));
+// El mismo reencaminamiento que hace `dispatchIntent` (handlers/intent-registry.js) antes del handler.
+const { esOrdenDeDuplicar } = require(path.join(appRoot, 'lib/orden-edicion.js'));
 
 function systemPrompt() {
   const src = fs.readFileSync(path.join(appRoot, 'handlers/message-processor.js'), 'utf8');
@@ -104,13 +106,16 @@ const EXTRA = [
   { msg: 'cambia la fecha al 3 de octubre', esp: '2026-10-03' },
 ];
 if (args.includes('--extra')) CASOS.push(...EXTRA);
-// `--duplicar`: `duplicar_gasto` toma la fecha de la copia del mismo clasificador (segunda revisión del
-// 24-nov). HOY FALLA, y es conocido: el modelo casi nunca manda la fecha (0 de 12 el 24-nov; una vez la
-// puso en `nueva_fecha`, que ahora sí se remapea) y la copia sale con la de hoy. Ver docs/DEFECTOS.md.
+// `--duplicar`: la fecha de la copia. El clasificador casi nunca la manda (0 de 12 y después 0 de 16, las
+// dos el 24-nov) y "repítelo para el 15 de octubre" ni siquiera llega como duplicar; desde ese día la fecha
+// sale del texto (`fechaDeLaCopia`) y la orden se reencamina (`esOrdenDeDuplicar`). Ver docs/DEFECTOS.md.
 const DUPLICAR = [
   { msg: 'duplícalo para el 15/10', esp: '2026-10-15', intent: 'duplicar_gasto' },
   { msg: 'repítelo para el 15 de octubre', esp: '2026-10-15', intent: 'duplicar_gasto' },
   { msg: 'duplícalo para el 03/10', esp: '2026-10-03', intent: 'duplicar_gasto' },
+  { msg: 'duplícalo para ayer', esp: '2026-11-23', intent: 'duplicar_gasto' },
+  { msg: 'copia ese gasto para el lunes', esp: '2026-11-23', intent: 'duplicar_gasto' },
+  { msg: 'duplícalo', esp: '2026-11-24', intent: 'duplicar_gasto' },
 ];
 if (args.includes('--duplicar')) CASOS.push(...DUPLICAR);
 
@@ -149,6 +154,7 @@ for (const ctx of [{ nombre: 'frio', historial: [] }, { nombre: 'tras-confirmaci
     const corridas = await Promise.all(Array.from({ length: N }, () => clasificar(c.msg, ctx.historial)));
     for (const r of corridas) {
       const intent = c.intent || 'editar_fecha';
+      if (r.intencion !== 'duplicar_gasto' && esOrdenDeDuplicar(c.msg)) { r.intencion = 'duplicar_gasto'; r.datos = {}; }
       const escribe = r.intencion === intent ? await loQueEscribe(c.msg, r.datos, ctx.historial, intent) : '(otro intent)';
       const ok = escribe === c.esp;
       if (!ok && /^\d{4}-/.test(escribe)) fallos++;

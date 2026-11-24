@@ -4,7 +4,7 @@ const log = require('../lib/logger');
 const { revisarDatosDichos, PREGUNTA_PERSONA } = require('../lib/datos-dichos');
 const { INTENTS_QUE_BORRAN } = require('../lib/nlp-guards');
 const { enrutarPorVerbo, direccionPrestamo, tipoPorDeber, hablaDeDeuda, preguntaDeudaOGasto } = require('../lib/prestamos');
-const { esOrdenDeTipo } = require('../lib/orden-edicion');
+const { esOrdenDeTipo, esOrdenDeDuplicar } = require('../lib/orden-edicion');
 
 const { FRASE_BORRAR_CUENTA } = require('../lib/constants');
 
@@ -59,6 +59,15 @@ async function dispatchIntent({ intencion, msg, datos, usuario, from, ctx }) {
   if (intencion !== 'marcar_como_ingreso' && esOrdenDeTipo(msg, (ctx && ctx.historialConv) || [])) {
     log.info({ tag: 'ORDEN_DE_TIPO', desde: intencion, msg: String(msg || '').slice(0, 80) }, 'Orden de cambiar el tipo del último: va a marcar_como_ingreso');
     intencion = 'marcar_como_ingreso';
+    datos = {};
+  }
+  // Lo mismo con DUPLICAR (24-nov-2026): "repítelo para el 15 de octubre" llegaba como `editar_fecha` o
+  // como `registrar_manual` con el monto del historial. Ver `esOrdenDeDuplicar`. Los `datos` se tiran
+  // también cuando el clasificador ya dijo duplicar: la fecha de la copia sale del texto, y una inventada
+  // hacía que "duplícalo" recibiera la pregunta fija (`valor_no_dicho`) en vez de copiar.
+  if (esOrdenDeDuplicar(msg)) {
+    if (intencion !== 'duplicar_gasto') log.info({ tag: 'ORDEN_DE_DUPLICAR', desde: intencion, msg: String(msg || '').slice(0, 80) }, 'Orden de duplicar el último: va a duplicar_gasto');
+    intencion = 'duplicar_gasto';
     datos = {};
   }
   // La dirección de un préstamo la dice el verbo, no el clasificador (07-oct-2026): "Y preste 118 soles"

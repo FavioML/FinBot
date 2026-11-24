@@ -3,7 +3,7 @@ import { createRequire } from 'module';
 import fs from 'fs';
 
 const require = createRequire(import.meta.url);
-const { revisarEdicion, tieneForma, esExplicita, pedirOrden, PEDIR_ORDEN, EDICIONES, numerosDe, tipoDicho, selectorDeTipo, selectorCoincide, confirmacionNombra, esOrdenDeTipo } = require('../../lib/orden-edicion');
+const { revisarEdicion, tieneForma, esExplicita, pedirOrden, PEDIR_ORDEN, EDICIONES, numerosDe, tipoDicho, selectorDeTipo, selectorCoincide, confirmacionNombra, esOrdenDeTipo, fechaDeLaCopia, esOrdenDeDuplicar } = require('../../lib/orden-edicion');
 const POOL = require('../nlp/pool.js');
 
 /**
@@ -379,4 +379,59 @@ describe('revisión adversarial del 24-nov sobre el cambio de tipo', () => {
     // Sin monto en la confirmación ("Fecha corregida"), lo corregido ES el último: no bloquea.
     expect(confirmacionNombra(h('✅ Fecha corregida.\n*Taxi*: 30-sep-26 → 29-sep-26'), { monto: '8' })).toBe(true);
   });
+});
+
+// La fecha de la COPIA sale del texto (24-nov-2026): el clasificador no la manda. Ver `fechaDeLaCopia`.
+describe('fechaDeLaCopia', () => {
+  it.each([
+    ['duplícalo', '2026-11-24', undefined],
+    ['duplícalo para hoy', '2026-11-24', '2026-11-24'],
+    ['duplícalo para anoche pe', '2026-11-24', '2026-11-23'],
+    ['repítelo para antes de ayer', '2026-11-24', '2026-11-22'],
+    ['duplícalo para el martes', '2026-11-24', '2026-11-17'], // hoy es martes: el ANTERIOR
+    ['duplícalo para el 24', '2026-11-24', '2026-11-24'],
+    ['duplícalo para el 25', '2026-11-24', '2026-10-25'],
+    ['duplícalo para el 31', '2026-03-05', null], // ni 31-mar (futuro) ni 31-feb existen como pasado
+    ['duplícalo para el 30', '2026-01-10', '2025-12-30'], // el mes anterior cruza el año
+    ['duplícalo para el 29 de febrero', '2026-03-01', null], // 2026 no es bisiesto
+    ['duplícalo para el 15 10 de octubre', '2026-11-24', null], // dos meses
+    ['duplícalo para el 13/13', '2026-11-24', null],
+    ['duplícalo para la semana pasada', '2026-11-24', null],
+    ['duplícalo para el lunes 16', '2026-11-24', '2026-11-16'],
+    ['duplícalo para el lunes 15', '2026-11-24', null], // el 15 fue domingo: no se adivina cuál vale
+  ])('"%s" con hoy %s → %s', (msg, hoy, esp) => {
+    expect(fechaDeLaCopia(msg, hoy)).toBe(esp);
+  });
+  it('el año no dicho es el de la última vez que pasó esa fecha, y si eso no es claro pregunta', () => {
+    expect(fechaDeLaCopia('duplícalo para el 28/12', '2027-01-05')).toBe('2026-12-28');
+    expect(fechaDeLaCopia('duplícalo para el 10 de diciembre', '2026-04-05')).toBe('2025-12-10'); // 116 días
+    // 172 días atrás o el que viene: nadie dijo cuál. Una copia FUTURA no se escribe sin año.
+    expect(fechaDeLaCopia('duplícalo para el 15 de octubre', '2026-04-05')).toBe(null);
+    expect(fechaDeLaCopia('duplícalo para el 30/11', '2026-11-24')).toBe(null);
+    expect(fechaDeLaCopia('duplícalo para el 29/02', '2028-03-01')).toBe('2028-02-29');
+    expect(fechaDeLaCopia('duplícalo para el 29/02', '2029-03-01')).toBe(null); // el último fue hace 366 días
+    expect(fechaDeLaCopia('duplícalo para el 15/10/2025', '2026-11-24')).toBe('2025-10-15'); // con año, el dicho
+    // ...pero tampoco futura: "2062" es un typo de 2026 (revisión adversarial del 24-nov).
+    expect(fechaDeLaCopia('duplícalo para el 15/10/2062', '2026-11-24')).toBe(null);
+    expect(fechaDeLaCopia('duplícalo para el 15 de diciembre 2026', '2026-11-24')).toBe(null);
+  });
+});
+
+describe('esOrdenDeDuplicar', () => {
+  it.each(['duplícalo', 'duplica el último', 'copia ese gasto', 'repítelo para ayer', 'repítelo para el 15 de octubre', 'haz un duplicado'])('"%s" sí', (msg) => {
+    expect(esOrdenDeDuplicar(msg)).toBe(true);
+  });
+  it.each(['repítelo', 'repite eso por favor', '¿duplícalo?', 'duplícalo para el 15/10 y 20 más', 'gasté 20 en taxi', 'otro taxi 15', 'copia de llaves 10',
+    // "el anterior" al duplicar nombra el PENÚLTIMO, y el handler copia el último.
+    'copia el anterior', 'duplica lo anterior', 'haz un duplicado del anterior'])('"%s" no', (msg) => {
+    expect(esOrdenDeDuplicar(msg)).toBe(false);
+  });
+});
+
+it('"el anterior" no pasa la puerta de duplicar, ni aunque el clasificador diga duplicar', () => {
+  for (const msg of ['copia el anterior', 'duplica lo anterior para ayer']) {
+    expect(revisarEdicion('duplicar_gasto', msg, {}).ok, msg).toBe(false);
+  }
+  // Las otras ediciones lo siguen aceptando: ahí "el anterior" es el último que se acaba de anotar.
+  expect(revisarEdicion('editar_monto', 'cambia el anterior a 30', { monto_nuevo: 30 }).ok).toBe(true);
 });

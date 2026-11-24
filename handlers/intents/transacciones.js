@@ -7,7 +7,7 @@ const { validarMonto } = require('../../lib/validators');
 const { subcategoriaUtil, esSubSinClasificar } = require('../../lib/subcategoria');
 const { extraerGastoSinIA, quitarTokensDeMoneda, contarMontosCandidatos, mencionaMonedaNoSoportada, montoEscritoEnMensaje, tipoContradiceElMensaje, montosDeMovimiento } = require('../../lib/nlp-guards');
 const { registrarError } = require('../../lib/error-monitor');
-const { revisarEdicion, pedirOrden, selectorCoincide, confirmacionNombra } = require('../../lib/orden-edicion');
+const { revisarEdicion, pedirOrden, selectorCoincide, confirmacionNombra, fechaDeLaCopia } = require('../../lib/orden-edicion');
 const { pideAlcanceRetroactivo } = require('../../lib/datos-dichos');
 const { esComercioCentinela } = require('../../services/parsers');
 const { fechaDeLaOrden } = require('../../lib/dates');
@@ -1629,10 +1629,15 @@ module.exports = {
         try {
           const txDup = await obtenerUltimaTransaccion(usuario.id);
           if (!txDup) return 'No encuentro un gasto reciente para duplicar.';
-          // La fecha de la copia viene del clasificador, con el mismo año inventado que `editar_fecha`.
+          // La fecha de la copia la dice el TEXTO ("para el 15/10"): el clasificador casi nunca la manda
+          // (lib/orden-edicion.js, `fechaDeLaCopia`). El año no dicho lo ancla la cadena de `editar_fecha`.
           let fechaDup = fechaHoyPeru();
-          if (datos.fecha) {
-            const ordenDup = fechaDeLaOrdenLog(msg, datos.fecha, fechaHoyPeru(), 'DUPLICAR');
+          const dichaDup = fechaDeLaCopia(msg, fechaHoyPeru());
+          if (dichaDup === null) return preguntaFechaConAnio(fechaHoyPeru(), 'duplícalo para el');
+          const baseDup = dichaDup !== undefined ? dichaDup : datos.fecha;
+          if (dichaDup !== undefined && dichaDup !== datos.fecha) log.info({ tag: 'DUPLICAR_FECHA_DEL_TEXTO', fechaModelo: datos.fecha || null, fechaTexto: dichaDup }, 'La fecha de la copia sale del mensaje');
+          if (baseDup) {
+            const ordenDup = fechaDeLaOrdenLog(msg, baseDup, fechaHoyPeru(), 'DUPLICAR');
             if (!ordenDup) return preguntaFechaConAnio(fechaHoyPeru(), 'duplícalo para el');
             fechaDup = ordenDup.fecha;
           }
