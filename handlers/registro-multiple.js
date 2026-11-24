@@ -1,7 +1,7 @@
 const log = require('../lib/logger');
 const { colaConfirmacionGasto } = require('../lib/trial');
 const { subcategoriaUtil } = require('../lib/subcategoria');
-const { resolverDiaSemanaPasado, resolverFechaRelativa } = require('../lib/dates');
+const { resolverDiaSemanaPasado, resolverFechaRelativa, resolverFechaDiaMes } = require('../lib/dates');
 const { montosDeMovimiento, montoEscritoEnMensaje, tipoContradiceElMensaje, sentidosDelTexto } = require('../lib/nlp-guards');
 const { validarMonto } = require('../lib/validators');
 
@@ -54,7 +54,7 @@ const RE_FECHA_EXPLICITA = /\bayer\b|\bantier\b|\banteayer\b|\bhoy\b|\b(lunes|ma
  * la fecha inventada sin mención). Es el bloque que vivía inline en `registrar_manual`; se movió
  * acá sin cambios para que el camino de varios movimientos aplique EXACTAMENTE los mismos.
  */
-function ajustarFechaRegistro(texto, fechaModelo, fechaHoy) {
+function ajustarFechaRegistro(texto, fechaModelo, fechaHoy, msgEntero = texto) {
   let fecha = fechaModelo;
   const corregida = resolverDiaSemanaPasado(texto, fecha, fechaHoy);
   if (corregida) {
@@ -65,6 +65,15 @@ function ajustarFechaRegistro(texto, fechaModelo, fechaHoy) {
   if (relativa) {
     log.info({ tag: 'RELATIVE_DATE_GUARD', fechaModelo: fecha, fechaCorregida: relativa, msg: (texto || '').substring(0, 80) }, 'Ajuste post-OpenAI: marcador relativo del msg no coincide con fecha del parser');
     fecha = relativa;
+  }
+  // "03/10" escrito: el modelo devuelve hoy cuando el día es 12 o menos (lib/dates.js lo mide).
+  // En un pedazo de varios movimientos, la fecha tiene que salir igual del mensaje ENTERO: "cuota 2/6 del
+  // celular 200 y taxi 20" le presta "2/6" al taxi, y el pedazo "2/6 taxi 20" ya no dice "cuota".
+  const diaMesPedazo = resolverFechaDiaMes(texto, fecha, fechaHoy);
+  const diaMes = diaMesPedazo && (msgEntero === texto || resolverFechaDiaMes(msgEntero, null, fechaHoy) === diaMesPedazo) ? diaMesPedazo : null;
+  if (diaMes) {
+    log.info({ tag: 'DDMM_DATE_GUARD', fechaModelo: fecha, fechaCorregida: diaMes, msg: (texto || '').substring(0, 80) }, 'Ajuste post-OpenAI: la fecha dd/mm del msg no coincide con la del parser');
+    fecha = diaMes;
   }
   // El modelo a veces alucina una fecha pasada: sólo se respeta si el texto nombra una.
   if (fecha && fecha !== fechaHoy && !RE_FECHA_EXPLICITA.test((texto || '').toLowerCase())) {
@@ -466,7 +475,7 @@ async function registrarVariosMovimientos({ msg, montos, usuario, ctx }) {
     const datos = {
       ...it.parsed,
       moneda: it.parsed.moneda || 'PEN',
-      fecha: ajustarFechaRegistro(it.paraParser, it.parsed.fecha, fechaHoy),
+      fecha: ajustarFechaRegistro(it.paraParser, it.parsed.fecha, fechaHoy, msg),
     };
     if (it.detCat.categoria) {
       datos.categoria = it.detCat.categoria;

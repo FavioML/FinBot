@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
-const { resolverFechaRelativa, resolverDiaSemanaPasado } = require('../../lib/dates');
+const { resolverFechaRelativa, resolverDiaSemanaPasado, resolverFechaDiaMes } = require('../../lib/dates');
 
 // Helper: dado fechaHoy YYYY-MM-DD, devuelve YYYY-MM-DD restando N días.
 function diasAtras(fechaHoy, n) {
@@ -57,5 +57,78 @@ describe('resolverFechaRelativa', () => {
   it('"ayer" dentro de "anteayer" no produce falso positivo', () => {
     // anteayer detecta primero; el resultado debe ser 2 días, no 1.
     expect(resolverFechaRelativa('anteayer gasté 30', HOY, HOY)).toBe(ANTEAYER);
+  });
+});
+
+// 24-nov-2026: con el día en 12 o menos y otro mes, el parser devolvía HOY para "03/10".
+describe('resolverFechaDiaMes', () => {
+  const HOY = '2026-11-24';
+  it('lee día/mes y corrige la fecha de hoy que puso el parser', () => {
+    expect(resolverFechaDiaMes('gasté 20 en taxi 03/10', HOY, HOY)).toBe('2026-10-03');
+    expect(resolverFechaDiaMes('150.00 ingreso de cita en estilista 03/10', HOY, HOY)).toBe('2026-10-03');
+    expect(resolverFechaDiaMes('Me pagaron 150.00 de arreglo de cabello el 03/10', HOY, HOY)).toBe('2026-10-03');
+    expect(resolverFechaDiaMes('gasté 20 en taxi el 3/10', HOY, HOY)).toBe('2026-10-03');
+    // Mes/día leído por el modelo ("10 de marzo") también se corrige.
+    expect(resolverFechaDiaMes('gasté 20 en taxi 03/10', '2026-03-10', HOY)).toBe('2026-10-03');
+  });
+  it('con año escrito, de dos o cuatro cifras', () => {
+    expect(resolverFechaDiaMes('S/16.80 - Taxi 12/11/2026 ida', HOY, HOY)).toBe('2026-11-12');
+    expect(resolverFechaDiaMes('El 26/10/26 compra comida de mascota 20 soles', HOY, HOY)).toBe('2026-10-26');
+    expect(resolverFechaDiaMes('cena 80 el 03/12/2025', HOY, HOY)).toBe('2025-12-03');
+  });
+  it('null si la del parser ya es esa', () => {
+    expect(resolverFechaDiaMes('18.50 empanada 19/10', '2026-10-19', HOY)).toBeNull();
+  });
+  it('no decide: futuro, imposible, dos fechas, fracción o marcador relativo', () => {
+    expect(resolverFechaDiaMes('gasté 20 el 15/12', HOY, HOY)).toBeNull();
+    expect(resolverFechaDiaMes('gasté 20 el 31/02', HOY, HOY)).toBeNull();
+    expect(resolverFechaDiaMes('gasté 20 el 13/13', HOY, HOY)).toBeNull();
+    expect(resolverFechaDiaMes('taxi 20 el 03/10 y cine 30 el 04/10', HOY, HOY)).toBeNull();
+    expect(resolverFechaDiaMes('1/2 kilo de pollo 12', HOY, HOY)).toBeNull();
+    expect(resolverFechaDiaMes('3/4 de queso 9', HOY, HOY)).toBeNull();
+    expect(resolverFechaDiaMes('ayer 03/10 taxi 20', HOY, HOY)).toBeNull();
+  });
+  it('no confunde montos ni fechas ISO con día/mes', () => {
+    expect(resolverFechaDiaMes('S/16.80 taxi', HOY, HOY)).toBeNull();
+    expect(resolverFechaDiaMes('taxi 2026/11/03 20 soles', HOY, HOY)).toBeNull();
+    expect(resolverFechaDiaMes('pagué 1.5/2', HOY, HOY)).toBeNull();
+    expect(resolverFechaDiaMes('gasté 20 en taxi', HOY, HOY)).toBeNull();
+  });
+  it('un día de la semana no frena: la fecha dice más', () => {
+    expect(resolverFechaDiaMes('taxi 20 el sábado 03/10', HOY, HOY)).toBe('2026-10-03');
+  });
+  it('el año en letras cuenta ("03/10 de 2025")', () => {
+    expect(resolverFechaDiaMes('taxi 20 03/10 de 2025', HOY, HOY)).toBe('2025-10-03');
+  });
+  // Revisión adversarial del 24-nov: sin señal de fecha, estos "n/m" quedaban como fechas pasadas.
+  for (const msg of ['cuota 2/6 del celular 200', 'pagué la cuota 4/10 del préstamo 300', 'gasté 100 en 1/8 de pollo',
+    'gasté 20 en 1/5 de libra', 'compré 6/8 tornillos 15', 'farmacia 24/7 gasté 30', 'taxi 20 24/7', 'pedido 5/10 llegó 80 soles',
+    'compré 30 en entradas fila 4/10', 'gasté 20 a las 8/9 en taxi', 'pizza 40 entre 4, 10/4', '$20/3', 'usd 20/3',
+    // Segunda revisión: sin año ni "el", una cifra de un lado no alcanza; día = mes tampoco.
+    'netflix 45 plan 2/4', 'pasaje 6/6', '2/5 de la cuenta 60', 'pagué 500 matrícula 1/10', 'examen 10/10 pagué 20 de copias',
+    'pagué 45 en 10/10 estrellas', 'gasté 40 en 04/04 cuotas', 'gasté 20 en taxi 3/10']) {
+    it(`un n/m que no es fecha no se lee como fecha: ${JSON.stringify(msg)}`, () => {
+      expect(resolverFechaDiaMes(msg, HOY, HOY)).toBeNull();
+    });
+  }
+  it('las cuotas y tallas de diciembre tampoco, aunque ya no caigan en el futuro', () => {
+    expect(resolverFechaDiaMes('cuota 3/12 de la laptop 150', '2026-12-20', '2026-12-20')).toBeNull();
+    expect(resolverFechaDiaMes('polo talla 10/12 gasté 50', '2026-12-20', '2026-12-20')).toBeNull();
+  });
+  it('en enero, "28/12" es el diciembre que pasó; lejos del año anterior no decide', () => {
+    expect(resolverFechaDiaMes('taxi 20 28/12', '2027-01-05', '2027-01-05')).toBe('2026-12-28');
+    for (const msg of ['pagué 300 en 12/12 cuotas', 'pasaje 12/12 sol 3', 'gasolina 50 km 10/12']) {
+      expect(resolverFechaDiaMes(msg, '2027-01-05', '2027-01-05'), msg).toBeNull();
+    }
+    expect(resolverFechaDiaMes('taxi 20 15/12', HOY, HOY)).toBeNull();
+  });
+  it('las 29 formas reales de producción siguen leyéndose', () => {
+    for (const [msg, f] of [['el 16/09 gasté 68.6 en combustible (GLP)', '2026-09-16'], ['Gaste S/235.7 en comida para la casa en Tottus el 20/09.', '2026-09-20'],
+      ['14 jugo en el Enano 04/10', '2026-10-04'], ['18.50 empanada y alfajor 19/10', '2026-10-19'], ['150.00 entró a mi cuenta 03/10 de cita estilista', '2026-10-03']]) {
+      expect(resolverFechaDiaMes(msg, HOY, HOY), msg).toBe(f);
+    }
+  });
+  it('la misma fecha escrita dos veces cuenta como una', () => {
+    expect(resolverFechaDiaMes('03/10 taxi 20, era el 03/10', HOY, HOY)).toBe('2026-10-03');
   });
 });

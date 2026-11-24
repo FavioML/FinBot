@@ -13,6 +13,9 @@
  *
  *   node qa-e2e/qa-registro-ingreso.mjs [--n 3] [--solo ingreso-sustantivo,entro-a-mi-cuenta]
  *
+ * Desde `fecha-ddmm` también mira la FECHA: "gasté 20 en taxi 03/10" quedaba con la de hoy (el parser
+ * duda entre día/mes y mes/día con el día en 12 o menos); lo corrige `resolverFechaDiaMes` (lib/dates.js).
+ *
  * Corre DESPUÉS del deploy (confirmado con `/version`): contra el commit anterior es el CONTROL y tiene
  * que fallar en los dos casos de producción.
  *
@@ -158,8 +161,8 @@ async function decir(u, texto) {
 
 
 
-const txDe = (u) => sb.select('transacciones', `usuario_id=eq.${u.id}&select=id,tipo,monto,comercio,categoria&order=created_at.asc`);
-const resumen = (txs) => JSON.stringify(txs.map((t) => `${t.tipo} ${t.monto} ${t.comercio}`));
+const txDe = (u) => sb.select('transacciones', `usuario_id=eq.${u.id}&select=id,tipo,monto,comercio,categoria,fecha&order=created_at.asc`);
+const resumen = (txs) => JSON.stringify(txs.map((t) => `${t.tipo} ${t.monto} ${t.comercio} ${t.fecha}`));
 const PREGUNTA = /entraron o salieron/;
 
 // El mensaje dice que la plata entró: o no queda NINGUNA fila y se pregunta, o queda UNA de ingreso.
@@ -174,12 +177,24 @@ function nuncaGasto(monto) {
     ];
   };
 }
-function unaFila(tipo, monto) {
+function unaFila(tipo, monto, fecha) {
   return async (u) => {
     const txs = await txDe(u);
-    return [[txs.length === 1 && txs[0].tipo === tipo && Number(txs[0].monto) === monto, `una fila de ${tipo} de ${monto}`, resumen(txs)]];
+    const checks = [[txs.length === 1 && txs[0].tipo === tipo && Number(txs[0].monto) === monto, `una fila de ${tipo} de ${monto}`, resumen(txs)]];
+    if (fecha) checks.push([txs.length === 1 && txs[0].fecha === fecha, `con fecha ${fecha}`, resumen(txs)]);
+    return checks;
   };
 }
+
+// Una fecha dd/mm con el día en 12 o menos y de un mes ANTERIOR al actual: la forma en que el parser
+// devolvía hoy (24-nov-2026, "03/10"). Se calcula para que siempre caiga en el pasado.
+const FECHA_DDMM = (() => {
+  const f = new Date(hoyLima() + 'T12:00:00Z');
+  // Día 3, salvo en marzo ("03/03": con día = mes no hay nada que confundir y la guarda no actúa).
+  f.setUTCDate(1); f.setUTCMonth(f.getUTCMonth() - 1); f.setUTCDate(f.getUTCMonth() === 2 ? 4 : 3);
+  const iso = f.toISOString().slice(0, 10);
+  return { iso, texto: iso.slice(8, 10) + '/' + iso.slice(5, 7) };
+})();
 
 const CASOS = {
   // Las dos frases de producción.
@@ -193,7 +208,9 @@ const CASOS = {
   // CONTROLES: la forma corta de ingreso sigue entrando, y los gastos no preguntan.
   'ingreso-corto': { msg: 'Ingreso 480', afirmar: unaFila('ingreso', 480) },
   'pague-el-ingreso': { msg: 'pagué 20 de ingreso al museo', afirmar: unaFila('gasto', 20) },
-  'gasto-normal': { msg: 'gasté 20 en taxi', afirmar: unaFila('gasto', 20) },
+  'gasto-normal': { msg: 'gasté 20 en taxi', afirmar: unaFila('gasto', 20, hoyLima()) },
+  // La fecha escrita como dd/mm (DEFECTOS 24-nov: "03/10" quedaba con la fecha de hoy).
+  'fecha-ddmm': { msg: 'gasté 20 en taxi ' + FECHA_DDMM.texto, afirmar: unaFila('gasto', 20, FECHA_DDMM.iso) },
 };
 
 async function correrCaso(nombre, corrida) {

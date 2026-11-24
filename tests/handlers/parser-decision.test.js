@@ -435,6 +435,14 @@ describe('registrar_manual por decisión', () => {
       expect(res).toContain('entraron o salieron');
     });
 
+    // 24-nov-2026: con el día en 12 o menos y otro mes, el parser real devuelve HOY para "03/09".
+    it('la fecha dd/mm escrita gana a la de hoy que puso el parser', async () => {
+      respuestaModelo = { decision: 'registrar', tipo: 'gasto', monto: 20, moneda: 'PEN', comercio: 'taxi', categoria: 'Transporte', subcategoria: 'taxi', fecha: '2026-09-30' };
+      const ctx = ctxRegistro();
+      await registrar('gasté 20 en taxi 03/09', ctx);
+      expect(ctx.guardarTransaccion.mock.calls[0][1]).toMatchObject({ tipo: 'gasto', monto: 20, fecha: '2026-09-03' });
+    });
+
     it('el resultado del RESCATE también pasa por el invariante de sentido ("me depositaron 1200 soles")', async () => {
       expect(extraerGastoSinIA('me depositaron 1200 soles')).toMatchObject({ tipo: 'gasto', monto: 1200 });
       respuestaModelo = { ...vacio, decision: 'sin_monto' };

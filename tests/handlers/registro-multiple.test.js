@@ -838,3 +838,14 @@ describe('motivoDeRechazo con la palabra "ingreso" en un pedazo', () => {
     expect(motivoDeRechazo(parsed('gasto', 50), 'gasté 50 en comida', { valor: 50, moneda: null }, msg)).toBeNull();
   });
 });
+
+// Revisión adversarial del 24-nov: un "n/m" que no es fecha no se presta a los pedazos hermanos.
+describe('ajustarFechaRegistro en un pedazo de varios movimientos', () => {
+  const HOY = '2026-11-24';
+  it('el pedazo "2/6 taxi 20" de "cuota 2/6 del celular 200 y taxi 20" no se fecha el 2 de junio', () => {
+    expect(ajustarFechaRegistro('2/6 taxi 20', HOY, HOY, 'cuota 2/6 del celular 200 y taxi 20')).toBe(HOY);
+  });
+  it('una fecha real dicha una vez sí se presta', () => {
+    expect(ajustarFechaRegistro('03/10 cine 30', HOY, HOY, '03/10 taxi 20, cine 30')).toBe('2026-10-03');
+  });
+});
