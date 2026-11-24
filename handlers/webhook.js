@@ -560,11 +560,16 @@ function createWebhookHandler(procesarMensajeLibre) {
             PRO_PRECIOS.mensual + ' mensual o S/' + PRO_PRECIOS.anual + ' anual a *Favio Mendoza*), ' +
             'revisa el monto y el destinatario y reenvíamela._';
         }
-        // `prometeCierre: false`: esta rama no guarda el turno en `conversaciones`, y el cierre de
+        // `prometeCierre: false`: esta rama no guarda el turno del USUARIO en `conversaciones`, y el cierre de
         // la noche solo sale a quien escribió hoy. Prometerlo acá sería prometer algo que no llega.
         const nudgeImg = await colaConfirmacionGasto(usuario, txImg, txImg && txImg.conteoTx, { prometeCierre: false });
         if (nudgeImg) respImg += nudgeImg;
         await enviarWhatsapp(from, respImg);
+        // La confirmación SÍ queda en el historial, como turno de NETO (24-nov-2026): sin ella, "es un
+        // ingreso" detrás de una captura no tenía a qué referirse (regla 3 de lib/orden-edicion.js) y el
+        // clasificador no veía la captura. Solo la de NETO: un turno 'usuario' movería la ventana de 24h y
+        // el cierre de la noche, que cuentan esos turnos, y eso es otra decisión.
+        try { await guardarMensaje(usuario.id, 'neto', respImg); } catch (e) {}
       } catch(e) {
         log.error({ tag: 'IMAGEN', err: e.message }, 'Error procesando imagen'); registrarError('IMAGEN', e.message, { stack: e.stack, whatsapp: numero, bsuid, usuarioId: usuarioCtx && usuarioCtx.id });
         await enviarWhatsapp(from, 'No pude procesar la imagen. Asegúrate de enviar la captura de la notificación de pago (la pantalla que muestra el monto y destinatario).');

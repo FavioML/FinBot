@@ -718,7 +718,8 @@ describe('9A-bis · un UPDATE que no afecta ninguna fila no se confirma', () => 
       // 1) se intentó de verdad — si no, el verde vendría de un return anterior
       expect(sb.intento('transacciones', 'update')).toBe(true);
       // 2) apuntando a la fila que el handler leyó (y que ya no está)
-      expect(sb.filtros('transacciones', 'update')).toEqual([['id', TX.id]]);
+      // (el cambio de tipo además exige el tipo que leyó: si otra escritura lo cambió, no lo pisa)
+      expect(sb.filtros('transacciones', 'update')).toEqual(c.intencion === 'marcar_como_ingreso' ? [['id', TX.id], ['tipo', TX.tipo]] : [['id', TX.id]]);
       // 3) el mensaje de ESTA clase
       expect(res).toMatch(TEXTO_CERO_FILAS);
       // 4) y ninguno de los otros tres

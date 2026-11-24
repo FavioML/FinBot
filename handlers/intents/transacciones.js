@@ -7,7 +7,7 @@ const { validarMonto } = require('../../lib/validators');
 const { subcategoriaUtil, esSubSinClasificar } = require('../../lib/subcategoria');
 const { extraerGastoSinIA, quitarTokensDeMoneda, contarMontosCandidatos, mencionaMonedaNoSoportada, montoEscritoEnMensaje, tipoContradiceElMensaje, montosDeMovimiento } = require('../../lib/nlp-guards');
 const { registrarError } = require('../../lib/error-monitor');
-const { revisarEdicion, pedirOrden } = require('../../lib/orden-edicion');
+const { revisarEdicion, pedirOrden, selectorCoincide, confirmacionNombra } = require('../../lib/orden-edicion');
 const { pideAlcanceRetroactivo } = require('../../lib/datos-dichos');
 const { esComercioCentinela } = require('../../services/parsers');
 
@@ -349,6 +349,7 @@ module.exports = {
       return pedirOrden(intencion);
     }
     datos = revision.datos;
+    const edicionEliptica = revision.eliptica === true;
 
     switch (intencion) {
 
@@ -1740,18 +1741,51 @@ module.exports = {
           // ("aby 143" buscó "aby", no lo halló y editó "traer tronco"); ver lib/orden-edicion.js.
           const txMarcar = await obtenerUltimaTransaccion(usuario.id);
           if (!txMarcar) return 'No hay transacciones recientes para modificar.';
-          const tipoNuevo = datos.tipo_nuevo || 'ingreso';
-          const { data: filasMarcar, error: errMarcar } = await supabase.from('transacciones').update({ tipo: tipoNuevo }).eq('id', txMarcar.id).select('id');
+          const montoMarcar = txMarcar.moneda === 'USD' ? '$' + parseFloat(txMarcar.monto).toFixed(2) : 'S/ ' + parseFloat(txMarcar.monto).toFixed(2);
+          const nombreMarcar = '*' + (txMarcar.comercio || 'Transacción') + '* (' + montoMarcar + ')';
+          // El tipo lo pone `revisarEdicion` leyendo el TEXTO (lib/orden-edicion.js, `tipoDicho`). Sin él
+          // no se adivina: hasta el 24-nov el default era 'ingreso', o sea que "márcalo como gasto"
+          // habría escrito ingreso si la puerta lo hubiera dejado pasar.
+          const tipoNuevo = datos.tipo_nuevo;
+          if (tipoNuevo !== 'gasto' && tipoNuevo !== 'ingreso') return pedirOrden('marcar_como_ingreso');
+          // "Cambia 9.60 de estacionamiento como gasto" nombra un movimiento: si no es el último, no se
+          // toca nada (regla 1: por WhatsApp se corrige solo el último). Y una elíptica ("es gasto") va a
+          // lo último que NETO confirmó: si el último movimiento es otro, tampoco.
+          const otroMovimiento = !selectorCoincide(datos.selector, txMarcar)
+            || (edicionEliptica && !confirmacionNombra(ctx.historialConv, txMarcar));
+          if (otroMovimiento) {
+            log.info({ tag: 'MARCAR_TIPO_OTRO', eliptica: edicionEliptica, txId: txMarcar.id }, 'El tipo pedido no es del último movimiento: no se escribe');
+            return 'No cambié nada: lo último que anoté es ' + nombreMarcar + ', y por WhatsApp corrijo solo eso.\n\n'
+              + '• Si es ese, escribe _"márcalo como ' + tipoNuevo + '"_.\n'
+              + '• Si es otro movimiento, cámbialo en https://app.neto.pe';
+          }
+          if (txMarcar.tipo === tipoNuevo) {
+            return 'Lo último que anoté, ' + nombreMarcar + ', ya está como *' + tipoNuevo + '*: no cambié nada.\n\n'
+              + '_Por WhatsApp corrijo solo lo último que anotaste. Si era otro movimiento, cámbialo en https://app.neto.pe_';
+          }
+          // Un gasto con la categoría "Ingreso" no se lee: pasa a "Otros". Al revés no se toca la
+          // categoría, igual que un ingreso escrito ("✅ … en Ingresos" guarda la que traiga).
+          const cambiosMarcar = { tipo: tipoNuevo };
+          if (tipoNuevo === 'gasto' && /^ingres[o0]s?$/i.test(String(txMarcar.categoria || '').trim())) {
+            cambiosMarcar.categoria = 'Otros';
+            cambiosMarcar.subcategoria = null;
+          }
+          // Condicional al tipo leído: si otra escritura lo cambió en el medio, no se pisa.
+          const { data: filasMarcar, error: errMarcar } = await supabase.from('transacciones').update(cambiosMarcar)
+            .eq('id', txMarcar.id).eq('tipo', txMarcar.tipo).select('id');
           if (errMarcar) {
             log.error({ tag: 'MARCAR_INGRESO', err: errMarcar.message, txId: txMarcar.id }, 'No se pudo cambiar el tipo');
             return 'No pude cambiar el tipo ahora mismo. Vuelve a intentarlo en un momento.';
           }
           if (!filasMarcar || filasMarcar.length === 0) {
             log.warn({ tag: 'MARCAR_INGRESO', txId: txMarcar.id }, 'El update del tipo no afectó ninguna fila');
-            return 'Esa transacción ya no está. Puede que la hayas eliminado hace un momento.';
+            return 'Esa transacción ya no está o cambió hace un momento. Escríbeme _"mi último gasto"_ para ver cómo quedó.';
           }
-          const montoMarcar = txMarcar.moneda === 'USD' ? '$' + parseFloat(txMarcar.monto).toFixed(2) : 'S/ ' + parseFloat(txMarcar.monto).toFixed(2);
-          return '✅ *' + (txMarcar.comercio || 'Transacción') + '* (' + montoMarcar + ') ahora está marcado como *' + tipoNuevo + '*.\n\n_Tu balance se ha actualizado._';
+          const otroTipo = tipoNuevo === 'gasto' ? 'ingreso' : 'gasto';
+          // Si la categoría cambió, devolver el tipo no la devuelve: se dice.
+          const notaCategoria = cambiosMarcar.categoria ? ' Lo pasé a la categoría *Otros*: "Ingreso" no es una categoría de gasto.' : '';
+          return '✅ ' + nombreMarcar + ' ahora está marcado como *' + tipoNuevo + '*.' + notaCategoria
+            + '\n\n_Tu balance se ha actualizado. Si no era ese, escribe "márcalo como ' + otroTipo + '" y le devuelvo el tipo._';
         } catch(e) {
           log.error({ tag: 'MARCAR_INGRESO', err: e.message }, 'Error marcar como ingreso');
           return 'No pude cambiar el tipo. Intenta de nuevo.';

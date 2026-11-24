@@ -3,7 +3,7 @@ import { createRequire } from 'module';
 import fs from 'fs';
 
 const require = createRequire(import.meta.url);
-const { revisarEdicion, tieneForma, esExplicita, pedirOrden, PEDIR_ORDEN, EDICIONES, numerosDe } = require('../../lib/orden-edicion');
+const { revisarEdicion, tieneForma, esExplicita, pedirOrden, PEDIR_ORDEN, EDICIONES, numerosDe, tipoDicho, selectorDeTipo, selectorCoincide, confirmacionNombra, esOrdenDeTipo } = require('../../lib/orden-edicion');
 const POOL = require('../nlp/pool.js');
 
 /**
@@ -160,6 +160,7 @@ describe('regla 3: una corrección ELÍPTICA solo vale detrás de la confirmaci�
     '✅ S/25.00 en Alimentación · 28-sep-26', '✅ $5.00 en Suscripciones · 28-sep-26', '✅ Monto corregido.\n*Gasto*: S/ 25.00 → S/ 30.00',
     '✅ Fecha corregida.\n*Taxi*: 30-sep-26 → 29-sep-26', '✅ Comercio corregido.\nx → *y*', '✅ Gasto dividido entre 2.', '✅ Gasto duplicado.\n*Taxi*',
     '✅ *Taxi* (S/ 8.00) ahora está marcado como *ingreso*.', 'Corregido. *Taxi*: $8.00 en Transporte.',
+    '📸 *Gasto registrado*\n\n📋 *Neto* — S/ 99.00\nSuscripciones · 23-nov-26', '📸 *Ingreso registrado*\n\n💵 *KAYLA* — S/ 55.66',
   ])('"%s" es confirmación de un movimiento', (mensaje) => {
     const ctx = { historial: [{ rol: 'neto', mensaje, created_at: hace(1) }], ahora: AHORA };
     expect(revisarEdicion('editar_monto', 'eran 30', { monto_nuevo: 30 }, ctx).ok).toBe(true);
@@ -172,8 +173,6 @@ describe('revisarEdicion', () => {
     expect(revisarEdicion('editar_comercio', 'quiero corregir lo último', { comercio_nuevo: 'aby 143' })).toMatchObject({ ok: false, motivo: 'valor_no_dicho' });
     expect(revisarEdicion('editar_monto', 'corrige el monto', { monto_nuevo: 145 })).toMatchObject({ ok: false, motivo: 'valor_no_dicho' });
     expect(revisarEdicion('editar_fecha', 'corrige la fecha', { fecha_nueva: '2026-09-19' })).toMatchObject({ ok: false, motivo: 'valor_no_dicho' });
-    expect(revisarEdicion('marcar_como_ingreso', 'márcalo como gasto', { tipo_nuevo: 'ingreso' })).toMatchObject({ ok: false, motivo: 'valor_no_dicho' });
-    expect(revisarEdicion('marcar_como_ingreso', 'no es ingreso', { tipo_nuevo: 'ingreso' }, c)).toMatchObject({ ok: false, motivo: 'valor_no_dicho' });
     expect(revisarEdicion('dividir_gasto', 'divídelo entre 3', { partes: 4 })).toMatchObject({ ok: false, motivo: 'valor_no_dicho' });
     expect(revisarEdicion('dividir_gasto', 'divídelo a medias', { partes: 4 })).toMatchObject({ ok: false, motivo: 'valor_no_dicho' });
     expect(revisarEdicion('dividir_gasto', 'divídelo entre Ana y yo', { shared_with: ['Luis'] })).toMatchObject({ ok: false, motivo: 'valor_no_dicho' });
@@ -258,5 +257,126 @@ describe('la pregunta fija no deja a nadie en un círculo', () => {
 
   it('dice que por WhatsApp se corrige solo lo último', () => {
     for (const t of Object.values(PEDIR_ORDEN)) expect(t).toMatch(/Por WhatsApp corrijo solo lo último/);
+  });
+});
+
+describe('cambio de TIPO del último (24-nov-2026): el tipo lo dice el texto, no el clasificador', () => {
+  // La tool del clasificador nunca trajo `tipo_nuevo`; la puerta comparaba contra el default 'ingreso'
+  // y "márcalo como gasto" —el ejemplo de la propia pregunta— no pasaba nunca (ec843051, 16 y 17-nov).
+  it.each([
+    // Las cinco de producción, más la del 16-nov que pedía ingreso.
+    ['Corregir como gasto', 'gasto'], ['Corregir es gasto', 'gasto'], ['Cambia 9.60 de ingreso como gasto', 'gasto'],
+    ['Cambiar los 9.60 de estacionamiento como gasto', 'gasto'], ['Marcarlo como ingreso', 'ingreso'],
+    // El ejemplo de la pregunta fija y las gemelas.
+    ['márcalo como gasto', 'gasto'], ['márcalo como ingreso', 'ingreso'], ['corrige el ingreso como gasto', 'gasto'],
+    ['corrígelo: es un ingreso', 'ingreso'], ['cámbialo a gasto pe', 'gasto'],
+  ])('"%s" es explícita y escribe %s, sin mirar lo que diga el modelo', (msg, tipo) => {
+    for (const datos of [{}, { tipo_nuevo: 'ingreso' }, { tipo_nuevo: 'gasto' }]) {
+      const r = revisarEdicion('marcar_como_ingreso', msg, datos);
+      expect(r.ok, msg).toBe(true);
+      expect(r.datos.tipo_nuevo).toBe(tipo);
+    }
+    expect(esOrdenDeTipo(msg, [])).toBe(true);
+  });
+
+  it('el destino es el ÚLTIMO tipo afirmado; lo negado no cuenta', () => {
+    expect(tipoDicho('cambia 9.60 de ingreso como gasto')).toBe('gasto');
+    expect(tipoDicho('ese gasto es ingreso')).toBe('ingreso');
+    expect(tipoDicho('es ingreso no gasto')).toBe('ingreso');
+    expect(tipoDicho('eso no es gasto es ingreso')).toBe('ingreso');
+    expect(tipoDicho('no es ingreso')).toBe('gasto');
+    expect(tipoDicho('cambia el monto a 30')).toBe(null);
+    expect(revisarEdicion('marcar_como_ingreso', 'no es ingreso', {}, TRAS_CONFIRMAR).datos.tipo_nuevo).toBe('gasto');
+  });
+
+  it.each([
+    'corregir gasto', 'corrige el gasto', 'pon como gasto 30 de luz', 'ponlo como gasto 30 de luz', 'registra 30 como gasto',
+    'Luis Martin Retuerto Arana 4.8 es gasto cambiar', 'el bono fue un ingreso', '150.00 ingreso de cita en estilista 03/10',
+    'cambia 50 a gasto?', 'es gasto?', 'gasté 20 en taxi', 'Es ingreso me dieron a mi corrige',
+  ])('"%s" no es una orden de tipo, ni con la confirmación detrás', (msg) => {
+    expect(esOrdenDeTipo(msg, [])).toBe(false);
+    expect(esOrdenDeTipo(msg, TRAS_CONFIRMAR.historial, AHORA)).toBe(false);
+  });
+
+  it('la elíptica ("es un ingreso", "son gastos") solo detrás de una confirmación, también la de una captura', () => {
+    const captura = [{ rol: 'neto', mensaje: '📸 *Gasto registrado*\n\n📋 *Neto* — S/ 99.00', created_at: hace(1) }];
+    for (const msg of ['Es un ingreso', 'Son gastos', 'es gasto corrige', 'no es gasto']) {
+      expect(esOrdenDeTipo(msg, []), msg).toBe(false);
+      expect(esOrdenDeTipo(msg, captura, AHORA), msg).toBe(true);
+      expect(revisarEdicion('marcar_como_ingreso', msg, {}, { historial: captura, ahora: AHORA })).toMatchObject({ ok: true, eliptica: true });
+    }
+    // Detrás de una pregunta de NETO, no (regla 3).
+    const pregunta = [{ rol: 'neto', mensaje: 'No anoté nada todavía: no me queda claro si es una deuda o un gasto.', created_at: hace(1) }];
+    expect(esOrdenDeTipo('es gasto', pregunta, AHORA)).toBe(false);
+  });
+
+  it('el monto y las palabras nombradas tienen que ser las del último', () => {
+    const sel = selectorDeTipo('Cambiar los 9.60 de estacionamiento como gasto');
+    expect(sel).toEqual({ montos: [9.6], palabras: ['estacionamiento'] });
+    const ultimo = { monto: '9.60', comercio: 'Estacionamiento', categoria: 'Transporte', subcategoria: null };
+    expect(selectorCoincide(sel, ultimo)).toBe(true);
+    expect(selectorCoincide(sel, { ...ultimo, monto: '9.50' })).toBe(false);
+    expect(selectorCoincide(sel, { ...ultimo, comercio: 'Taxi', categoria: 'Transporte' })).toBe(false);
+    expect(selectorCoincide(selectorDeTipo('Cambia 9.60 de ingreso como gasto'), ultimo)).toBe(true);
+    expect(selectorDeTipo('márcalo como gasto')).toBe(null);
+    expect(selectorCoincide(null, ultimo)).toBe(true);
+    // La fila no trae un selector de otro mensaje.
+    expect(revisarEdicion('marcar_como_ingreso', 'márcalo como gasto', { selector: { montos: [1], palabras: [] } }).datos.selector).toBeUndefined();
+  });
+
+  it('la elíptica va a lo que NETO confirmó: otro monto no es ese movimiento', () => {
+    const h = [{ rol: 'neto', mensaje: '📸 *Gasto registrado*\n\n📋 *Alvarino* — S/ 5.59', created_at: hace(1) }];
+    expect(confirmacionNombra(h, { monto: '5.59' })).toBe(true);
+    expect(confirmacionNombra(h, { monto: '540.00' })).toBe(false);
+    expect(confirmacionNombra([], { monto: '5.59' })).toBe(false);
+  });
+});
+
+describe('revisión adversarial del 24-nov sobre el cambio de tipo', () => {
+  it('detrás de una pregunta de NETO sobre algo NO guardado, "márcalo como gasto" no es orden sobre el último', () => {
+    for (const neto of ['¿Esos S/35 entraron o salieron? Escríbemelo con el verbo: "gasté 35 en…" o "me pagaron 35".',
+      'No anoté nada todavía: no me queda claro si es una deuda o un gasto. Dímelo así y lo anoto bien:']) {
+      const h = [{ rol: 'neto', mensaje: neto, created_at: hace(1) }];
+      for (const msg of ['márcalo como gasto', 'ponlo como gasto', 'corregir es gasto']) {
+        expect(esOrdenDeTipo(msg, h, AHORA), msg).toBe(false);
+        expect(revisarEdicion('marcar_como_ingreso', msg, {}, { historial: h, ahora: AHORA })).toMatchObject({ ok: false, motivo: 'pregunta_pendiente' });
+      }
+      // Con el monto que nombra la fila, sí: el handler la compara con el último.
+      expect(esOrdenDeTipo('cambia 9.60 de ingreso como gasto', h, AHORA)).toBe(true);
+    }
+    // La pregunta fija de esta misma puerta pide justamente la orden: detrás de ella vale.
+    const fija = [{ rol: 'neto', mensaje: pedirOrden('marcar_como_ingreso'), created_at: hace(1) }];
+    expect(esOrdenDeTipo('márcalo como gasto', fija, AHORA)).toBe(true);
+    // El "?t=" del link de activación no es una pregunta.
+    const deuda = [{ rol: 'neto', mensaje: 'Anotado. Le debes *S/ 500.00* a *Gonzalo*.\n\nhttps://app.neto.pe/activar?t=abc', created_at: hace(1) }];
+    expect(esOrdenDeTipo('Corregir es gasto', deuda, AHORA)).toBe(true);
+  });
+
+  it('los plurales negados no invierten la dirección', () => {
+    expect(tipoDicho('no son gastos')).toBe('ingreso');
+    expect(tipoDicho('no eran gastos')).toBe('ingreso');
+    expect(tipoDicho('no seria gasto')).toBe('ingreso');
+    expect(tipoDicho('no son ingresos')).toBe('gasto');
+    expect(tipoDicho('no fueron ingresos')).toBe('gasto');
+  });
+
+  it('"cambia gasto", "quiero cambiar ingreso", "marca ingreso": el tipo es el objeto, no una orden', () => {
+    for (const msg of ['quiero cambiar ingreso', 'cambiar gasto', 'cambia gasto', 'cambiar gasto porfa', 'marca ingreso']) {
+      expect(esOrdenDeTipo(msg, []), msg).toBe(false);
+    }
+    // CONTROL: con conector o con pronombre sí.
+    for (const msg of ['cambia a gasto', 'marca el último como ingreso', 'cámbialo ingreso', 'pásalo a gasto']) {
+      expect(esOrdenDeTipo(msg, []), msg).toBe(true);
+    }
+  });
+
+  it('el monto confirmado se compara con borde de número y sin la cola', () => {
+    const h = (mensaje) => [{ rol: 'neto', mensaje, created_at: hace(1) }];
+    expect(confirmacionNombra(h('📸 *Gasto registrado*\n\n📋 *X* — S/ 15.59'), { monto: '5.59' })).toBe(false);
+    expect(confirmacionNombra(h('✅ S/540.00 en Otros · 24-nov-26'), { monto: '40.00' })).toBe(false);
+    expect(confirmacionNombra(h('✅ S/20.00 en Taxi · 24-nov-26\n\nVan *S/137.50* este mes'), { monto: '137.50' })).toBe(false);
+    expect(confirmacionNombra(h('✅ S/20.00 en Taxi · 24-nov-26\n\nVan *S/137.50* este mes'), { monto: '20' })).toBe(true);
+    // Sin monto en la confirmación ("Fecha corregida"), lo corregido ES el último: no bloquea.
+    expect(confirmacionNombra(h('✅ Fecha corregida.\n*Taxi*: 30-sep-26 → 29-sep-26'), { monto: '8' })).toBe(true);
   });
 });

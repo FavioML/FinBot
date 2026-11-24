@@ -194,6 +194,21 @@ describe('Imágenes de pago (Yape/Plin/banco) → Vision → transacción', () =
     expect(enviarWhatsapp.mock.calls[0][1]).toMatch(/Ingreso registrado/);
   });
 
+  it('la confirmación queda en el historial como turno de NETO, y solo esa (24-nov-2026)', async () => {
+    // Sin ella, "es un ingreso" detrás de la captura no tenía a qué referirse (lib/orden-edicion.js,
+    // regla 3). Un turno 'usuario' movería la ventana de 24h y el cierre de la noche: no va.
+    const { guardarMensaje } = require('../../helpers/db-helpers');
+    const { CONFIRMA_MOVIMIENTO } = require('../../lib/orden-edicion');
+    guardarMensaje.mockClear();
+    mockFetchOk();
+    visionResponde(YAPE_GASTO);
+    const { req, res } = buildImagenReqRes('51999000111', 'media-img');
+    await webhookHandler(req, res);
+    const resp = enviarWhatsapp.mock.calls[0][1];
+    expect(guardarMensaje.mock.calls).toEqual([['user-1', 'neto', resp]]);
+    expect(CONFIRMA_MOVIMIENTO.test(resp)).toBe(true);
+  });
+
   it('sin fecha en la imagen, cae al día de hoy en vez de guardar null', async () => {
     mockFetchOk();
     const { fecha, ...sinFecha } = YAPE_GASTO;

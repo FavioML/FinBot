@@ -192,7 +192,7 @@ const NETO_TOOLS = [
               "duplicate",
             ],
             description:
-              "Accion: recategorize=cambiar categoria, batch_recategorize=corregir varias, edit_amount_currency=corregir monto y moneda, delete=eliminar gasto existente, restore=restaurar un gasto eliminado por error, edit_amount=editar monto, edit_date=editar fecha, edit_store=editar comercio, set_category_rule=asignar categoria fija a un comercio mediante una regla general SIN monto (ej: 'todo lo de Rappi va en Delivery'); NO usar si hay un monto de gasto puntual, undo=deshacer ultimo registro recien creado, mark_income=marcar como ingreso, split=dividir gasto, duplicate=duplicar",
+              "Accion: recategorize=cambiar categoria, batch_recategorize=corregir varias, edit_amount_currency=corregir monto y moneda, delete=eliminar gasto existente, restore=restaurar un gasto eliminado por error, edit_amount=editar monto, edit_date=editar fecha, edit_store=editar comercio, set_category_rule=asignar categoria fija a un comercio mediante una regla general SIN monto (ej: 'todo lo de Rappi va en Delivery'); NO usar si hay un monto de gasto puntual, undo=deshacer ultimo registro recien creado, mark_income=cambiar el tipo del ultimo movimiento, de gasto a ingreso o de ingreso a gasto ('marcalo como gasto', 'es un ingreso'), split=dividir gasto, duplicate=duplicar",
           },
           comercio: {
             type: "string",

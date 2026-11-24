@@ -31,6 +31,7 @@ for (const f of readdirSync(DIR).filter((x) => x.endsWith('.js'))) {
 }
 const { dispatchIntent, listIntents } = require('../../handlers/intent-registry');
 const { ESCRITURAS, SIN_REVISION, revisarDatosDichos, textoDicho, numerosEnPalabras, montoDicho, campoDicho, esReporteNoAparece, REPORTE } = require('../../lib/datos-dichos');
+const { preguntaDeudaOGasto } = require('../../lib/prestamos');
 
 // En prueba: el muro no aplica, así que lo único entre el mensaje y el handler es la guarda.
 const USUARIO = { id: 'u-1', plan: 'premium', trial_estado: 'activo', trial_vence: '2099-01-01' };
@@ -67,7 +68,9 @@ describe('la familia entera: un dato que el mensaje no nombra no llega al handle
       expect(llamada.datos).not.toHaveProperty(campo);
       expect(llamada.datos.extra).toBe('x');   // lo que no se revisa viaja intacto
     } else {
-      expect([ESCRITURAS[intencion].pregunta, ESCRITURAS[intencion].preguntaMonto]).toContain(r.respuesta);
+      // Una deuda sin ninguna palabra de deuda no pregunta el nombre: pregunta si es deuda (24-nov-2026).
+      const deudaSinPalabra = intencion === 'registrar_deuda' ? preguntaDeudaOGasto(MSG_QUE_NO_NOMBRA) : null;
+      expect([ESCRITURAS[intencion].pregunta, ESCRITURAS[intencion].preguntaMonto, deudaSinPalabra]).toContain(r.respuesta);
     }
   });
 
@@ -78,9 +81,19 @@ describe('la familia entera: un dato que el mensaje no nombra no llega al handle
   });
 
   it('una contraparte que el mensaje no nombra pregunta: el handler no corre', async () => {
-    const { r, llamada } = await despachar('registrar_deuda', MSG_QUE_NO_NOMBRA, { monto: 20, contraparte: 'bidon de agua', tipo: 'debo' });
+    const { r, llamada } = await despachar('registrar_deuda', 'le debo 20', { monto: 20, contraparte: 'bidon de agua', tipo: 'debo' });
     expect(llamada).toBeNull();
     expect(r.respuesta).toBe(ESCRITURAS.registrar_deuda.pregunta);
+  });
+
+  it('sin palabra de deuda no pide el nombre: pregunta si es deuda o gasto (17-nov-2026)', async () => {
+    // "Corregir es gasto" recibió "¿Con quién es?" y la respuesta ("<su nombre> 4.8 es gasto cambiar")
+    // quedó anotada como deuda. Lo que no se sabe ahí es si es una deuda, no con quién.
+    for (const msg of [MSG_QUE_NO_NOMBRA, 'Carlos 100', 'es gasto cambiar']) {
+      const { r, llamada } = await despachar('registrar_deuda', msg, { monto: 4.8, contraparte: 'Gonzalo Aceijas', tipo: 'debo' });
+      expect(llamada, msg).toBeNull();
+      expect(r.respuesta, msg).toBe(preguntaDeudaOGasto(msg));
+    }
   });
 
   it('un monto no dicho llega sin él (el handler pregunta o lo saca del mensaje)', async () => {

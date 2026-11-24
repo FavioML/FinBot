@@ -1,9 +1,10 @@
 const fs = require('fs');
 const path = require('path');
 const log = require('../lib/logger');
-const { revisarDatosDichos } = require('../lib/datos-dichos');
+const { revisarDatosDichos, PREGUNTA_PERSONA } = require('../lib/datos-dichos');
 const { INTENTS_QUE_BORRAN } = require('../lib/nlp-guards');
-const { enrutarPorVerbo } = require('../lib/prestamos');
+const { enrutarPorVerbo, direccionPrestamo, tipoPorDeber, hablaDeDeuda, preguntaDeudaOGasto } = require('../lib/prestamos');
+const { esOrdenDeTipo } = require('../lib/orden-edicion');
 
 const { FRASE_BORRAR_CUENTA } = require('../lib/constants');
 
@@ -51,6 +52,15 @@ async function dispatchIntent({ intencion, msg, datos, usuario, from, ctx }) {
   // y los harness del muro reemplazan esos tres en el require-cache ANTES de cargar index.js
   // para espiarlos. Con el require al tope, el registry —que carga con el proceso— se
   // quedaría con las referencias reales y los espías quedarían mudos.
+  // Una orden de cambiar el TIPO del último ("Corregir es gasto", "márcalo como gasto") va a
+  // `marcar_como_ingreso` diga lo que diga el clasificador (24-nov-2026): esas frases terminaban en
+  // `registrar_deuda` ("¿Con quién es?") o en `editar_monto`. La gramática es cerrada, así que el mensaje
+  // no trae nada con qué escribir en otro intent. Ver `esOrdenDeTipo` en lib/orden-edicion.js.
+  if (intencion !== 'marcar_como_ingreso' && esOrdenDeTipo(msg, (ctx && ctx.historialConv) || [])) {
+    log.info({ tag: 'ORDEN_DE_TIPO', desde: intencion, msg: String(msg || '').slice(0, 80) }, 'Orden de cambiar el tipo del último: va a marcar_como_ingreso');
+    intencion = 'marcar_como_ingreso';
+    datos = {};
+  }
   // La dirección de un préstamo la dice el verbo, no el clasificador (07-oct-2026): "Y preste 118 soles"
   // se anotó como deuda que ella debía y "Me preste 50 soles" como gasto. Va ANTES del muro porque
   // cambia el intent que el muro juzga (un préstamo que llegó como gasto es una deuda), y acá para que
@@ -91,6 +101,15 @@ async function dispatchIntent({ intencion, msg, datos, usuario, from, ctx }) {
   if (revision.descartados.length || revision.pregunta) {
     log.info({ tag: 'DATO_NO_DICHO', intencion, descartados: revision.descartados, pregunta: !!revision.pregunta,
       msg: String(msg || '').slice(0, 80) }, 'Escritura con datos que el mensaje no nombra');
+  }
+  // "¿Con quién es?" a una deuda que solo dice el clasificador pide el dato equivocado (24-nov-2026):
+  // "Corregir es gasto" la recibió y la respuesta, "<su nombre> 4.8 es gasto cambiar", quedó anotada como
+  // deuda. Sin verbo de prestar, sin "debe/debo" y sin palabra de deuda, lo que no se sabe es si ES una
+  // deuda: misma pregunta y mismo tag que el case de `registrar_deuda` (handlers/intents/deudas.js).
+  if (revision.pregunta === PREGUNTA_PERSONA && intencion === 'registrar_deuda'
+    && !direccionPrestamo(msg) && !tipoPorDeber(msg) && !hablaDeDeuda(msg)) {
+    log.info({ tag: 'DEUDA_SIN_VOCABULARIO', clasificador: (datos || {}).tipo || null, msg: String(msg || '').slice(0, 80) }, 'registrar_deuda sin palabra de deuda: se pregunta');
+    return { manejado: true, respuesta: preguntaDeudaOGasto(msg), muro: false };
   }
   if (revision.pregunta) return { manejado: true, respuesta: revision.pregunta, muro: false };
   return {
