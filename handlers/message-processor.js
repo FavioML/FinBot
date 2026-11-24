@@ -8,7 +8,7 @@ const fechaAyerPeru = () => ayerPeru();
 const { CATEGORIAS_VALIDAS, CATEGORIA_MAP, WEBAPP_URL } = require('../lib/constants');
 const { validarMonto, normalizarCategoria } = require('../lib/validators');
 const { ADMIN_NUMBER } = require('../lib/config');
-const { esVerUltimoMovimiento, extraerGastoSinIA, INTENTS_QUE_BORRAN, pideCuentaExplicita } = require('../lib/nlp-guards');
+const { esVerUltimoMovimiento, extraerGastoSinIA, tipoContradiceElMensaje, INTENTS_QUE_BORRAN, pideCuentaExplicita } = require('../lib/nlp-guards');
 const { diceQueYaPago } = require('./intents/premium');
 const { pideAlcanceRetroactivo, textoDicho } = require('../lib/datos-dichos');
 const { normalizar: normalizarOrden } = require('../lib/orden-edicion');
@@ -74,6 +74,13 @@ async function salvarGastoSinIA(msg, usuario) {
     const extraido = extraerGastoSinIA(msg);
     if (!extraido) return null;
     const { monto, moneda, tipo, comercio } = extraido;
+    // El mismo invariante de sentido que el rescate de `registrar_manual`: el tipo del extractor
+    // sale de una lista corta de verbos, así que "480 ingreso" o "me depositaron 1200" salían
+    // GASTO. Acá no hay a quién preguntarle sin IA, así que no se guarda y la persona reenvía.
+    if (tipoContradiceElMensaje(tipo, msg)) {
+      log.info({ tag: 'SALVAGE_TIPO_CONTRADICE', tipo, msg: (msg || '').substring(0, 80) }, 'El rescate del 429 contradice el sentido del mensaje: no se guarda');
+      return null;
+    }
     const fecha = fechaHoyPeru();
     const datos = {
       monto, moneda, comercio: comercio || 'Sin comercio',

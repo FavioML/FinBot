@@ -401,6 +401,40 @@ describe('registrar_manual por decisión', () => {
       }
     });
 
+    // 770ad4dd, 21-oct-2026: el parser real devolvió `gasto` 3 de 3 con las dos frases, y las dos
+    // quedaron como Compras > Belleza. El invariante sólo conocía verbos.
+    for (const msg of ['150.00 ingreso de cita en estilista 03/10', '150.00 entró a mi cuenta 03/10 de cita estilista', 'Ingreso 480', 'Ingresó 5.23', 'Me ingresaron 1 sol']) {
+      it(`la palabra "ingreso"/"entró" sin verbo frena un gasto: ${JSON.stringify(msg)}`, async () => {
+        const monto = Number(msg.match(/\d+(?:\.\d+)?/)[0]);
+        respuestaModelo = { decision: 'registrar', tipo: 'gasto', monto, moneda: 'PEN', comercio: 'x', categoria: 'Compras', subcategoria: 'belleza', fecha: '2026-09-30' };
+        const ctx = ctxRegistro();
+        const res = await registrar(msg, ctx);
+        expect(ctx.guardarTransaccion, msg).not.toHaveBeenCalled();
+        expect(res, msg).toContain('entraron o salieron');
+      });
+    }
+
+    it('y el mismo mensaje leído como ingreso entra normal', async () => {
+      respuestaModelo = { decision: 'registrar', tipo: 'ingreso', monto: 150, moneda: 'PEN', comercio: 'estilista', categoria: 'Ingresos', subcategoria: 'otros', fecha: '2026-10-03' };
+      const ctx = ctxRegistro();
+      await registrar('150.00 ingreso de cita en estilista 03/10', ctx);
+      expect(ctx.guardarTransaccion.mock.calls[0][1]).toMatchObject({ tipo: 'ingreso', monto: 150 });
+    });
+
+    // La palabra es evidencia más débil que un verbo: no anula el "pagué".
+    it('"pagué 20 de ingreso al museo": el gasto entra y un ingreso del parser se sigue frenando', async () => {
+      respuestaModelo = { decision: 'registrar', tipo: 'gasto', monto: 20, moneda: 'PEN', comercio: 'museo', categoria: 'Entretenimiento', subcategoria: 'otros', fecha: '2026-09-30' };
+      let ctx = ctxRegistro();
+      await registrar('pagué 20 de ingreso al museo', ctx);
+      expect(ctx.guardarTransaccion.mock.calls[0][1]).toMatchObject({ tipo: 'gasto', monto: 20 });
+
+      respuestaModelo = { ...respuestaModelo, tipo: 'ingreso' };
+      ctx = ctxRegistro();
+      const res = await registrar('pagué 20 de ingreso al museo', ctx);
+      expect(ctx.guardarTransaccion).not.toHaveBeenCalled();
+      expect(res).toContain('entraron o salieron');
+    });
+
     it('el resultado del RESCATE también pasa por el invariante de sentido ("me depositaron 1200 soles")', async () => {
       expect(extraerGastoSinIA('me depositaron 1200 soles')).toMatchObject({ tipo: 'gasto', monto: 1200 });
       respuestaModelo = { ...vacio, decision: 'sin_monto' };

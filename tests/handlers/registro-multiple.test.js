@@ -14,7 +14,7 @@ const require = createRequire(import.meta.url);
 
 const cola = vi.fn().mockResolvedValue('');
 require('../../lib/trial').colaConfirmacionGasto = cola;
-const { registrarVariosMovimientos, ajustarFechaRegistro, validarSeparacion, pideOtraOperacion } = require('../../handlers/registro-multiple');
+const { registrarVariosMovimientos, ajustarFechaRegistro, validarSeparacion, pideOtraOperacion, motivoDeRechazo } = require('../../handlers/registro-multiple');
 const { montosDeMovimiento } = require('../../lib/nlp-guards');
 const { COPY_NO_ES_MOVIMIENTO, COPY_MONEDA_NO_SOPORTADA } = require('../../handlers/intents/transacciones');
 
@@ -821,5 +821,20 @@ describe('02-nov: un "todo hoy" / "todo ayer" al final es la fecha de todos', ()
 
   it('control: un texto suelto que no es la cola sigue rebotando', () => {
     expect(validarSeparacion(['gasté 20 en taxi', '30 en cine', 'todo bien'], 'gasté 20 en taxi y 30 en cine, todo hoy')).toBeNull();
+  });
+});
+
+// 24-nov-2026: la palabra "ingreso" frena un pedazo leído como gasto aunque el mensaje entero traiga
+// un verbo de gasto. Es a propósito (ver RE_PALABRA_INGRESO en lib/nlp-guards.js): si el pedazo
+// heredara el "gasté", el ingreso de 200 se escribiría como gasto.
+describe('motivoDeRechazo con la palabra "ingreso" en un pedazo', () => {
+  const parsed = (tipo, monto) => ({ ok: true, decision: 'registrar', tipo, monto, moneda: 'PEN' });
+  const msg = 'gasté 50 en comida y ingreso 200 de la venta';
+  it('el pedazo de ingreso leído como gasto no se anota', () => {
+    expect(motivoDeRechazo(parsed('gasto', 200), 'ingreso 200 de la venta', { valor: 200, moneda: null }, msg)).toBe('tipo_dudoso');
+  });
+  it('leído como ingreso entra, y el gasto con verbo también', () => {
+    expect(motivoDeRechazo(parsed('ingreso', 200), 'ingreso 200 de la venta', { valor: 200, moneda: null }, msg)).toBeNull();
+    expect(motivoDeRechazo(parsed('gasto', 50), 'gasté 50 en comida', { valor: 50, moneda: null }, msg)).toBeNull();
   });
 });
