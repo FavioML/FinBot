@@ -265,3 +265,122 @@ describe('ver_deudas', () => {
     expect(ctx.formatearResumenDeudas).toHaveBeenCalledWith('user-001');
   });
 });
+
+// ─── La dirección de una deuda la dice el MENSAJE, no solo el clasificador (24-nov-2026) ─────
+// Dos casos de producción. "Claudia me debe 20 soles" (ticket del 06-nov) quedó como "le debes a
+// Claudia": el `datos.tipo` del clasificador iba antes que la lectura léxica. Y el 17-nov, tras
+// "Corregir es gasto", la respuesta "<su propio nombre> 4.8 es gasto cambiar" quedó como "Le debes
+// S/4.80 a <su nombre>": nombre y monto dichos, la dirección no la decía nada del mensaje.
+describe('registrar_deuda: dirección dicha', () => {
+  const correr = (msg, datos) => {
+    const ctx = buildCtx(makeSupabaseMock());
+    return handler.handle({ intencion: 'registrar_deuda', msg, datos, usuario: { id: 'user-001' }, from: '+51999', ctx })
+      .then((res) => ({ res, ctx }));
+  };
+
+  it('"X me debe" gana sobre un clasificador que dijo debo', async () => {
+    const { ctx } = await correr('Claudia me debe 20 soles', { tipo: 'debo', contraparte: 'Claudia', monto: 20, moneda: 'PEN' });
+    expect(ctx.registrarDeuda).toHaveBeenCalledWith('user-001', 'me_deben', 'Claudia', 20, 'PEN', null, null);
+  });
+
+  it('"le debo" gana sobre un clasificador que dijo me_deben', async () => {
+    const { ctx } = await correr('le debo 30 a Rosa', { tipo: 'me_deben', contraparte: 'Rosa', monto: 30, moneda: 'PEN' });
+    expect(ctx.registrarDeuda).toHaveBeenCalledWith('user-001', 'debo', 'Rosa', 30, 'PEN', null, null);
+  });
+
+  it('sin una sola palabra de deuda no escribe con la dirección del clasificador', async () => {
+    const { res, ctx } = await correr('Luis Martin Retuerto Arana 4.8 es gasto cambiar',
+      { tipo: 'debo', contraparte: 'Luis Martin Retuerto Arana', monto: 4.8, moneda: 'PEN', descripcion: 'gasto' });
+    expect(ctx.registrarDeuda).not.toHaveBeenCalled();
+    expect(res).toContain('No anoté nada');
+    expect(res).toMatch(/gast[eé] 4\.8/);
+  });
+
+  it('un nombre y un monto sueltos preguntan la dirección', async () => {
+    const { res, ctx } = await correr('Fiorella 1150', { tipo: 'debo', contraparte: 'Fiorella', monto: 1150, moneda: 'PEN' });
+    expect(ctx.registrarDeuda).not.toHaveBeenCalled();
+    expect(res).toContain('me debe 1150');
+    expect(res).toContain('le debo 1150');
+  });
+
+  it('con vocabulario de deuda sin "debe/debo" se sigue confiando en el clasificador', async () => {
+    const { ctx } = await correr('Cobrar 20 soles a Claudia', { tipo: 'me_deben', contraparte: 'Claudia', monto: 20, moneda: 'PEN' });
+    expect(ctx.registrarDeuda).toHaveBeenCalledWith('user-001', 'me_deben', 'Claudia', 20, 'PEN', null, null);
+  });
+});
+
+// Revisión adversarial del 24-nov: los casos que la primera versión dejaba pasar.
+describe('registrar_deuda: dirección dicha, segunda vuelta', () => {
+  const correr = (msg, datos) => {
+    const ctx = buildCtx(makeSupabaseMock());
+    return handler.handle({ intencion: 'registrar_deuda', msg, datos, usuario: { id: 'user-001' }, from: '+51999', ctx })
+      .then((res) => ({ res, ctx }));
+  };
+  it.each([
+    'debo de cobrarle 50 soles a Juan',
+    'Debo ya cobrarle 50 soles a Juan',
+    'debo urgente cobrarle 50 a Juan',
+  ])('"%s" es una obligación de cobrar, no una deuda propia: no pisa al clasificador', async (msg) => {
+    const { ctx } = await correr(msg, { tipo: 'me_deben', contraparte: 'Juan', monto: 50, moneda: 'PEN' });
+    expect(ctx.registrarDeuda).toHaveBeenCalledWith('user-001', 'me_deben', 'Juan', 50, 'PEN', null, null);
+  });
+  it.each([
+    ['Debora 4.8 es gasto cambiar', 'Debora'],
+    ['Pagano 4.8 es gasto cambiar', 'Pagano'],
+    ['Luis 4.8 pagué por la comisión, es gasto', 'Luis'],
+  ])('"%s": un nombre o un pago no son palabra de deuda', async (msg, contraparte) => {
+    const { ctx, res } = await correr(msg, { tipo: 'debo', contraparte, monto: 4.8, moneda: 'PEN' });
+    expect(ctx.registrarDeuda).not.toHaveBeenCalled();
+    expect(res).toContain('No anoté nada');
+  });
+  it.each([
+    ['le adelanté 100 a Rosa', 'me_deben'],
+    ['Rosa me adelantó 100', 'debo'],
+    ['fíame 20 Juan', 'debo'],
+    ['Juan 50 pendiente', 'me_deben'],
+    ['tengo que darle 50 a Juan', 'debo'],
+    ['Juan me tiene que pagar 50', 'me_deben'],
+  ])('"%s" sí habla de deuda: se le cree al clasificador', async (msg, tipo) => {
+    const { ctx } = await correr(msg, { tipo, contraparte: /Rosa/.test(msg) ? 'Rosa' : 'Juan', monto: Number(msg.match(/\d+/)[0]), moneda: 'PEN' });
+    expect(ctx.registrarDeuda).toHaveBeenCalled();
+    expect(ctx.registrarDeuda.mock.calls[0][1]).toBe(tipo);
+  });
+});
+
+// Segunda revisión adversarial del 24-nov: regresiones del arreglo y formas de "me deben".
+describe('registrar_deuda: dirección dicha, tercera vuelta', () => {
+  const correr = (msg, datos) => {
+    const ctx = buildCtx(makeSupabaseMock());
+    return handler.handle({ intencion: 'registrar_deuda', msg, datos, usuario: { id: 'user-001' }, from: '+51999', ctx })
+      .then((res) => ({ res, ctx }));
+  };
+  const tipoEscrito = (ctx) => ctx.registrarDeuda.mock.calls[0]?.[1];
+  it.each([
+    'Juan me quedo debiendo 50',
+    'Debo luego cobrarle 50 a Juan',
+    'Debo, cobrale 50 a Juan',
+    'Claudia me está debiendo 20 soles',
+    'Claudia me sigue debiendo 20',
+    'Claudia me adeuda 20',
+  ])('"%s" queda me_deben aunque el clasificador diga debo… o se respeta su me_deben', async (msg) => {
+    // Con clasificador equivocado ('debo'), el texto que dice "me deben" gana; con "debo cobrarle" no hay
+    // lectura léxica y se le cree al clasificador correcto.
+    const clf = /cobr/.test(msg) ? 'me_deben' : 'debo';
+    const { ctx } = await correr(msg, { tipo: clf, contraparte: /Claudia/.test(msg) ? 'Claudia' : 'Juan', monto: Number(msg.match(/\d+/)[0]), moneda: 'PEN' });
+    expect(tipoEscrito(ctx)).toBe('me_deben');
+  });
+  it('"le quedo debiendo 40 a Ana" sigue siendo deuda propia', async () => {
+    const { ctx } = await correr('le quedo debiendo 40 a Ana', { tipo: 'me_deben', contraparte: 'Ana', monto: 40, moneda: 'PEN' });
+    expect(tipoEscrito(ctx)).toBe('debo');
+  });
+  it.each([
+    'Rayza 4.8 no es deuda es gasto',
+    'Rayza 4.8 debe ser gasto',
+    'Rayza 4.8 pendiente cambiar a gasto',
+    'Rayza 4.8 es gasto no me deben nada',
+  ])('"%s" dice que es gasto: no escribe una deuda', async (msg) => {
+    const { ctx, res } = await correr(msg, { tipo: 'debo', contraparte: 'Rayza', monto: 4.8, moneda: 'PEN' });
+    expect(ctx.registrarDeuda).not.toHaveBeenCalled();
+    expect(res).toContain('No anoté nada');
+  });
+});

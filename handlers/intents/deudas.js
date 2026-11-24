@@ -11,8 +11,8 @@ const { normalizar } = require('../../lib/orden-edicion');
 const { resolverContraparte } = require('../../services/debts');
 // La dirección de un préstamo y el lado de un pago los dice el verbo (07-oct-2026). Ver lib/prestamos.js.
 const {
-  direccionPrestamo, prestamoSinDireccion, tipoPorDeber, nombraPrestamoAlgo, refiereDeudaExistente,
-  preguntaDireccionPrestamo, preguntaDireccionDeuda, preguntaPrestamoSinDireccion, preguntaSinContraparte, preguntaSinDeuda,
+  direccionPrestamo, prestamoSinDireccion, tipoPorDeber, hablaDeDeuda, nombraPrestamoAlgo, refiereDeudaExistente,
+  preguntaDireccionPrestamo, preguntaDireccionDeuda, preguntaDeudaOGasto, preguntaPrestamoSinDireccion, preguntaSinContraparte, preguntaSinDeuda,
 } = require('../../lib/prestamos');
 
 // "1,500" y "1.500" son mil quinientos (separador de miles); "12,50" y "12.50", doce con cincuenta.
@@ -80,10 +80,21 @@ module.exports = {
           // dice nadie. Hasta el 08-oct caía en 'debo', y "Le hice un préstamo de 500 a mi primo"
           // quedaba al revés. Con las dos ("ya no me deben nada pero le debo 200" sí es `debo`: lo negado
           // no cuenta) o ninguna, se pregunta.
-          const tipo = dirVerbo || datos.tipo || tipoPorDeber(msg);
+          //
+          // "debe/debo" afirmados también ganan sobre el clasificador, no lo siguen (24-nov-2026): con
+          // `datos.tipo` antes, "Claudia me debe 20 soles" quedó como "le debes a Claudia" (ticket del
+          // 06-nov). Y el clasificador solo, sin una palabra de deuda en el mensaje, no escribe: el
+          // 17-nov "<su nombre> 4.8 es gasto cambiar" quedó como deuda a su propio nombre.
+          const dirLexica = dirVerbo || tipoPorDeber(msg);
+          if (!dirLexica && !hablaDeDeuda(msg)) {
+            // Con tag para medir cuántas deudas legítimas frena esta pregunta (revisión del 24-nov).
+            log.info({ tag: 'DEUDA_SIN_VOCABULARIO', clasificador: datos.tipo || null, msg: (msg || '').substring(0, 80) }, 'registrar_deuda sin palabra de deuda: se pregunta');
+            return preguntaDeudaOGasto(msg);
+          }
+          const tipo = dirLexica || datos.tipo;
           if (!tipo) return nombraPrestamoAlgo(msg) ? preguntaDireccionPrestamo(msg) : preguntaDireccionDeuda(msg);
-          if (dirVerbo && datos.tipo && datos.tipo !== dirVerbo) {
-            log.info({ tag: 'DEUDA_TIPO_LEXICO', clasificador: datos.tipo, verbo: dirVerbo, msg: (msg || '').substring(0, 80) }, 'el verbo pisa el tipo del clasificador');
+          if (dirLexica && datos.tipo && datos.tipo !== dirLexica) {
+            log.info({ tag: 'DEUDA_TIPO_LEXICO', clasificador: datos.tipo, verbo: dirLexica, msg: (msg || '').substring(0, 80) }, 'el texto pisa el tipo del clasificador');
           }
           let contraparte = datos.contraparte;
           let montoClasif = validarMonto(datos.monto);

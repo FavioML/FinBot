@@ -344,6 +344,43 @@ const CASOS = {
       ];
     },
   },
+  // 24-nov-2026: la dirección la dice el MENSAJE. Tres casos de producción.
+  // Ticket del 06-nov: "Claudia me debe 20 soles" quedó como "le debes a Claudia".
+  'me-debe-pisa': {
+    msg: 'Claudia me debe 20 soles',
+    async afirmar(u) {
+      const d = await deudasDe(u);
+      return [[d.length === 1 && d[0].tipo === 'me_deben' && Number(d[0].monto_original) === 20,
+        'UNA deuda me_deben de 20', JSON.stringify(d.map((x) => `${x.tipo} ${x.monto_original} ${x.contraparte}`))]];
+    },
+  },
+  // 17-nov: con deudas en el historial, "Corregir es gasto" y después el propio nombre con el monto y
+  // "es gasto cambiar" quedó como "Le debes S/4.80 a <su nombre>". Nombres inventados.
+  'sin-vocab-tras-corregir': {
+    previos: ['Debo a Gonzalo Paredes 500 soles', 'Corregir es gasto'],
+    msg: 'Rayza Quispe Arana 4.8 es gasto cambiar',
+    permiteTx: true,
+    async afirmar(u, r) {
+      const d = await deudasDe(u);
+      return [
+        [d.length === 1 && d[0].tipo === 'debo' && Number(d[0].monto_original) === 500,
+          'solo queda la deuda de 500 del primer turno', JSON.stringify(d.map((x) => `${x.tipo} ${x.monto_original} ${x.contraparte}`))],
+        [!/Le debes \*S\/ 4\.80|te debe \*S\/ 4\.80/.test(r || ''), 'no dice que anotó una deuda de 4.80'],
+      ];
+    },
+  },
+  // 16-nov: "Fiorella 1150" después de una serie de "debo a…" quedó como debo sin palabra de deuda.
+  'nombre-monto-suelto': {
+    previos: ['debo a Iraida Torres 1000 soles'],
+    msg: 'Fiorella 1150',
+    async afirmar(u, r) {
+      const d = await deudasDe(u);
+      return [
+        [d.length === 1 && Number(d[0].monto_original) === 1000, 'no crea la deuda de 1150', JSON.stringify(d.map((x) => `${x.tipo} ${x.monto_original} ${x.contraparte}`))],
+        [pregunta(r) || /No anoté nada/.test(r || ''), 'pregunta en vez de anotar'],
+      ];
+    },
+  },
   // Mensaje real de prod (21-ago): un pago que todavía no ocurrió no frena la deuda bien leída.
   '47-devolvera': {
     msg: 'preste 302 soles a mi madre y me lo devolvera el lunes de la siguiente semana',
@@ -359,12 +396,14 @@ async function correrCaso(nombre, corrida) {
   const caso = CASOS[nombre];
   const u = await crearUsuario();
   const s = caso.sembrar ? await caso.sembrar(u) : {};
+  // El historial adverso: producción le pasa al clasificador los últimos turnos.
+  for (const previo of caso.previos || []) await decir(u, previo);
   const r = await decir(u, caso.msg);
   const etiqueta = `${nombre} #${corrida}`;
   const lineas = [`${etiqueta}  > ${JSON.stringify(caso.msg)}`, `    < ${r === null ? '(sin respuesta)' : JSON.stringify(r.slice(0, 240))}`];
   const checks = r === null ? [[false, 'hubo respuesta']] : await caso.afirmar(u, r, s);
   const tx = await txDe(u);
-  checks.push([tx.length === 0, 'ninguna transacción', JSON.stringify(tx.map((x) => `${x.tipo} ${x.monto} ${x.categoria}`))]);
+  if (!caso.permiteTx) checks.push([tx.length === 0, 'ninguna transacción', JSON.stringify(tx.map((x) => `${x.tipo} ${x.monto} ${x.categoria}`))]);
   for (const [ok, desc, det] of checks) {
     lineas.push(`    ${ok ? 'PASS' : 'FAIL'}  ${desc}${!ok && det ? '  (' + det + ')' : ''}`);
     if (!ok) fallos.push(`${etiqueta}: ${desc}`);

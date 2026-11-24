@@ -1342,11 +1342,13 @@ describe('deudas.js — las dos lecturas mudas', () => {
 
   describe('registrar_deuda, la corrección de la opuesta (sitio 116) — AVISA, no corta', () => {
     const datos = { tipo: 'debo', contraparte: 'Juan', monto: 200 };
+    // El mensaje acompaña a los datos: desde el 24-nov un registrar_deuda sin palabra de deuda en el
+    // mensaje no escribe con la dirección del clasificador (`hablaDeDeuda`).
     const AVISO_NO_PUDE = /No pude revisar si te quedó la anotación opuesta/;
 
     it('sin opuesta reciente, anota la deuda y no avisa nada', async () => {
       const sb = makeSupabase({ filas: () => [] });
-      const { r, logs } = await correrEspiando(() => correrDeudas(sb, 'registrar_deuda', datos).p);
+      const { r, logs } = await correrEspiando(() => correrDeudas(sb, 'registrar_deuda', datos, { msg: 'debo 200 a Juan' }).p);
       expect(r).toMatch(/Le debes \*S\/ 200\.00\* a \*Juan\*/);
       expect(r).not.toMatch(AVISO_NO_PUDE);
       expect(r).not.toMatch(/te quedó también la anotación opuesta/);
@@ -1356,7 +1358,7 @@ describe('deudas.js — las dos lecturas mudas', () => {
     it('con opuesta reciente y el DELETE ok, tampoco avisa', async () => {
       // Con `contraparte`: la opuesta se compara por nombre entero en JS desde el 02-oct.
       const sb = makeSupabase({ filas: () => [{ id: 'dup-1', contraparte: 'Juan' }] });
-      const { r, logs } = await correrEspiando(() => correrDeudas(sb, 'registrar_deuda', datos).p);
+      const { r, logs } = await correrEspiando(() => correrDeudas(sb, 'registrar_deuda', datos, { msg: 'debo 200 a Juan' }).p);
       expect(r).not.toMatch(/⚠️/);
       expect(sb.cuenta((c) => c.verbo === 'delete')).toBe(1);
       expect(logs).toHaveLength(0);
@@ -1366,7 +1368,7 @@ describe('deudas.js — las dos lecturas mudas', () => {
       // El desenlace malo es el mismo que el del DELETE fallido —quedan las dos anotaciones
       // opuestas vivas—, y antes de 9B-quater este camino no producía ningún aviso.
       const sb = makeSupabase({ fallos: [CAE_TODO] });
-      const { ctx, p } = correrDeudas(sb, 'registrar_deuda', datos);
+      const { ctx, p } = correrDeudas(sb, 'registrar_deuda', datos, { msg: 'debo 200 a Juan' });
       const { r, logs } = await correrEspiando(() => p);
       expect(r).toMatch(/Le debes \*S\/ 200\.00\* a \*Juan\*/);   // lo que vino a hacer, hecho
       expect(ctx.registrarDeuda).toHaveBeenCalled();
@@ -1376,7 +1378,7 @@ describe('deudas.js — las dos lecturas mudas', () => {
 
     it('el texto del aviso NO afirma que la opuesta existe: no se pudo mirar', async () => {
       const sb = makeSupabase({ fallos: [CAE_TODO] });
-      const { r } = await correrEspiando(() => correrDeudas(sb, 'registrar_deuda', datos).p);
+      const { r } = await correrEspiando(() => correrDeudas(sb, 'registrar_deuda', datos, { msg: 'debo 200 a Juan' }).p);
       expect(r).not.toMatch(/te quedó también la anotación opuesta/);
     });
   });
