@@ -1520,6 +1520,92 @@ describe('editar_fecha', () => {
     });
     expect(res).toContain('Dime la fecha correcta');
   });
+
+  // 24-nov-2026 (qa-e2e/probe-editar-fecha.mjs): sin historial, el clasificador real mandó
+  // "cámbialo al 15/10" como 2023-10-15 las tres veces, y esto lo escribía. Hoy del ctx: 2026-04-05.
+  const editarFecha = async (msg, fechaNueva) => {
+    const sb = makeSupabaseMock({ transacciones: [TX_BASE] });
+    // Detrás de la confirmación del movimiento, así también pasan las elípticas ("fue el 3/02 del año pasado").
+    const ctx = buildCtx(sb, { historialConv: [{ rol: 'neto', mensaje: '✅ S/12.00 en Alimentación · 05-abr-26', created_at: new Date().toISOString() }] });
+    const res = await handler.handle({
+      intencion: 'editar_fecha', msg, datos: { fecha_nueva: fechaNueva }, usuario: USUARIO, from: '+51999', ctx,
+    });
+    const ch = sb._chains.transacciones;
+    return { res, updates: ch && ch.update ? ch.update.mock.calls.map((c) => c[0]) : [] };
+  };
+
+  it('el año que inventa el clasificador no se escribe: vale el de la última vez que pasó esa fecha', async () => {
+    const { res, updates } = await editarFecha('cámbialo al 15/03', '2023-03-15');
+    expect(updates).toEqual([{ fecha: '2026-03-15' }]);
+    expect(res).toContain('2026-03-15');
+  });
+
+  it('con el mes en letras el año lo corrige sólo el ancla (no hay dd/mm que lea el registro)', async () => {
+    const { updates } = await editarFecha('cámbialo al 15 de marzo', '2023-03-15');
+    expect(updates).toEqual([{ fecha: '2026-03-15' }]);
+  });
+
+  it('"hoy" sale del ctx: el borde de 120 días hacia el diciembre pasado', async () => {
+    // 10-dic-2025 queda a 116 días del 05-abr-2026 (hoy del ctx).
+    const { updates } = await editarFecha('cámbialo al 10/12', '2023-12-10');
+    expect(updates).toEqual([{ fecha: '2025-12-10' }]);
+  });
+
+  it('sin lectura posible, el año anterior del modelo se respeta', async () => {
+    // 15/11 visto el 05-abr: este año es futuro y el 15-nov pasado queda a 141 días (más de 120).
+    const { updates } = await editarFecha('cámbialo al 15/11', '2025-11-15');
+    expect(updates).toEqual([{ fecha: '2025-11-15' }]);
+  });
+
+  it('un año dicho fuera del dd/mm no lo pisa el de hoy (revisión adversarial del 24-nov)', async () => {
+    // "del año pasado" ya lo frena la gramática (lib/orden-edicion.js); estas formas la pasan.
+    for (const [msg, f] of [['fue el 3/02 2025', '2025-02-03'], ['cambia la fecha al 15/02 2024', '2024-02-15']]) {
+      const { updates } = await editarFecha(msg, f);
+      expect(updates, msg).toEqual([{ fecha: f }]);
+    }
+  });
+
+  it('un dd/mm escrito gana a la fecha de hoy que puso el clasificador, con las señales del registro', async () => {
+    const { updates } = await editarFecha('cámbialo al 03/02', '2026-04-05');
+    expect(updates).toEqual([{ fecha: '2026-02-03' }]);
+  });
+
+  it('con el año escrito, el del mensaje', async () => {
+    const { updates } = await editarFecha('cámbialo al 15/03/2024', '2024-03-15');
+    expect(updates).toEqual([{ fecha: '2024-03-15' }]);
+  });
+
+  it('sin una fecha creíble pregunta y no escribe', async () => {
+    // 15/10 visto el 05-abr: este año es futuro y el anterior queda a más de 120 días; 2023 no es creíble.
+    for (const [msg, f] of [['cámbialo al 15/10', '2023-10-15'], ['cámbialo al 15 de octubre', '15 de octubre']]) {
+      const { res, updates } = await editarFecha(msg, f);
+      expect(updates, msg).toEqual([]);
+      expect(res).toMatch(/Escríbemela con día, mes y año/);
+    }
+  });
+});
+
+// ─── duplicar_gasto: la fecha de la copia pasa por la misma guarda (segunda revisión, 24-nov) ──
+describe('duplicar_gasto — la fecha de la copia', () => {
+  const duplicar = async (msg, datos) => {
+    const sb = makeSupabaseMock({ transacciones: [TX_BASE] });
+    const ctx = buildCtx(sb);
+    const res = await handler.handle({ intencion: 'duplicar_gasto', msg, datos, usuario: USUARIO, from: '+51999', ctx });
+    return { res, fechas: ctx.guardarTransaccion.mock.calls.map((c) => c[1].fecha) };
+  };
+  it('el año inventado no se escribe en la copia', async () => {
+    const { fechas } = await duplicar('duplícalo para el 15/03', { fecha: '2023-03-15' });
+    expect(fechas).toEqual(['2026-03-15']);
+  });
+  it('sin fecha, la de hoy', async () => {
+    const { fechas } = await duplicar('duplícalo', {});
+    expect(fechas).toEqual(['2026-04-05']);
+  });
+  it('sin una fecha creíble pregunta y no crea la copia', async () => {
+    const { res, fechas } = await duplicar('duplícalo para el 15 de octubre', { fecha: '2023-10-15' });
+    expect(fechas).toEqual([]);
+    expect(res).toMatch(/duplícalo para el 05\/04\/2026/);
+  });
 });
 
 // ─── editar_categoria_comercio (defensa anti-gasto-mal-clasificado) ───────────

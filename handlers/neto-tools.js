@@ -998,6 +998,9 @@ const PROPERTY_REMAP = {
   "manage_transaction.edit_amount_currency": { nuevo_monto: "monto", nueva_moneda: "moneda" },
   "manage_transaction.edit_amount": { nuevo_monto: "monto_nuevo" },
   "manage_transaction.edit_date": { nueva_fecha: "fecha_nueva" },
+  // `duplicar_gasto` lee `datos.fecha`, y el modelo pone la fecha de la copia en `nueva_fecha` (sonda
+  // probe-editar-fecha, 24-nov-2026): sin esta línea se perdía y la copia salía con la de hoy.
+  "manage_transaction.duplicate": { nueva_fecha: "fecha" },
   "manage_transaction.edit_store": { nuevo_comercio: "comercio_nuevo" },
   "manage_transaction.set_category_rule": { nueva_categoria: "categoria" },
   "manage_account.change_name": { new_name: "nombre_nuevo" },

@@ -10,6 +10,20 @@ const { registrarError } = require('../../lib/error-monitor');
 const { revisarEdicion, pedirOrden, selectorCoincide, confirmacionNombra } = require('../../lib/orden-edicion');
 const { pideAlcanceRetroactivo } = require('../../lib/datos-dichos');
 const { esComercioCentinela } = require('../../services/parsers');
+const { fechaDeLaOrden } = require('../../lib/dates');
+
+// `fechaDeLaOrden` con su rastro en el log: qué trajo el clasificador y qué se escribe en su lugar.
+function fechaDeLaOrdenLog(msg, fechaModelo, fechaHoy, tag) {
+  const r = fechaDeLaOrden(msg, fechaModelo, fechaHoy);
+  const corto = (msg || '').substring(0, 80);
+  if (!r) log.warn({ tag: 'ORDEN_FECHA_GUARD', intent: tag, fechaModelo, msg: corto }, 'Orden con fecha sin año creíble: se pregunta');
+  else if (r.fecha !== fechaModelo) log.info({ tag: 'ORDEN_FECHA_GUARD', intent: tag, fechaModelo, fechaCorregida: r.fecha, ddmm: r.ddmm, anclada: r.anclada, msg: corto }, 'La fecha del clasificador no es la que dice el mensaje');
+  return r;
+}
+// El ejemplo lleva la fecha de HOY, para que no envejezca.
+function preguntaFechaConAnio(hoy, orden) {
+  return 'No pude leer bien la fecha. Escríbemela con día, mes y año. Ej: _"' + orden + ' ' + hoy.slice(8, 10) + '/' + hoy.slice(5, 7) + '/' + hoy.slice(0, 4) + '"_.';
+}
 
 // Un mensaje que es SOLO un número (con o sin moneda) no se rescata.
 //
@@ -1513,6 +1527,12 @@ module.exports = {
             // Solo día → asumir mes/año actual
             fechaNueva = anioActual + '-' + String(mesActual).padStart(2,'0') + '-' + String(parseInt(fechaNueva)).padStart(2,'0');
           }
+          // La fecha la escribe el clasificador, y sin historial inventa el AÑO: "cámbialo al 15/10"
+          // salía 2023-10-15. `fechaDeLaOrden` (lib/dates.js) la contrasta con el texto; sin una fecha
+          // creíble, pregunta en vez de escribir.
+          const ordenFecha = fechaDeLaOrdenLog(msg, fechaNueva, fechaHoyPeru(), 'EDITAR_FECHA');
+          if (!ordenFecha) return preguntaFechaConAnio(fechaHoyPeru(), 'cámbialo al');
+          fechaNueva = ordenFecha.fecha;
           // Siempre el ÚLTIMO movimiento (chip 5, 01-oct-2026): `revisarEdicion` no deja pasar un
           // sujeto. La búsqueda por comercio (`ilike`) que vivía acá eligió la fila equivocada en prod
           // ("aby 143" buscó "aby", no lo halló y editó "traer tronco"); ver lib/orden-edicion.js.
@@ -1609,7 +1629,13 @@ module.exports = {
         try {
           const txDup = await obtenerUltimaTransaccion(usuario.id);
           if (!txDup) return 'No encuentro un gasto reciente para duplicar.';
-          const fechaDup = datos.fecha || fechaHoyPeru();
+          // La fecha de la copia viene del clasificador, con el mismo año inventado que `editar_fecha`.
+          let fechaDup = fechaHoyPeru();
+          if (datos.fecha) {
+            const ordenDup = fechaDeLaOrdenLog(msg, datos.fecha, fechaHoyPeru(), 'DUPLICAR');
+            if (!ordenDup) return preguntaFechaConAnio(fechaHoyPeru(), 'duplícalo para el');
+            fechaDup = ordenDup.fecha;
+          }
           const datosDup = {
             monto: parseFloat(txDup.monto),
             moneda: txDup.moneda || 'PEN',

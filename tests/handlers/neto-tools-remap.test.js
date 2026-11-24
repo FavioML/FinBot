@@ -104,3 +104,13 @@ describe('manage_goals: el nombre de la meta llega aunque el modelo lo ponga en 
     expect(mapToolToIntent('manage_goals', { action: 'deposit', meta_id: 'Viaje', monto_abono: 10 }).datos.nombre_meta).toBe('Viaje');
   });
 });
+
+// 24-nov-2026 (qa-e2e/probe-editar-fecha.mjs): para "duplícalo para el 15/10" el modelo pone la fecha en
+// `nueva_fecha`; `duplicar_gasto` lee `datos.fecha`, así que la copia salía con la fecha de hoy.
+describe('manage_transaction.duplicate entrega la fecha de la copia que el handler lee', () => {
+  it('traduce nueva_fecha -> fecha', () => {
+    const { intencion, datos } = mapToolToIntent('manage_transaction', { action: 'duplicate', nueva_fecha: '2026-10-15' });
+    expect(intencion).toBe('duplicar_gasto');
+    expect(datos.fecha).toBe('2026-10-15');
+  });
+});

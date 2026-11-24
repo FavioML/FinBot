@@ -16,6 +16,10 @@
  * Desde `fecha-ddmm` también mira la FECHA: "gasté 20 en taxi 03/10" quedaba con la de hoy (el parser
  * duda entre día/mes y mes/día con el día en 12 o menos); lo corrige `resolverFechaDiaMes` (lib/dates.js).
  *
+ * Desde `editar-fecha-*` también la EDICIÓN de fecha en frío: un gasto sembrado directo en la base, sin
+ * conversación (el clasificador no tiene historial), y "cámbialo al 15/10". Con hoy 24-nov el
+ * clasificador real trae 2023-10-15 y `editar_fecha` lo escribía; lo ancla `anclarAnioDeEdicion`.
+ *
  * Corre DESPUÉS del deploy (confirmado con `/version`): contra el commit anterior es el CONTROL y tiene
  * que fallar en los dos casos de producción.
  *
@@ -196,6 +200,28 @@ const FECHA_DDMM = (() => {
   return { iso, texto: iso.slice(8, 10) + '/' + iso.slice(5, 7) };
 })();
 
+// La fecha del mes ANTERIOR con el día `dia`: siempre en el pasado (en enero, diciembre del año pasado).
+const MESES_TXT = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+function mesAnterior(dia) {
+  const f = new Date(hoyLima() + 'T12:00:00Z');
+  f.setUTCDate(1); f.setUTCMonth(f.getUTCMonth() - 1); f.setUTCDate(dia);
+  const iso = f.toISOString().slice(0, 10);
+  return { iso, ddmm: iso.slice(8, 10) + '/' + iso.slice(5, 7), texto: dia + ' de ' + MESES_TXT[f.getUTCMonth()] };
+}
+// El gasto a corregir, sembrado sin pasar por WhatsApp: así el clasificador lo ve sin historial.
+async function sembrarGasto(u) {
+  await sb.insert('transacciones', {
+    usuario_id: u.id, tipo: 'gasto', monto: 20, monto_pen: 20, moneda: 'PEN', comercio: 'Taxi',
+    categoria: 'Transporte', subcategoria: 'taxi', fecha: hoyLima(), descripcion_original: 'qa-editar-fecha',
+  });
+}
+function fechaEditada(fecha) {
+  return async (u) => {
+    const txs = await txDe(u);
+    return [[txs.length === 1 && txs[0].fecha === fecha, `el gasto sembrado queda con fecha ${fecha}`, resumen(txs)]];
+  };
+}
+
 const CASOS = {
   // Las dos frases de producción.
   'ingreso-sustantivo': { msg: '150.00 ingreso de cita en estilista 03/10', afirmar: nuncaGasto(150) },
@@ -211,11 +237,16 @@ const CASOS = {
   'gasto-normal': { msg: 'gasté 20 en taxi', afirmar: unaFila('gasto', 20, hoyLima()) },
   // La fecha escrita como dd/mm (DEFECTOS 24-nov: "03/10" quedaba con la fecha de hoy).
   'fecha-ddmm': { msg: 'gasté 20 en taxi ' + FECHA_DDMM.texto, afirmar: unaFila('gasto', 20, FECHA_DDMM.iso) },
+  // Edición de fecha en frío (DEFECTOS 24-nov: el clasificador inventaba el AÑO y se escribía).
+  'editar-fecha-anio': { sembrar: true, msg: 'cámbialo al ' + mesAnterior(15).ddmm, afirmar: fechaEditada(mesAnterior(15).iso) },
+  'editar-fecha-mes-texto': { sembrar: true, msg: 'cámbialo al ' + mesAnterior(15).texto, afirmar: fechaEditada(mesAnterior(15).iso) },
+  'editar-fecha-ddmm': { sembrar: true, msg: 'cámbialo al ' + mesAnterior(3).ddmm, afirmar: fechaEditada(mesAnterior(3).iso) },
 };
 
 async function correrCaso(nombre, corrida) {
   const caso = CASOS[nombre];
   const u = await crearUsuario();
+  if (caso.sembrar) await sembrarGasto(u);
   for (const previo of caso.previos || []) await decir(u, previo);
   if (caso.conCaptura) await sembrarConfirmacionCaptura(u, caso.conCaptura);
   const r = await decir(u, caso.msg);
