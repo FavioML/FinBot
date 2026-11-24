@@ -240,6 +240,10 @@ function copiaCon(fecha) {
   };
 }
 
+// Un día de la semana de hace 4 días: ni hoy ni ayer, así que "fue el <día>" sólo tiene una lectura.
+const DIAS_TXT = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+const HACE_4 = (() => { const iso = sumarDias(hoyLima(), -4); return { iso, dia: DIAS_TXT[new Date(iso + 'T12:00:00Z').getUTCDay()] }; })();
+
 const CASOS = {
   // Las dos frases de producción.
   'ingreso-sustantivo': { msg: '150.00 ingreso de cita en estilista 03/10', afirmar: nuncaGasto(150) },
@@ -259,6 +263,10 @@ const CASOS = {
   'editar-fecha-anio': { sembrar: true, msg: 'cámbialo al ' + mesAnterior(15).ddmm, afirmar: fechaEditada(mesAnterior(15).iso) },
   'editar-fecha-mes-texto': { sembrar: true, msg: 'cámbialo al ' + mesAnterior(15).texto, afirmar: fechaEditada(mesAnterior(15).iso) },
   'editar-fecha-ddmm': { sembrar: true, msg: 'cámbialo al ' + mesAnterior(3).ddmm, afirmar: fechaEditada(mesAnterior(3).iso) },
+  // Editar la fecha DETRÁS de la confirmación de un gasto (DEFECTOS 24-nov): "la fecha es el 15/10" iba a
+  // registrar_manual y no escribía; "fue el <día>" llegaba con otro día y se escribía.
+  'editar-fecha-tras-confirmacion': { previos: ['gasté 20 en taxi'], msg: 'la fecha es el ' + mesAnterior(15).ddmm, afirmar: fechaEditada(mesAnterior(15).iso) },
+  'editar-fecha-dia-semana': { previos: ['gasté 20 en taxi'], msg: 'fue el ' + HACE_4.dia, afirmar: fechaEditada(HACE_4.iso) },
   // Duplicar para otra fecha (DEFECTOS 24-nov). "repítelo para el 15 de <mes>" en frío llegaba como
   // `editar_fecha`: lo reencamina `esOrdenDeDuplicar`.
   'duplicar-ddmm': { sembrar: true, msg: 'duplícalo para el ' + mesAnterior(15).ddmm, afirmar: copiaCon(mesAnterior(15).iso) },

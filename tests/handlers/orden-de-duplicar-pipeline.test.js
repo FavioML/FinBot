@@ -81,7 +81,7 @@ describe('la copia lleva la fecha que dice el mensaje, aunque el clasificador no
     ['repítelo para el 15 de octubre', '2026-10-15'],
     ['duplícalo para ayer', '2026-11-23'],
     ['copia ese gasto para el lunes', '2026-11-23'],
-    ['duplícalo para el 30', '2026-10-30'],
+    ['duplícalo para el 31', '2026-10-31'],
     ['duplícalo para el 15/10/2025', '2025-10-15'],
   ])('"%s" → copia del %s', async (msg, fecha) => {
     toolCall = DUPLICAR;
@@ -117,7 +117,7 @@ describe('la copia lleva la fecha que dice el mensaje, aunque el clasificador no
 
   it('una fecha que no da un día pasado pregunta y no crea la copia', async () => {
     toolCall = DUPLICAR;
-    for (const msg of ['duplícalo para la semana pasada', 'duplícalo para el 31 de febrero', 'duplícalo para el 15/10/2062', 'duplícalo para el lunes 15']) {
+    for (const msg of ['duplícalo para la semana pasada', 'duplícalo para el 31 de febrero', 'duplícalo para el 15/10/2062', 'duplícalo para el lunes 15', 'duplícalo para el 30', 'duplícalo para el martes']) {
       const r = await procesarMensajeLibre(msg, USUARIO, '51999');
       expect(copias, msg).toEqual([]);
       expect(String(r), msg).toMatch(/duplícalo para el 24\/11\/2026/);
@@ -144,6 +144,72 @@ describe('la orden de duplicar va a duplicar_gasto, diga lo que diga el clasific
   it.each(['repítelo', 'repite eso por favor', '¿duplícalo para el 15/10?', 'copia el anterior'])('"%s" no se reencamina', async (msg) => {
     toolCall = { name: 'social_response', args: { tipo: 'otro' } };
     await procesarMensajeLibre(msg, USUARIO, '51999');
+    expect(copias).toEqual([]);
+  });
+});
+
+describe('la orden de FECHA: la fecha inequívoca del texto gana, y la orden va a editar_fecha', () => {
+  const fechasEscritas = () => updatesTx().map((e) => e.payload).filter((p) => 'fecha' in p).map((p) => p.fecha);
+  it('"la fecha es el 15/10" detrás de una confirmación, que el clasificador manda a registrar, corrige la fecha', async () => {
+    historial = CONFIRMACION;
+    toolCall = { name: 'register_transaction', args: { monto: 20, fecha: '2026-10-15', categoria: 'Transporte', comercio: 'Taxi' } };
+    await procesarMensajeLibre('la fecha es el 15/10', USUARIO, '51999');
+    expect(fechasEscritas()).toEqual(['2026-10-15']);
+    expect(copias).toEqual([]);
+  });
+  it('"fue el viernes" con el miércoles que trae el clasificador escribe el viernes', async () => {
+    historial = CONFIRMACION;
+    toolCall = { name: 'manage_transaction', args: { action: 'edit_date', nueva_fecha: '2026-11-18' } };
+    await procesarMensajeLibre('fue el viernes', USUARIO, '51999');
+    expect(fechasEscritas()).toEqual(['2026-11-20']);
+  });
+  it('con un año futuro tipeado pregunta y no escribe', async () => {
+    toolCall = { name: 'manage_transaction', args: { action: 'edit_date', nueva_fecha: '2062-10-15' } };
+    const r = await procesarMensajeLibre('cambia la fecha a 15/10/2062', USUARIO, '51999');
+    expect(fechasEscritas()).toEqual([]);
+    expect(String(r)).toMatch(/Escríbemela con día, mes y año/);
+  });
+  it('la elíptica detrás de la confirmación se reencamina desde otro intent', async () => {
+    historial = CONFIRMACION;
+    toolCall = { name: 'register_transaction', args: { monto: 20, fecha: '2026-11-18', comercio: 'Taxi' } };
+    await procesarMensajeLibre('fue el viernes', USUARIO, '51999');
+    expect(fechasEscritas()).toEqual(['2026-11-20']);
+    expect(copias).toEqual([]);
+  });
+  it('una fecha que no existe pregunta aunque el modelo traiga una creíble', async () => {
+    toolCall = { name: 'manage_transaction', args: { action: 'edit_date', nueva_fecha: '2026-02-28' } };
+    const r = await procesarMensajeLibre('la fecha es el 31 de febrero', USUARIO, '51999');
+    expect(fechasEscritas()).toEqual([]);
+    expect(String(r)).toMatch(/Escríbemela con día, mes y año/);
+  });
+  it('reencaminada con el año imposible de saber, pide el año', async () => {
+    // 30-dic visto el 24-nov: el de este año no llegó y el pasado queda a 329 días.
+    toolCall = { name: 'register_transaction', args: { monto: 20, fecha: '2023-12-30', comercio: 'Taxi' } };
+    const r = await procesarMensajeLibre('la fecha es el 30 de diciembre', USUARIO, '51999');
+    expect(fechasEscritas()).toEqual([]);
+    expect(String(r)).toMatch(/Escríbemela con día, mes y año/);
+  });
+  it('"hoy no, ayer": con un "no" decide el clasificador, que ve la coma', async () => {
+    historial = CONFIRMACION;
+    toolCall = { name: 'manage_transaction', args: { action: 'edit_date', nueva_fecha: '2026-11-23' } };
+    await procesarMensajeLibre('hoy no, ayer', USUARIO, '51999');
+    expect(fechasEscritas()).toEqual(['2026-11-23']);
+  });
+  it('CONTROL: "corrige el 20" en frío no mueve la fecha', async () => {
+    toolCall = { name: 'register_transaction', args: { monto: 20, comercio: 'gasto' } };
+    await procesarMensajeLibre('corrige el 20', USUARIO, '51999');
+    expect(fechasEscritas()).toEqual([]);
+  });
+  it('CONTROL: "cámbialo a 15.10" (un monto) no se vuelve fecha', async () => {
+    historial = CONFIRMACION;
+    toolCall = { name: 'manage_transaction', args: { action: 'edit_amount', nuevo_monto: 15.1 } };
+    await procesarMensajeLibre('cámbialo a 15.10', USUARIO, '51999');
+    expect(fechasEscritas()).toEqual([]);
+  });
+  it('CONTROL: la elíptica en frío no se reencamina ni escribe', async () => {
+    toolCall = { name: 'register_transaction', args: { monto: 20, fecha: '2026-11-20', comercio: 'Taxi' } };
+    await procesarMensajeLibre('fue el viernes', USUARIO, '51999');
+    expect(fechasEscritas()).toEqual([]);
     expect(copias).toEqual([]);
   });
 });

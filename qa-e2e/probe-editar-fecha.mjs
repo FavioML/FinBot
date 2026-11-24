@@ -36,7 +36,7 @@ const { openai } = require(path.join(appRoot, 'lib/ai.js'));
 const { NETO_TOOLS, mapToolToIntent } = require(path.join(appRoot, 'handlers/neto-tools.js'));
 const { sumarDias } = require(path.join(appRoot, 'lib/dates.js'));
 // El mismo reencaminamiento que hace `dispatchIntent` (handlers/intent-registry.js) antes del handler.
-const { esOrdenDeDuplicar } = require(path.join(appRoot, 'lib/orden-edicion.js'));
+const { esOrdenDeDuplicar, esOrdenDeFecha } = require(path.join(appRoot, 'lib/orden-edicion.js'));
 
 function systemPrompt() {
   const src = fs.readFileSync(path.join(appRoot, 'handlers/message-processor.js'), 'utf8');
@@ -103,6 +103,8 @@ const EXTRA = [
   { msg: 'cámbialo al 10/9', esp: '2026-09-10' },
   { msg: 'cambia la fecha al 28/10', esp: '2026-10-28' },
   { msg: 'cámbialo al 15 de octubre', esp: '2026-10-15' },
+  { msg: 'la fecha es el 15 de octubre', esp: '2026-10-15' },
+  { msg: 'fue el viernes', esp: '2026-11-20' },
   { msg: 'cambia la fecha al 3 de octubre', esp: '2026-10-03' },
 ];
 if (args.includes('--extra')) CASOS.push(...EXTRA);
@@ -154,6 +156,7 @@ for (const ctx of [{ nombre: 'frio', historial: [] }, { nombre: 'tras-confirmaci
     const corridas = await Promise.all(Array.from({ length: N }, () => clasificar(c.msg, ctx.historial)));
     for (const r of corridas) {
       const intent = c.intent || 'editar_fecha';
+      if (r.intencion !== 'editar_fecha' && esOrdenDeFecha(c.msg, ctx.historial)) { r.intencion = 'editar_fecha'; r.datos = {}; }
       if (r.intencion !== 'duplicar_gasto' && esOrdenDeDuplicar(c.msg)) { r.intencion = 'duplicar_gasto'; r.datos = {}; }
       const escribe = r.intencion === intent ? await loQueEscribe(c.msg, r.datos, ctx.historial, intent) : '(otro intent)';
       const ok = escribe === c.esp;

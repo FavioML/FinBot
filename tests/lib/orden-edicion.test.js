@@ -3,7 +3,7 @@ import { createRequire } from 'module';
 import fs from 'fs';
 
 const require = createRequire(import.meta.url);
-const { revisarEdicion, tieneForma, esExplicita, pedirOrden, PEDIR_ORDEN, EDICIONES, numerosDe, tipoDicho, selectorDeTipo, selectorCoincide, confirmacionNombra, esOrdenDeTipo, fechaDeLaCopia, esOrdenDeDuplicar } = require('../../lib/orden-edicion');
+const { revisarEdicion, tieneForma, esExplicita, pedirOrden, PEDIR_ORDEN, EDICIONES, numerosDe, tipoDicho, selectorDeTipo, selectorCoincide, confirmacionNombra, esOrdenDeTipo, fechaDeLaCopia, esOrdenDeDuplicar, fechaDeLaEdicion, esOrdenDeFecha } = require('../../lib/orden-edicion');
 const POOL = require('../nlp/pool.js');
 
 /**
@@ -388,11 +388,15 @@ describe('fechaDeLaCopia', () => {
     ['duplícalo para hoy', '2026-11-24', '2026-11-24'],
     ['duplícalo para anoche pe', '2026-11-24', '2026-11-23'],
     ['repítelo para antes de ayer', '2026-11-24', '2026-11-22'],
-    ['duplícalo para el martes', '2026-11-24', '2026-11-17'], // hoy es martes: el ANTERIOR
+    ['duplícalo para el martes', '2026-11-24', null], // hoy es martes: hoy o el de hace 7 días, se pregunta
+    ['duplícalo para el martes pasado', '2026-11-24', '2026-11-17'],
     ['duplícalo para el 24', '2026-11-24', '2026-11-24'],
-    ['duplícalo para el 25', '2026-11-24', '2026-10-25'],
+    ['duplícalo para el 25', '2026-11-24', null], // el de este mes que viene o el del pasado: se pregunta
+    ['duplícalo para el 31', '2026-11-24', '2026-10-31'], // noviembre no tiene 31: el de octubre
     ['duplícalo para el 31', '2026-03-05', null], // ni 31-mar (futuro) ni 31-feb existen como pasado
-    ['duplícalo para el 30', '2026-01-10', '2025-12-30'], // el mes anterior cruza el año
+    ['duplícalo para el 31', '2026-01-10', null], // el 31 de enero no llegó: se pregunta
+    ['duplícalo para el 30', '2026-02-10', '2026-01-30'], // febrero no tiene 30: el de enero
+    ['duplícalo para el 30', '2026-03-01', null], // ni el 30 de marzo (futuro) ni el de febrero existen
     ['duplícalo para el 29 de febrero', '2026-03-01', null], // 2026 no es bisiesto
     ['duplícalo para el 15 10 de octubre', '2026-11-24', null], // dos meses
     ['duplícalo para el 13/13', '2026-11-24', null],
@@ -434,4 +438,59 @@ it('"el anterior" no pasa la puerta de duplicar, ni aunque el clasificador diga 
   }
   // Las otras ediciones lo siguen aceptando: ahí "el anterior" es el último que se acaba de anotar.
   expect(revisarEdicion('editar_monto', 'cambia el anterior a 30', { monto_nuevo: 30 }).ok).toBe(true);
+});
+
+// La orden de FECHA (24-nov-2026): la fecha inequívoca del texto gana, y `dispatchIntent` la reencamina.
+describe('fechaDeLaEdicion', () => {
+  it.each([
+    ['la fecha es el 15/10', '2026-11-24', '2026-10-15'],
+    ['la fecha es el 15 de octubre', '2026-11-24', '2026-10-15'],
+    ['fue el viernes', '2026-11-24', '2026-11-20'], // el clasificador traía un miércoles
+    // Con un "no", decide el clasificador: "ayer, no hoy" y "hoy no, ayer" normalizan igual.
+    ['fue ayer no hoy', '2026-11-24', undefined],
+    ['hoy no, ayer', '2026-11-24', undefined],
+    ['fue el viernes no, el jueves', '2026-11-24', undefined],
+    // "15.10" es un monto, también con una S/ en el mensaje.
+    ['la fecha es el 15.10', '2026-11-24', undefined],
+    ['S/ la fecha es el 15.10', '2026-11-24', undefined],
+    ['cambia la fecha para el 30', '2026-11-24', null],
+    ['cambia la fecha al martes', '2026-11-24', null],
+    ['cambia la fecha a antier porfa', '2026-11-24', '2026-11-22'],
+    // Sin una inequívoca, decide el clasificador: un número suelto es también un monto.
+    ['cámbialo al 19', '2026-11-24', undefined],
+    ['cámbialo a 15.10', '2026-11-24', undefined],
+    ['cambia la fecha', '2026-11-24', undefined],
+    // Sin año y sin poder saberlo: también el clasificador, con el precio declarado de `fechaDeLaOrden`.
+    ['cambiar fecha 29 septiembre', '2026-04-05', undefined],
+    // Dice una pero no un día pasado: se pregunta.
+    ['cambia la fecha a 15/10/2062', '2026-11-24', null],
+    ['la fecha es el 31 de febrero', '2026-11-24', null],
+    ['la fecha es la semana pasada', '2026-11-24', null],
+  ])('"%s" con hoy %s → %s', (msg, hoy, esp) => {
+    expect(fechaDeLaEdicion(msg, hoy)).toBe(esp);
+  });
+});
+
+describe('esOrdenDeFecha', () => {
+  it.each(['la fecha es el 15/10', 'la fecha es el 15 de octubre', 'cambia la fecha a ayer', 'la fecha correcta es el lunes'])('"%s" es explícita: va en frío', (msg) => {
+    expect(esOrdenDeFecha(msg, [])).toBe(true);
+  });
+  it.each(['fue el viernes', 'era el 15/10', 'corrige el lunes', 'modifica ayer'])('"%s" es elíptica (o sin conector): sólo detrás de la confirmación', (msg) => {
+    expect(esOrdenDeFecha(msg, [])).toBe(false);
+    expect(esOrdenDeFecha(msg, TRAS_CONFIRMAR.historial, AHORA)).toBe(true);
+  });
+  it.each([
+    'cámbialo a 30', 'cámbialo a 15.10', 'cambia el monto a 15', 'cambia la fecha', 'cámbialo',
+    'gasté 20 ayer', '¿fue ayer?', 'cámbialo al 15/10', // este último también es forma de monto: decide el clasificador
+    'hoy no, ayer', 'fue ayer no hoy', 'fue el viernes no, el jueves', // con un "no" decide el clasificador
+    'edita el 20', 'corrige el 20', 'fue el 15', // "el N" suelto: "el gasto de 20"
+    'la fecha es el lunes y pagué 20',
+  ])('"%s" no se reencamina', (msg) => {
+    expect(esOrdenDeFecha(msg, [])).toBe(false);
+    expect(esOrdenDeFecha(msg, TRAS_CONFIRMAR.historial, AHORA)).toBe(false);
+  });
+  it('detrás de una pregunta de NETO sobre algo no guardado, no', () => {
+    const pregunta = [{ rol: 'neto', mensaje: 'No pude leer el monto. ¿Cuánto fue?', created_at: hace(1) }];
+    expect(esOrdenDeFecha('la fecha es el 15/10', pregunta, AHORA)).toBe(false);
+  });
 });

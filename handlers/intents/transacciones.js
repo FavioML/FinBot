@@ -7,7 +7,7 @@ const { validarMonto } = require('../../lib/validators');
 const { subcategoriaUtil, esSubSinClasificar } = require('../../lib/subcategoria');
 const { extraerGastoSinIA, quitarTokensDeMoneda, contarMontosCandidatos, mencionaMonedaNoSoportada, montoEscritoEnMensaje, tipoContradiceElMensaje, montosDeMovimiento } = require('../../lib/nlp-guards');
 const { registrarError } = require('../../lib/error-monitor');
-const { revisarEdicion, pedirOrden, selectorCoincide, confirmacionNombra, fechaDeLaCopia } = require('../../lib/orden-edicion');
+const { revisarEdicion, pedirOrden, selectorCoincide, confirmacionNombra, fechaDeLaCopia, fechaDeLaEdicion, fraseInequivoca } = require('../../lib/orden-edicion');
 const { pideAlcanceRetroactivo } = require('../../lib/datos-dichos');
 const { esComercioCentinela } = require('../../services/parsers');
 const { fechaDeLaOrden } = require('../../lib/dates');
@@ -1518,7 +1518,15 @@ module.exports = {
 
       case 'editar_fecha': {
         try {
-          let fechaNueva = datos.fecha_nueva;
+          // Una fecha INEQUÍVOCA escrita en el mensaje gana a la del clasificador (24-nov-2026): con "fue el
+          // viernes" detrás de una confirmación traía un miércoles 4 de 4 veces, y se escribía. Sin una así
+          // ("cámbialo al 19", que también es un monto), la del clasificador. Ver `fechaDeLaEdicion`.
+          const dichaEd = fechaDeLaEdicion(msg, fechaHoyPeru());
+          if (dichaEd === null) return preguntaFechaConAnio(fechaHoyPeru(), 'cámbialo al');
+          if (dichaEd !== undefined && dichaEd !== datos.fecha_nueva) log.info({ tag: 'EDITAR_FECHA_DEL_TEXTO', fechaModelo: datos.fecha_nueva || null, fechaTexto: dichaEd }, 'La fecha nueva sale del mensaje');
+          let fechaNueva = dichaEd !== undefined ? dichaEd : datos.fecha_nueva;
+          // Reencaminada desde otro intent (sin `fecha_nueva`) y con el año imposible de saber: pide el año.
+          if (!fechaNueva && fraseInequivoca(msg)) return preguntaFechaConAnio(fechaHoyPeru(), 'cámbialo al');
           if (!fechaNueva) return 'Dime la fecha correcta. Ej: _"cambia la fecha a ayer"_, _"cámbialo al 15 de marzo"_.';
           // Parsear "ayer"
           if (fechaNueva === 'ayer') {
