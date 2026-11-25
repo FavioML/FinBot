@@ -145,15 +145,6 @@ try {
     fallas.push(`borrar la raíz dejó la fila en ${JSON.stringify(fila)}; se espera categoria 'Otros' + 'sin_categoria'`);
   }
 
-  // 3b. El escritor hermano: el PATCH en lote convierte '' en null. La base tiene que
-  // guardarlo como 'Otros' (trigger de la 094) en vez de dejar un null que tumba la app.
-  const patch = await api('PATCH', '/api/transactions', { ids: [txId], updates: { categoria: '' } });
-  const [trasPatch] = await sb(`transacciones?id=eq.${txId}&select=categoria`);
-  R.patchVacio = { status: patch.status, categoria: trasPatch?.categoria };
-  medidos++;
-  if (trasPatch?.categoria !== 'Otros') {
-    fallas.push(`PATCH con categoria '' dejó ${JSON.stringify(trasPatch?.categoria)} (HTTP ${patch.status}); se espera 'Otros'`);
-  }
 
   // 4. Navegador real sobre las pantallas que pintan movimientos.
   browser = await chromium.launch();
@@ -186,9 +177,12 @@ try {
     ]).catch(() => {});
     await page.waitForTimeout(2500);
     const boundary = await page.getByText(BOUNDARY).first().isVisible().catch(() => false);
-    const pinto = await page.getByText(p.listo).first().isVisible().catch(() => false);
+    // Sobre el texto VISIBLE del body y no con getByText().first(): en /dashboard el primer
+    // nodo que matchea está oculto (layout de celular) y daba "no pintó" con la pantalla llena.
+    const visible = (await page.locator('body').innerText().catch(() => '')).replace(/\s+/g, ' ');
+    const pinto = p.listo.test(visible);
     const url = page.url();
-    const texto = (await page.locator('body').innerText().catch(() => '')).replace(/\s+/g, ' ').slice(0, 300);
+    const texto = visible.slice(0, 300);
     if (process.env.NETO_QA_SHOT) await page.screenshot({ path: `raiz-borrada${p.ruta.replace(/\//g, '_')}.png` }).catch(() => {});
     R.pantallas[p.ruta] = { url: url.replace(APP, ''), boundary, pinto, pageerrors: [...errores], texto };
     medidos++;
@@ -205,6 +199,18 @@ try {
   R.filaVisible = await page.getByText(new RegExp(`${TAG} bodega`, 'i')).first().isVisible().catch(() => false);
   medidos++;
   if (!R.filaVisible) fallas.push('transacciones: el gasto de la raíz borrada no aparece');
+
+  // 6. El escritor hermano: el PATCH en lote convierte '' en null. La base tiene que
+  // guardarlo como 'Otros' (trigger de la 094) en vez de dejar un null que tumba la app.
+  // Va AL FINAL a propósito: sin la 094 este paso fabrica un null, y antes de las pantallas
+  // las tumbaba él mismo, mezclando dos defectos en una sola medición.
+  const patch = await api('PATCH', '/api/transactions', { ids: [txId], updates: { categoria: '' } });
+  const [trasPatch] = await sb(`transacciones?id=eq.${txId}&select=categoria`);
+  R.patchVacio = { status: patch.status, categoria: trasPatch?.categoria };
+  medidos++;
+  if (trasPatch?.categoria !== 'Otros') {
+    fallas.push(`PATCH con categoria '' dejó ${JSON.stringify(trasPatch?.categoria)} (HTTP ${patch.status}); se espera 'Otros' (¿está aplicada la migración 094?)`);
+  }
 } catch (e) {
   inconcluso = String(e.message || e).slice(0, 300);
 } finally {
