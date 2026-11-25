@@ -140,7 +140,9 @@ async function procesarComandoAdmin(cmd, rawText = cmd) {
     // cerraba. `/responder` ya leía el texto crudo por lo mismo.
     const numero = rawText.replace(/^\/cerrar\s+/i, '').trim().replace(/\+/g, '');
     if (!numero) return 'Formato: /cerrar <número>\nEj: /cerrar 51933014505';
-    const r = await cerrarSesion({ whatsapp: numero, avisarUsuario: true });
+    // `cierraAdmin`: el admin es el único que decide que un ticket sin contestar ya no hace
+    // falta. La persona y el autocierre lo dejan `sin_respuesta` (lib/support-tickets).
+    const r = await cerrarSesion({ whatsapp: numero, avisarUsuario: true, cierraAdmin: true });
     return r.msg;
   }
 

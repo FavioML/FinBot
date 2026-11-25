@@ -1282,7 +1282,7 @@ export default function AdminOperacionPage() {
             Tickets (
             {ticketsFallo
               ? '—'
-              : tickets.filter((t) => t.estado === 'pendiente' || t.estado === 'esperando_mensaje').length}
+              : tickets.filter((t) => t.estado === 'pendiente' || t.estado === 'esperando_mensaje' || t.estado === 'sin_respuesta').length}
             )
           </button>
         </div>
@@ -1772,19 +1772,21 @@ export default function AdminOperacionPage() {
 
       {/* Tickets Tab */}
       {tab === 'tickets' && (() => {
-        const ticketsPendientes = tickets.filter((t) => t.estado === 'pendiente' || t.estado === 'esperando_mensaje').length;
+        const ticketsPendientes = tickets.filter((t) => t.estado === 'pendiente' || t.estado === 'esperando_mensaje' || t.estado === 'sin_respuesta').length;
         const totalPages = Math.ceil(ticketsTotal / 50);
 
         const estadoBadge = (estado: string) => {
           const styles: Record<string, string> = {
             esperando_mensaje: 'bg-warning/10 text-warning-ink',
             pendiente: 'bg-warning/10 text-warning-ink',
+            sin_respuesta: 'bg-negative/10 text-negative-ink',
             respondido: 'bg-primary/10 text-primary-ink',
             cerrado: 'bg-foreground/5 text-muted-foreground',
           };
           const labels: Record<string, string> = {
             esperando_mensaje: 'Esperando',
             pendiente: 'Pendiente',
+            sin_respuesta: 'Sin respuesta',
             respondido: 'Respondido',
             cerrado: 'Cerrado',
           };
@@ -1818,6 +1820,7 @@ export default function AdminOperacionPage() {
                 <option value="todos" className="bg-surface-elevated">Todos los estados</option>
                 <option value="esperando_mensaje" className="bg-surface-elevated">Esperando mensaje</option>
                 <option value="pendiente" className="bg-surface-elevated">Pendiente</option>
+                <option value="sin_respuesta" className="bg-surface-elevated">Sin respuesta (salió del chat)</option>
                 <option value="respondido" className="bg-surface-elevated">Respondido</option>
                 <option value="cerrado" className="bg-surface-elevated">Cerrado</option>
               </select>

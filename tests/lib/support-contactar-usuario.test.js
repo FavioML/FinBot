@@ -81,6 +81,7 @@ function colaCaminoCompleto({ ultimoMensajeHaceHoras = 1 } = {}) {
     tickets_soporte: [
       { data: [], error: null },                // responderTicket: no hay ticket pendiente del número
       { data: [], error: null },                // obtenerSesionAbierta: no hay sesión viva
+      { data: [], error: null },                // abrirSesion: no hay un sin_respuesta que retomar
       { data: { id: 't-nuevo' }, error: null }, // el insert de abrirSesion
       { data: null, error: null },              // el update de la columna de último mensaje
     ],

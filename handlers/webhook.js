@@ -1322,6 +1322,10 @@ function createWebhookHandler(procesarMensajeLibre) {
       // hablándole al admin sin saberlo— es la mentira simétrica.
       respuesta = r.ok === false
         ? '😕 No pude cerrar el modo soporte ahora. Reintenta con */salir* en un momento.'
+        // Salir no retira la pregunta: si nadie le contestó todavía, el ticket queda en la cola
+        // (`sin_respuesta`) y la persona tiene que saber que la respuesta igual va a llegar.
+        : r.closed > 0 && r.sinRespuesta > 0
+        ? '✅ Saliste del modo soporte. Vuelvo a ser tu asistente financiero 💚\n\nEl equipo ya tiene tu mensaje y te va a responder por este chat.\n\n_Escríbeme un gasto o "hola" cuando quieras._'
         : r.closed > 0
         ? '✅ Saliste del modo soporte. Vuelvo a ser tu asistente financiero 💚\n\n_Escríbeme un gasto o "hola" cuando quieras._'
         : 'No estabas en modo soporte. Sigo aquí para ayudarte con tus finanzas 💚';

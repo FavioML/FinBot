@@ -115,6 +115,7 @@ const TAREAS = [
   { nombre: 'checkCheckInPlanes', cadaMs: 15 * MIN, tag: 'PLANES', mensaje: 'Check-in de planes de ahorro (Pro: 1ro y 15, 11am Lima)' },
   { nombre: 'checkRecordatorioEspacios', cadaMs: 15 * MIN, tag: 'ESPACIOS', mensaje: 'Recordatorio de espacios compartidos (viernes 6pm Lima)' },
   { nombre: 'checkRecordatoriosCostos', cadaMs: 15 * MIN, tag: 'COSTOS_REMIND', mensaje: 'Recordatorios de costos al admin (9am Lima diario)' },
+  { nombre: 'checkTicketsSinRespuesta', cadaMs: 15 * MIN, tag: 'SOPORTE_DIARIO', mensaje: 'Tickets de soporte sin respuesta, al admin (9am Lima diario)' },
   { nombre: 'checkSurveyTriggers', cadaMs: 15 * MIN, tag: 'SURVEY_TRIG', mensaje: 'Survey triggers (recordatorios + invite webapp + feedback 30tx, 10am Lima)' },
   { nombre: 'checkSurveyConversions', cadaMs: 15 * MIN, tag: 'SURVEY_CONV', mensaje: 'Conversión de recordatorios (7am Lima diario)' },
   { nombre: 'limpiarOTPVencidos', cadaMs: HORA, alBoot: true, tag: 'OTP_CLEANUP', mensaje: 'Limpieza de OTPs vencidos' },

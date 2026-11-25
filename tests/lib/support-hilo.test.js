@@ -111,6 +111,7 @@ describe('la ventana de escucha: corta, deslizante, y avisa al cerrarse salvo a 
       sesionDeHace(3),                                                  // la vencida, al entrar
       { data: [{ id: 't1', whatsapp: '51999' }], error: null },         // la que lee cerrarSesion
       { data: null, error: null },                                      // el UPDATE del cierre
+      { data: [], error: null },                                        // no hay sin_respuesta que retomar
       { data: { id: 't-nuevo' }, error: null },                         // el insert de la nueva
     ];
 

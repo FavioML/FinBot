@@ -2451,6 +2451,32 @@ async function checkRecordatorioEspacios() {
 }
 
 /**
+ * Tickets de soporte sin respuesta, al admin (Favio), 9am Lima diario. El texto y la consulta
+ * viven en `resumenTicketsSinRespuesta` (lib/support-tickets.js); acá sólo el reloj y el envío.
+ *
+ * Existe porque un ticket que nadie contestó desaparecía de toda cola apenas la persona escribía
+ * `/salir` (25-nov-2026). Ahora queda `sin_respuesta`, y esto insiste cada mañana hasta que se
+ * conteste o el admin lo descarte con `/cerrar`.
+ *
+ * El gate de 15 minutos con un período de 15 deja UN tick por día. Un redeploy dentro de esa
+ * ventana puede duplicar el mensaje; el destinatario es una persona que ya recibe las alertas
+ * de error por el mismo bot, y un duplicado es más barato que un dedup con estado propio.
+ */
+async function checkTicketsSinRespuesta() {
+  const horaLima = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Lima' }));
+  if (horaLima.getHours() !== 9 || horaLima.getMinutes() > 14) return;
+  try {
+    const { resumenTicketsSinRespuesta } = require('../lib/support-tickets');
+    const msg = await resumenTicketsSinRespuesta();
+    if (!msg) return;
+    const ok = await notificarAdmin(msg);
+    if (!ok) log.error({ tag: 'SOPORTE_DIARIO' }, 'No salió el aviso diario de tickets sin respuesta por ningún canal');
+  } catch (e) {
+    log.error({ tag: 'SOPORTE_DIARIO', err: msgErr(e) }, 'Error en el aviso diario de tickets sin respuesta');
+  }
+}
+
+/**
  * Costos operativos del admin (Favio). Corre 9am Lima diario. Toma los costos activos que vencen
  * hoy o están atrasados y manda un solo mensaje consolidado por el canal admin (Telegram-first,
  * via notificarAdmin). La lógica de qué hacer con cada costo vive en lib/cost-reminders.js (puro,
@@ -3200,6 +3226,7 @@ module.exports = {
   checkCheckInPlanes,
   checkRecordatorioEspacios,
   checkRecordatoriosCostos,
+  checkTicketsSinRespuesta,
   checkSurveyTriggers,
   checkSurveyConversions,
   checkRetencionNotificaciones,
