@@ -36,7 +36,16 @@ function mensajeVerPremium(usuario) {
   if (usuario.plan === 'premium') {
     const tipoPlanVp = usuario.tipo_plan || 'mensual';
     const venceVp = (usuario.premium_vence || usuario.fecha_vencimiento) ? new Date(usuario.premium_vence || usuario.fecha_vencimiento).toLocaleDateString('es-PE') : null;
-    return '⭐ *Tu plan NETO Pro*\n\nPlan: *' + (tipoPlanVp === 'anual' ? 'Anual' : 'Mensual') + '*' + (venceVp ? '\nVence: ' + venceVp : '') + '\n\n✅ Historial ilimitado\n✅ Lectura de correos del banco (beta, opcional)\n✅ Reportes PDF + CSV export\n✅ Recordatorios diarios\n✅ Consejos IA ilimitados';
+    // Cómo renovar va siempre (24-nov-2026): renovar es volver a yapear a mano, y quien ya paga y
+    // pedía pagar recibía solo su fecha. Pagar antes no pierde días: `activarPro` (lib/pro-payment.js)
+    // suma el periodo nuevo desde el vencimiento vigente. La captura se reconoce por su contenido
+    // (handlers/webhook.js, `esPagoNeto`), así que no hace falta abrir la espera del comprobante.
+    const base = '⭐ *Tu plan NETO Pro*\n\nPlan: *' + (tipoPlanVp === 'anual' ? 'Anual' : 'Mensual') + '*' + (venceVp ? '\nVence: ' + venceVp : '') + '\n\n✅ Historial ilimitado\n✅ Lectura de correos del banco (beta, opcional)\n✅ Reportes PDF + CSV export\n✅ Recordatorios diarios\n✅ Consejos IA ilimitados';
+    // Con un comprobante en revisión no se repiten las instrucciones: invitaría a pagar dos veces.
+    if (usuario.pago_pendiente) return base + '\n\n🧾 Ya me llegó tu comprobante de renovación y lo estoy revisando. No tienes que mandarlo de nuevo.';
+    // "No pierdes días" solo con `premium_vence`: es la única columna que mira `activarPro`.
+    return base + '\n\nPara renovar:\n💰 *S/' + PRO_PRECIOS.mensual + '/mes* o *S/' + PRO_PRECIOS.anual + '/año*\n📲 Yapea al *970398192* (Favio Mendoza) y envíame la captura acá.' +
+      (usuario.premium_vence ? '\n_Si renuevas antes de que venza, no pierdes días: el periodo nuevo se suma desde tu vencimiento._' : '');
   }
   return '⭐ *NETO Pro*\n\nDesbloquea todo el potencial de Neto:\n\n✅ Historial completo\n✅ Lectura de correos del banco (beta, opcional)\n✅ Reportes PDF + exportar datos\n✅ Recordatorios diarios\n✅ Consejos IA ilimitados\n\n💰 *S/' + PRO_PRECIOS.mensual + '/mes* o *S/' + PRO_PRECIOS.anual + '/año* (2 meses gratis)\n\n📲 Yapea al *970398192* (Favio Mendoza) y envíame la captura aquí.\n\n_¿Dudas? Escríbeme._';
 }
@@ -102,11 +111,53 @@ function mensajeYaPague(usuario) {
   return 'Todavía no me llegó tu comprobante. 📲 Mándame acá la captura del Yape o Plin y la reviso.\n\n_Si ya la mandaste y no te contesté, escribe */soporte*._';
 }
 
+/**
+ * ¿La persona dice que QUIERE pagarle a Neto? (24-nov-2026). "Quiero pagar mi mensualidad" (una
+ * pagadora, el 11-nov) cayó en `recordatorio_pago` y "quiero pagar por tu aplicacion" en
+ * `no_quiero_pro`, que contesta "no tienes que pagar nada". Con el clasificador real en frío:
+ * la primera 3 de 3 a recordatorios, "deseo pagar la suscripción" 3 de 3 a `ver_suscripciones`.
+ *
+ * Tres reglas, y las tres cuidan lo que NO es un pago a Neto:
+ *  - Deseo o pregunta + verbo en infinitivo ("quiero pagar", "cómo te pago"). Un pasado ("pagué
+ *    10 de la mensualidad") es un registro y no entra.
+ *  - El objeto tiene que ser de Neto. "Pro", "premium" y "neto" lo son siempre. Los genéricos
+ *    (plan, suscripción, mensualidad, app) solo si el mensaje termina ahí o sigue con "de neto",
+ *    "del pro": "mi mensualidad del gym" o "la suscripción de Netflix" son de otro.
+ *  - "No quiero / no me interesa / no deseo" pagar es lo contrario y sigue en `no_quiero_pro`.
+ */
+// Revisión adversarial del 24-nov (unas 450 frases contra la primera versión): el objeto tiene que
+// CERRAR el mensaje, también "pro/premium/neto", porque "premium de spotify", "neto a juan" o "el pro
+// de la tarjeta" son de otro; lo único que puede seguir es "de neto", el periodo o cortesía
+// ("porfa", "por yape", "de diciembre"). Sin "voy a" (afirma, no pide), sin "activar" ("activar la
+// app" es vincular la cuenta), sin "mes" suelto (la renta, el gym) y "app" solo con "tu/la/esta".
+const DESEO_PAGO = '(?:quiero|quisiera|deseo|necesito|me gustaria|vengo a|como|donde|puedo|podria|ayudame a|como hago para|que hago para|como puedo)';
+const VERBO_PAGO = '(?:pagar|pagarte|pagarles|renovar|abonar|yapear|yapearte|comprar|adquirir|contratar|suscribirme)';
+const ARTICULOS_PAGO = '(?:(?:el|mi|tu|la|un|una|del|al|por|a|de) )*';
+const OBJETO_PAGO = '(?:pro|premium|neto pro|neto|plan pro|mes (?:de |del )?(?:neto|pro)|anual|renovacion|plan|suscripcion|mensualidad|membresia|(?:tu|la|esta) (?:aplicacion|app))';
+const PERIODO_PAGO = '(?: (?:anual|mensual|del mes|del ano|de este mes|de (?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|setiembre|septiembre|octubre|noviembre|diciembre)))?';
+const COLA_NETO = '(?: (?:de|a|del|en) (?:neto|neto pro|pro|la app|tu app|la aplicacion|tu aplicacion))?';
+const CORTESIA = '(?: (?:porfa|por favor|pls|ya|ahora|hoy|por yape|con yape|por plin))*';
+const RE_QUIERE_PAGAR = [
+  new RegExp('(?:^| )' + DESEO_PAGO + ' (?:te |les )?' + VERBO_PAGO + ' ' + ARTICULOS_PAGO + OBJETO_PAGO + PERIODO_PAGO + COLA_NETO + CORTESIA + '$'),
+  new RegExp('(?:^| )' + DESEO_PAGO + ' (?:pagarte|pagarles|yapearte|renovar)' + CORTESIA + '$'),
+  // "cómo te pago" sí; "cómo pago" o "cómo yapeo" a secas son preguntas de cualquier pago.
+  new RegExp('(?:^| )(?:como|donde) (?:te (?:pago|yapeo|abono)|(?:pago|yapeo|abono) (?:el pro|a neto|neto|la mensualidad de neto))' + CORTESIA + '$'),
+];
+// "No sé cómo pagar el pro" es un pedido: "no" solo niega pegado a un verbo de deseo o de poder.
+const RE_NO_QUIERE_PAGAR = /(?:^| )(?:nunca|jamas|tampoco|ni)(?: |$)|(?:^| )no (?:quiero|deseo|necesito|voy a|pienso|me interesa|puedo|podria)(?: |$)/;
+function quierePagarNeto(msg) {
+  const t = String(msg || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!t || RE_NO_QUIERE_PAGAR.test(t) || diceQueYaPago(msg)) return false;
+  return RE_QUIERE_PAGAR.some((re) => re.test(t));
+}
+
 module.exports = {
   intents: ['ver_premium', 'ver_referidos', 'estado_cuenta'],
   mensajeVerPremium,
   pideComprobante,
   diceQueYaPago,
+  quierePagarNeto,
   mensajeYaPague,
   async handle({ intencion, msg, datos, usuario, from, ctx }) {
     const { supabase } = ctx;
@@ -117,8 +168,12 @@ module.exports = {
         // esperado es la captura del Yape. Con un pago ya en revisión no: la próxima foto no
         // es un comprobante, y abrir la espera le cambiaría el camino a su registro por foto.
         const yaPago = diceQueYaPago(msg);
-        if (pideComprobante(usuario) && !(yaPago && usuario.pago_pendiente)) await solicitarComprobante(usuario.id);
-        return yaPago ? mensajeYaPague(usuario) : mensajeVerPremium(usuario);
+        // Con un comprobante ya en revisión (`pago_pendiente`) ni se reabre la espera ni se repite
+        // "Yapea al…": desde el 24-nov llegan acá también los "quiero pagar", y repetirle las
+        // instrucciones a quien ya pagó invita a pagar dos veces.
+        const enRevision = pideComprobante(usuario) && usuario.pago_pendiente;
+        if (pideComprobante(usuario) && !usuario.pago_pendiente) await solicitarComprobante(usuario.id);
+        return (yaPago || enRevision) ? mensajeYaPague(usuario) : mensajeVerPremium(usuario);
       }
 
       case 'ver_referidos': {

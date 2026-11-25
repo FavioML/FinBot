@@ -9,7 +9,7 @@ const { CATEGORIAS_VALIDAS, CATEGORIA_MAP, WEBAPP_URL } = require('../lib/consta
 const { validarMonto, normalizarCategoria } = require('../lib/validators');
 const { ADMIN_NUMBER } = require('../lib/config');
 const { esVerUltimoMovimiento, extraerGastoSinIA, tipoContradiceElMensaje, INTENTS_QUE_BORRAN, pideCuentaExplicita } = require('../lib/nlp-guards');
-const { diceQueYaPago } = require('./intents/premium');
+const { diceQueYaPago, quierePagarNeto } = require('./intents/premium');
 const { pideAlcanceRetroactivo, textoDicho } = require('../lib/datos-dichos');
 const { normalizar: normalizarOrden } = require('../lib/orden-edicion');
 // "Cambia/corrige/pasa/mueve … a/como X", sin marca de regla, y con un comercio que es un nombre
@@ -26,6 +26,14 @@ const esCorreccionDeUnMovimiento = (msg, comercio) => {
 };
 // Superficies de plan o ayuda a las que el clasificador manda "ya pagué Pro y no se activa".
 const INTENTS_ESTADO_PAGO = new Set(['ver_premium', 'estado_cuenta', 'ayuda', 'queja']);
+// Desde dónde se desvía "quiero pagarle a Neto" a `ver_premium` (24-nov-2026). Lista BLANCA a
+// propósito y sin ningún intent que escriba: un registro con la palabra "mensualidad" sigue siendo
+// un registro. Tampoco `queja`, `feedback` ni `hablar_con_humano`: tienen un efecto propio (guardar
+// la queja, abrir soporte) y "quiero pagar y no me deja" necesita ese efecto, no las instrucciones
+// que no le funcionaron (revisión adversarial, 24-nov).
+const INTENTS_PEDIDO_DE_PAGO = new Set([
+  'recordatorio_pago', 'ayuda', 'ver_suscripciones', 'estado_cuenta', 'saludo', 'agradecimiento', 'desconocido',
+]);
 // Una o dos palabras y un número, nada más, y ninguna palabra de cambio o moneda.
 const esFormaCortaSinMoneda = (msg) => {
   const t = String(msg || '').trim();
@@ -369,6 +377,15 @@ async function procesarMensajeLibre(msg, usuario, from, opciones = {}) {
     // superficies de plan pasan por `ver_premium`, que con "ya pagué" contesta el estado y no vende.
     if (INTENTS_ESTADO_PAGO.has(intencion) && diceQueYaPago(msg, { exigePro: intencion !== 'ver_premium' })) {
       log.info({ tag: 'YA_PAGUE', desde: intencion }, 'Dice que ya pagó: estado del pago en vez del texto del intent');
+      intencion = 'ver_premium';
+      datos = {};
+    }
+
+    // "Quiero pagar mi mensualidad" (24-nov-2026) tiene una sola respuesta correcta: cómo pagar.
+    // El clasificador la mandaba a recordatorios, a `no_quiero_pro` ("no tienes que pagar nada")
+    // o a las suscripciones. Ver `quierePagarNeto` y `INTENTS_PEDIDO_DE_PAGO`.
+    if (INTENTS_PEDIDO_DE_PAGO.has(intencion) && quierePagarNeto(msg)) {
+      log.info({ tag: 'QUIERE_PAGAR', desde: intencion }, 'Pide pagarle a Neto: cómo pagar en vez del texto del intent');
       intencion = 'ver_premium';
       datos = {};
     }
