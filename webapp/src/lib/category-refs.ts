@@ -34,6 +34,13 @@
  * TODA columna jsonb, no solo las que se llaman "categoria".
  */
 
+/**
+ * La categoría de un movimiento que se quedó sin clasificar. Es canónica (vive en la lista
+ * hardcodeada de `constants.ts`), así que existe aunque el usuario haya borrado su raíz
+ * "Otros". Su espejo en la base es el trigger de la migración 094.
+ */
+export const CATEGORIA_SIN_CLASIFICAR = 'Otros';
+
 /** Una tabla cuyo nombre de categoría se reetiqueta junto con el del árbol. */
 export interface CascadeRef {
   /** Tabla en Postgres. */
@@ -51,6 +58,13 @@ export interface CascadeRef {
    * `delete` = borrar la fila.
    */
   onRootDelete: 'detach' | 'delete';
+  /**
+   * Con `detach`, el valor que toma `cat` al soltar la raíz. Sin declarar, null.
+   * `transacciones` NO puede quedar en null: la webapp entera da por hecho que un
+   * movimiento tiene categoría, y una sola fila null la tumbaba (25-nov-2026). La base lo
+   * sostiene igual con la migración 094; esto es para que el código no dependa del trigger.
+   */
+  rootDetachTo?: string;
   /**
    * Qué le pasa cuando se borra una SUBcategoría. Solo aplica si `sub` no es null.
    * `detach` = la fila se queda con la categoría padre (sub → null).
@@ -87,6 +101,9 @@ export const CASCADE_REFS: readonly CascadeRef[] = [
     cat: 'categoria',
     sub: 'subcategoria',
     onRootDelete: 'detach',
+    // "Otros" + el centinela en sub = "Por revisar", la misma forma que escribe la
+    // importación. Con null, `getCategoriaEmoji(null)` reventaba el shell del dashboard.
+    rootDetachTo: CATEGORIA_SIN_CLASIFICAR,
     onSubDelete: 'detach',
     why: 'el gasto del usuario. Es la tabla que el donut, los reportes y el score agrupan por nombre.',
   },

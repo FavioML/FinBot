@@ -223,8 +223,10 @@ try {
     const d3 = await leerCategorias();
     // La política declarada, tabla por tabla: la plata se DESETIQUETA (nunca se borra),
     // y lo que apuntando a una categoría inexistente sería peor que nada, se va.
-    ok(d3.transacciones?.length === 1 && d3.transacciones[0].cat === null,
-      'transacciones: la fila SIGUE viva y suelta la categoría (no se borra plata)',
+    // 'Otros' y no null desde el 25-nov-2026: una fila con categoria null tumbaba la webapp
+    // entera (qa-raiz-borrada-render.mjs, migración 094).
+    ok(d3.transacciones?.length === 1 && d3.transacciones[0].cat === 'Otros',
+      'transacciones: la fila SIGUE viva y suelta la categoría a "Otros" (no se borra plata, no queda null)',
       JSON.stringify(d3.transacciones));
     ok((d3.transacciones?.[0]?.sub || '').toLowerCase() === 'sin_categoria',
       'transacciones: queda con el centinela que enciende "Por revisar"',

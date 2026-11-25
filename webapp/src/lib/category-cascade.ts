@@ -82,7 +82,7 @@ export async function cascadeRootDelete(svc: SupabaseClient, userId: string, roo
       avisar('rootDelete', ref.table, error);
       continue;
     }
-    const patch: Record<string, string | null> = { [ref.cat]: null };
+    const patch: Record<string, string | null> = { [ref.cat]: ref.rootDetachTo ?? null };
     // El centinela solo se pone donde hay dónde ponerlo.
     if (ref.sub) patch[ref.sub] = SUB_SENTINEL_REVISAR;
     const { error } = await svc.from(ref.table).update(patch).eq(ref.owner, userId).filter(ref.cat, 'imatch', exactCI(rootNombre));

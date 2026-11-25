@@ -203,12 +203,25 @@ describe('cascadeRootDelete', () => {
       expect(op.eq, `${ref.table}: falta el filtro por dueño`).toContainEqual([ref.owner, USER]);
       expect(op.imatch).toEqual([[ref.cat, exactCI('Alimentación')]]);
       if (ref.onRootDelete === 'detach') {
-        expect(op.patch![ref.cat]).toBeNull();
+        expect(op.patch![ref.cat]).toBe(ref.rootDetachTo ?? null);
         // El centinela es lo que enciende "Por revisar", y solo va donde hay sub.
         if (ref.sub) expect(op.patch![ref.sub]).toBe(SUB_SENTINEL_REVISAR);
         else expect(Object.keys(op.patch!)).toEqual([ref.cat]);
       }
     }
+  });
+
+  it('una transacción suelta su raíz a "Otros" + centinela, NUNCA a categoria null', async () => {
+    // 25-nov-2026: la webapp entera caía a "Algo se rompió de nuestro lado" para el único
+    // usuario que había borrado una raíz con movimientos. Con `categoria = null`,
+    // `getCategoriaEmoji(null)` hace `null.toLowerCase()` en el QuickAddButton del shell, y
+    // ese componente vive en TODAS las pantallas. "Otros" + centinela es la misma forma que
+    // ya escribe la importación (`api/transactions/import`) y que `needsReview` lee como
+    // "Por revisar". La 094 lo sostiene en la base para cualquier otro escritor.
+    const { svc, ops } = fakeSvc();
+    await cascadeRootDelete(svc, USER, 'Alimentación');
+    const tx = ops.find((o) => o.table === 'transacciones')!;
+    expect(tx.patch).toEqual({ categoria: 'Otros', subcategoria: SUB_SENTINEL_REVISAR });
   });
 
   it('el borrado de una raíz nunca borra transacciones', async () => {

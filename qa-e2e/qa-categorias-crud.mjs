@@ -225,12 +225,14 @@ try {
   const txrootObj = cats.find((c) => c.id === txrootId);
   record('sub borrada NO reaparece pese a tx', !(txrootObj?.subcategorias || []).some((s) => s.nombre.toLowerCase() === `${TAG.toLowerCase()} txsub`));
 
-  // Borrar la raíz → tx a "Por revisar" (categoria null, subcategoria sin_categoria)
+  // Borrar la raíz → tx a "Por revisar" (categoria 'Otros', subcategoria sin_categoria).
+  // Hasta el 25-nov-2026 quedaba categoria null, y eso tumbaba la webapp entera
+  // (qa-raiz-borrada-render.mjs). Este check fijaba el null como si fuera la especificación.
   await api(cookie, 'DELETE', `/api/categories?id=${txrootId}`);
   txAfter = await sb(`transacciones?usuario_id=eq.${USER.uid}&comercio=ilike.${TAG}*&select=categoria,subcategoria`);
   // needsReview() lowercatea sub antes de comparar, así que "Sin_categoria"
   // (el trigger de DB capitaliza) igual cae en "Por revisar". Assert CI.
-  const rootDetached = (txAfter || []).length >= 2 && (txAfter || []).every((t) => t.categoria === null && (t.subcategoria || '').toLowerCase() === 'sin_categoria');
+  const rootDetached = (txAfter || []).length >= 2 && (txAfter || []).every((t) => t.categoria === 'Otros' && (t.subcategoria || '').toLowerCase() === 'sin_categoria');
   record('root-delete manda tx a Por revisar', rootDetached, JSON.stringify(txAfter));
 
   // 11. Renombrar reetiqueta transacciones + presupuestos + reglas
