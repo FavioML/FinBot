@@ -146,7 +146,10 @@ describe('leerCorreosBancarios sella la cuenta y deja de barrerla', () => {
   });
 
   it('una cuenta ya sellada no le pide nada a Gmail', async () => {
-    cuentasActivas = [{ ...CUENTA, sin_buzon_at: '2026-10-08T00:00:00Z' }];
+    // Marca de hace 2 h, relativa al reloj: una fecha fija a medianoche UTC caía en la ventana
+    // diaria de re-prueba todos los días entre 00:00 y 00:15 UTC, y el test fallaba a esa hora
+    // (CI del 26-nov-2026 00:04 UTC) con el código sano.
+    cuentasActivas = [{ ...CUENTA, sin_buzon_at: new Date(Date.now() - 2 * 3600e3).toISOString() }];
     const r = await leerCorreosBancarios('u-1');
     expect(r.error).toBe('SIN_BUZON');
     expect(llamadasGmail.length, 'el barrido de 15 min sigue golpeando a Gmail').toBe(0);
