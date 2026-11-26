@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Crown, Copy, Check, Upload, Loader2, Clock, ShieldCheck, Mail, RefreshCw, Landmark, ChevronDown, ZoomIn, Lock, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -69,6 +69,16 @@ export default function ProPage() {
     trialEstado: status?.trialEstado,
     pagoPendiente: pendiente,
   });
+
+  // Las tiras del shell (prueba y renovación) leen `['user']`, que se siembra una vez y vive
+  // 5 min. Esta página es la única que ve cambiar el pago (comprobante enviado, aprobado,
+  // rechazado), así que cuando cambia acá se le avisa a esa caché: sin esto, al volver al
+  // dashboard la tira seguía pidiendo "Renovar" a quien ya pagó, con la fecha vieja.
+  const queryClient = useQueryClient();
+  const huellaPago = status ? `${pendiente}|${status.plan}|${status.premiumVence ?? ''}` : null;
+  useEffect(() => {
+    if (huellaPago) queryClient.invalidateQueries({ queryKey: ['user'] });
+  }, [huellaPago, queryClient]);
 
   if (isLoading) {
     return (
@@ -224,6 +234,19 @@ function TrialState({ status, onDone }: { status: ProStatus; onDone: () => void 
 
 function PremiumState({ status, onDone }: { status: ProStatus; onDone: () => void }) {
   const [showRenew, setShowRenew] = useState(false);
+
+  // `?renovar=1` lo pone `RenovacionProBanner`: quien toca "Renovar" en la tira viene a pagar,
+  // y no tiene que encontrar un segundo botón. Se lee en un efecto y no con `useSearchParams`
+  // para no obligar a la página a un Suspense: el shell se prerenderiza estático.
+  // El parámetro se consume al leerlo: si quedara en la URL, al volver de "en verificación" a
+  // esta pantalla (aprobado) el formulario se abriría otra vez invitando a pagar de nuevo.
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('renovar') !== '1') return;
+    setShowRenew(true);
+    url.searchParams.delete('renovar');
+    window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
+  }, []);
 
   return (
     <div className="space-y-4">

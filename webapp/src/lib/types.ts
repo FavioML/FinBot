@@ -14,6 +14,8 @@ export interface Usuario {
   premium_vence?: string;
   estado_pago?: 'pendiente' | 'pagado' | 'vencido';
   tipo_plan?: 'mensual' | 'anual';
+  /** Mandó un comprobante y espera aprobación. La tira de renovación se calla mientras tanto. */
+  pago_pendiente?: boolean | null;
   fecha_pago?: string;
   fecha_vencimiento?: string;
   aprobado_gcc?: boolean;

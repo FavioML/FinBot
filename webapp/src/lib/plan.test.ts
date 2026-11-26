@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { enTrial, esProPagado, estaEnMuro, diasRestantesTrial, pantallaPro } from './plan';
+import { enTrial, esProPagado, estaEnMuro, diasRestantesTrial, diasRestantesPro, pantallaPro } from './plan';
 
 /**
  * El modelo tiene DOS columnas y tres preguntas distintas, y colapsarlas es lo que
@@ -177,5 +177,32 @@ describe('diasRestantesTrial', () => {
     const en5 = new Date(new Date(hoyLima + 'T12:00:00-05:00').getTime() + 5 * 86400000)
       .toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
     expect(diasRestantesTrial('premium', 'activo', en5)).toBe(5);
+  });
+});
+
+describe('diasRestantesPro', () => {
+  const HOY = '2026-11-25';
+
+  it('cuenta los días que le quedan a un Pro pagado, en fecha Lima', () => {
+    expect(diasRestantesPro('premium', 'convertido', '2026-11-29', HOY)).toBe(4);
+    expect(diasRestantesPro('premium', null, '2026-11-26', HOY)).toBe(1);
+    expect(diasRestantesPro('premium', 'vencido', '2026-11-25', HOY)).toBe(0);
+  });
+
+  it('devuelve null durante la prueba: eso lo cuenta el banner del trial', () => {
+    expect(diasRestantesPro('premium', 'activo', '2026-11-29', HOY)).toBeNull();
+  });
+
+  it('devuelve null en el muro aunque quede una fecha vieja', () => {
+    expect(diasRestantesPro('free', 'convertido', '2026-11-29', HOY)).toBeNull();
+  });
+
+  it('devuelve null sin fecha, y null (no "vence hoy") si ya venció y el cron no lo bajó', () => {
+    expect(diasRestantesPro('premium', 'convertido', null, HOY)).toBeNull();
+    expect(diasRestantesPro('premium', 'convertido', '2026-11-24', HOY)).toBeNull();
+  });
+
+  it('acepta un timestamp completo y usa solo la fecha', () => {
+    expect(diasRestantesPro('premium', 'convertido', '2026-11-30T05:00:00+00:00', HOY)).toBe(5);
   });
 });

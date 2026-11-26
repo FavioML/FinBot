@@ -197,6 +197,38 @@ export function diasRestantesTrial(
 }
 
 /**
+ * Desde cuántos días antes de `premium_vence` se le avisa en la web a quien PAGA. Cinco y no
+ * la semana entera: el aviso es para decidir, y un aviso que dura todo el mes se deja de leer.
+ */
+export const RENOVACION_AVISO_DIAS = 5;
+
+/**
+ * Días que le quedan a un Pro PAGADO (0 = vence hoy), o null si no paga o no hay fecha.
+ *
+ * Existe porque el 24-nov-2026 se midió que la renovación no se ve en ningún lado: 0 de 39
+ * avisos por WhatsApp entregados (la ventana de 24 h ya está cerrada), los correos casi no se
+ * abren, y en la web la fecha estaba solo en Configuración y en `/dashboard/pro`. Mismo cálculo
+ * que `diasRestantesTrial`, en fecha Lima, con el reloj inyectable para los tests.
+ */
+export function diasRestantesPro(
+  plan: string | undefined,
+  trialEstado: string | null | undefined,
+  premiumVence: string | null | undefined,
+  hoyLimaOverride?: string,
+): number | null {
+  if (!esProPagado(plan, trialEstado) || !premiumVence) return null;
+  const vence = String(premiumVence).slice(0, 10);
+  const hoyLima =
+    hoyLimaOverride ?? new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
+  // Ya venció y el cron todavía no lo bajó (corre cada hora, y un UPDATE fallido lo deja para
+  // la próxima): null y no 0, para que nadie le diga "vence hoy" sobre una fecha pasada.
+  if (vence < hoyLima) return null;
+  const ms =
+    new Date(vence + 'T12:00:00-05:00').getTime() - new Date(hoyLima + 'T12:00:00-05:00').getTime();
+  return Math.max(0, Math.round(ms / 86400000));
+}
+
+/**
  * Qué pantalla le toca a alguien en `/dashboard/pro`. Vive acá y no dentro del componente
  * porque la webapp corre vitest sin jsdom: si la decisión no sale del render, no se puede
  * probar, y esta decisión ya salió mal una vez.
